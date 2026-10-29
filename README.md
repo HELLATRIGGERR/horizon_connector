@@ -1,3 +1,9 @@
+> **This fork adds `horizon-connect`:** vanilla Minecraft 26.3 and Horizon play together through Play with
+> Friends' invite codes, in both directions. [English](docs/horizon-connect.md) · [Русский](docs/horizon-connect.ru.md)
+>
+> **Этот форк добавляет `horizon-connect`:** обычный Minecraft 26.3 и Horizon играют вместе по кодам
+> приглашения Play with Friends, в обе стороны. [Русский](docs/horizon-connect.ru.md) · [English](docs/horizon-connect.md)
+
 <p align="center">
   <img src="docs/media/banner.webp" alt="Horizon: Minecraft: Java Edition 26.3, rewritten in Rust and checked against vanilla by 281 differential harnesses" width="100%">
 </p>
