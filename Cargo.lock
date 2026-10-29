@@ -1492,6 +1492,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "horizon-connect"
+version = "0.1.0"
+dependencies = [
+ "horizon-core",
+ "horizon-friends",
+ "serde_json",
+]
+
+[[package]]
 name = "horizon-core"
 version = "0.1.0"
 dependencies = [

@@ -296,4 +296,15 @@ impl Tunnel {
             })?;
         Ok((port, thread))
     }
+
+    /// Carry a connection accepted elsewhere (a vanilla client on
+    /// horizon-connect's port): first the bytes already read from it, then
+    /// the rest both ways. The returned thread ends when the connection does.
+    pub fn carry(self, plain: TcpStream, already_read: &[u8]) -> io::Result<JoinHandle<()>> {
+        let (reader, mut writer) = self.secure;
+        if !already_read.is_empty() {
+            writer.write_data(already_read)?;
+        }
+        crate::pump(plain, reader, writer)
+    }
 }
