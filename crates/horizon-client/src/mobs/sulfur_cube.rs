@@ -32,6 +32,12 @@ pub struct Archetype {
     pub contact_damage: Option<f32>,
     /// The knockback resistance modifier (the attribute clamps to 0..1).
     pub knockback_resistance: f64,
+    /// `Attributes.BOUNCINESS` (the modifier added to a base of 0).
+    pub bounciness: f32,
+    /// `Attributes.FRICTION_MODIFIER` and `AIR_DRAG_MODIFIER` (base 1 times
+    /// the archetype's factor).
+    pub friction_modifier: f32,
+    pub air_drag_modifier: f32,
     pub horizontal_power: f32,
     pub vertical_power: f32,
     pub hit_sound: &'static str,
@@ -40,13 +46,16 @@ pub struct Archetype {
     pub push_threshold: f32,
 }
 macro_rules! arch {
-    ($n:literal, $b:expr, $e:expr, $c:expr, $k:expr, $h:expr, $v:expr, $cd:expr, $t:expr) => {
+    ($n:literal, $b:expr, $e:expr, $c:expr, $k:expr, $phys:expr, $h:expr, $v:expr, $cd:expr, $t:expr) => {
         Archetype {
             name: $n,
             buoyant: $b,
             explosion: $e,
             contact_damage: $c,
             knockback_resistance: $k,
+            bounciness: $phys.0,
+            friction_modifier: $phys.1,
+            air_drag_modifier: $phys.2,
             horizontal_power: $h,
             vertical_power: $v,
             hit_sound: concat!("entity.sulfur_cube.", $n, ".hit"),
@@ -58,13 +67,25 @@ macro_rules! arch {
 }
 /// `data/minecraft/sulfur_cube_archetype/*.json`.
 pub const ARCHETYPES: [Archetype; 12] = [
-    arch!("bouncy", true, None, None, -2.0, 0.4125, 0.105, 0.7, 0.3),
+    arch!(
+        "bouncy",
+        true,
+        None,
+        None,
+        -2.0,
+        (0.9, 0.3, 0.01),
+        0.4125,
+        0.105,
+        0.7,
+        0.3
+    ),
     arch!(
         "explosive",
         true,
         Some((120, 3.0, false)),
         None,
         -1.0,
+        (0.5, 0.3, 0.3),
         0.4125,
         0.09,
         0.7,
@@ -76,6 +97,7 @@ pub const ARCHETYPES: [Archetype; 12] = [
         None,
         None,
         -1.0,
+        (0.5, 0.2, 0.01),
         0.9125,
         0.09,
         0.9,
@@ -87,6 +109,7 @@ pub const ARCHETYPES: [Archetype; 12] = [
         None,
         None,
         0.5,
+        (0.1, 0.05, 0.01),
         0.6625,
         0.09,
         1.0,
@@ -98,20 +121,55 @@ pub const ARCHETYPES: [Archetype; 12] = [
         None,
         None,
         0.7,
+        (0.2, 1.0, 0.01),
         0.4125,
         0.09,
         0.7,
         0.03
     ),
-    arch!("hot", true, None, Some(1.0), -1.0, 0.4125, 0.09, 0.7, 0.2),
-    arch!("light", true, None, None, -1.0, 0.4125, 0.18, 0.7, 0.2),
-    arch!("regular", true, None, None, -1.0, 0.4125, 0.09, 0.5, 0.2),
+    arch!(
+        "hot",
+        true,
+        None,
+        Some(1.0),
+        -1.0,
+        (0.5, 0.3, 0.1),
+        0.4125,
+        0.09,
+        0.7,
+        0.2
+    ),
+    arch!(
+        "light",
+        true,
+        None,
+        None,
+        -1.0,
+        (1.0, 0.3, 1.8),
+        0.4125,
+        0.18,
+        0.7,
+        0.2
+    ),
+    arch!(
+        "regular",
+        true,
+        None,
+        None,
+        -1.0,
+        (0.5, 0.3, 0.1),
+        0.4125,
+        0.09,
+        0.5,
+        0.2
+    ),
     arch!(
         "slow_bouncy",
         false,
         None,
         None,
         0.4,
+        (0.6, 0.3, 0.05),
         0.4125,
         0.24,
         0.5,
@@ -123,6 +181,7 @@ pub const ARCHETYPES: [Archetype; 12] = [
         None,
         None,
         0.5,
+        (0.4, 0.4, 0.1),
         0.4125,
         0.105,
         0.9,
@@ -134,12 +193,24 @@ pub const ARCHETYPES: [Archetype; 12] = [
         None,
         None,
         0.8,
+        (0.1, 0.05, 0.01),
         0.4125,
         0.09,
         1.0,
         0.02
     ),
-    arch!("sticky", false, None, None, -2.0, 0.4125, 0.09, 0.5, 0.05),
+    arch!(
+        "sticky",
+        false,
+        None,
+        None,
+        -2.0,
+        (0.0, 2.0, 0.01),
+        0.4125,
+        0.09,
+        0.5,
+        0.05
+    ),
 ];
 /// `SulfurCubeArchetype.DEFAULT_*`: no block swallowed.
 const DEFAULT_PUSH: (&str, f32, f32) = ("entity.sulfur_cube.regular.push", 0.5, 0.2);
@@ -178,11 +249,27 @@ pub fn has_body(m: &Mob) -> bool {
 pub fn archetype(m: &Mob) -> Option<&'static Archetype> {
     m.extra.head.as_deref().and_then(archetype_of)
 }
+/// The archetype whose bounciness, friction and air drag attributes a
+/// sulfur cube's physics use (no other mob has those modifiers).
+pub fn physics(m: &Mob) -> Option<&'static Archetype> {
+    if m.species() == super::Species::SulfurCube {
+        archetype(m)
+    } else {
+        None
+    }
+}
 pub fn fuse(m: &Mob) -> i32 {
     m.extra.counter2 - 1
 }
 pub fn primed(m: &Mob) -> bool {
     fuse(m) >= 0
+}
+/// Client copy of `tickFuse`: count the fuse down for the renderer. The
+/// server alone explodes (`ai_step`); a guest never fires `Explode` here.
+pub fn client_tick(m: &mut Mob) {
+    if m.extra.counter2 > 1 {
+        m.extra.counter2 -= 1;
+    }
 }
 fn can_explode(m: &Mob) -> bool {
     archetype(m).is_some_and(|a| a.explosion.is_some()) && m.alive() && !primed(m)
@@ -290,6 +377,7 @@ pub fn accepts_damage(m: &mut Mob, source: &Damage, amount: f32) -> bool {
         source.kind,
         DamageKind::PlayerAttack
             | DamageKind::MaceSmash
+            | DamageKind::Spear
             | DamageKind::MobAttack
             | DamageKind::Arrow
             | DamageKind::Thrown
@@ -297,6 +385,9 @@ pub fn accepts_damage(m: &mut Mob, source: &Damage, amount: f32) -> bool {
             | DamageKind::Fall
             | DamageKind::Sting
             | DamageKind::Cactus
+            | DamageKind::Freeze
+            | DamageKind::SweetBerryBush
+            | DamageKind::HotFloor
     );
     if immune {
         if let Some(from) = source.from {
@@ -370,6 +461,7 @@ pub fn ai_step(m: &mut Mob, w: &MobWorld, events: &mut Vec<MobEvent>) {
         events.push(MobEvent::Explode(
             [m.position.x, m.position.y + 0.0625, m.position.z],
             power,
+            m.species(),
         ));
         m.removed = true;
         return;
@@ -618,5 +710,34 @@ pub fn from_nbt(m: &mut Mob, tag: &horizon_world::nbt::Tag) {
     m.extra.counter2 = int("fuse").unwrap_or(-1).max(-1) + 1;
     if primed(m) {
         m.invulnerable_flag = true;
+    }
+}
+
+#[cfg(test)]
+mod fuse_anim_tests {
+    use super::*;
+    use crate::mobs::{Mob, Species};
+    use horizon_core::geometry::Vec3;
+    use std::sync::Arc;
+
+    fn cube() -> Mob {
+        let mut kind = (*crate::mobs::sensor_scan_tests::kind()).clone();
+        kind.species = Species::SulfurCube;
+        Mob::new(1, Arc::new(kind), Vec3::ZERO, 0.0)
+    }
+
+    #[test]
+    fn client_fuse_counts_down_without_going_negative() {
+        let mut m = cube();
+        m.extra.counter2 = 5; // fuse() == 4
+        assert!(primed(&m));
+        client_tick(&mut m);
+        assert_eq!(fuse(&m), 3);
+        for _ in 0..10 {
+            client_tick(&mut m);
+        }
+        // Stops at counter2 == 1 → fuse 0 (primed until the server removes it).
+        assert_eq!(m.extra.counter2, 1);
+        assert_eq!(fuse(&m), 0);
     }
 }

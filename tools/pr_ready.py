@@ -7,12 +7,13 @@
     python3 tools/pr_ready.py --quick               # without running the vanilla harnesses
 
 From the files the branch changes since its merge base with --base (committed or not) it decides what to run:
-rustfmt, clippy with warnings denied and the tests of the touched crates; the launcher (its own workspace) the
-same way when it, horizon-prepare or horizon-theme changed; crates/horizon-theme/tokens.css against horizon-theme;
-Cargo.lock changing only with a Cargo.toml; the Python tests and the public-tree check; and the vanilla
-harnesses the changes can affect, picked as CI's parity job picks them (tools/parity.py --changed). Harnesses run
-where the vanilla data is (a prepared .local/ here, or the Mac mini); elsewhere they are listed for CI.
-Clippy checks all targets of touched crates and their transitive workspace dependents, including examples.
+rustfmt, and clippy with warnings denied exactly as CI's verify job runs it (the whole workspace with the game's code
+mods, plus the server build when horizon-client is affected); the tests of the touched crates, with the features
+CI's workspace-wide run gives them; the launcher (its own workspace) the same way when CI's launcher job would run
+(tools/ci/rust_changes.py --launcher); crates/horizon-theme/tokens.css against horizon-theme; Cargo.lock changing
+only with a Cargo.toml; the Python tests (always, as in CI) and the public-tree check; and the vanilla harnesses the
+changes can affect, picked as CI's parity job picks them (tools/parity.py --changed). Harnesses run where the
+vanilla data is (a prepared .local/ here, or the Mac mini); elsewhere they are listed for CI.
 Tests select library, binary and integration targets explicitly, followed by doc tests, so unrelated example
 executables are not built and linked again.
 
@@ -21,6 +22,7 @@ Progress, and the end of a failed check's output, go to stderr (--verbose: all o
 """
 
 import argparse
+import datetime
 import hashlib
 import json
 import os
@@ -43,6 +45,7 @@ if "PARITY_SHARED" not in os.environ and not (ROOT / ".local" / "minecraft").exi
     # A fleet worktree without vanilla data still knows each harness's dependencies.
     os.environ["PARITY_SHARED"] = str(FLEET_SHARED)
 from tools import parity, release_train  # noqa: E402
+from tools.ci import rust_changes  # noqa: E402
 
 RBUILD = Path.home() / "fleet" / "rbuild"
 LINE_LIMIT = 500
@@ -82,9 +85,8 @@ def workspace_rust(path):
 
 
 def launcher_rust(path):
-    """Whether a change to path is built into the launcher (its own workspace)."""
-    return not is_doc(path) and any(path.startswith(p) for p in release_train.LAUNCHER_PATHS) and \
-        path != "launcher/links.json" and not path.startswith("launcher/docs/")
+    """Whether a change to path is built into the launcher (its own workspace): CI's launcher job's own rule."""
+    return rust_changes.needs_launcher([path])
 
 
 def touched_crates(paths, packages):
@@ -268,14 +270,65 @@ def parity_summary(output):
     return text
 
 
+# CI's clippy job (.github/workflows/ci.yml): clippy over the whole workspace, and over the server build (the game
+# without sound or controllers).
+CI_CLIPPY = "cargo clippy --workspace --all-targets --locked -- -D warnings"
+CI_CLIPPY_SERVER = "cargo clippy -p horizon-client --all-targets --locked --no-default-features -- -D warnings"
+
+
+# CI installs the current stable each run (rustup toolchain install stable), and Rust ships one every six weeks
+# since 1.85.0 on 2025-02-20: so CI's version follows from the date, without the network.
+RUST_TRAIN = (85, datetime.date(2025, 2, 20))
+
+
+def ci_rust(today):
+    """The minor version of the stable Rust CI runs on this date."""
+    minor, released = RUST_TRAIN
+    return minor + (today - released).days // 42
+
+
+def rust_version():
+    """The rustc the checks here run with, as (major, minor, patch), or None."""
+    try:
+        output = subprocess.run(["rustc", "--version"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    match = re.match(r"rustc (\d+)\.(\d+)\.(\d+)", output)
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+def old_rust(version, today):
+    """A warning when this Rust is older than CI's: an older clippy flags lints CI's no longer does."""
+    if version is None or version[:1] != (1,) or version[1] >= ci_rust(today):
+        return None
+    return (f"{'.'.join(map(str, version))} is older than CI's stable (1.{ci_rust(today)}): clippy may flag lints "
+            "CI doesn't, update with `rustup update`")
+
+
+def mark_old_rust(steps, warning):
+    """A ⚠️ Rust row above the first clippy that runs, and failed clippy rows point at it. Never fails the run."""
+    clippy = [step for step in steps if step.name.endswith("clippy") and step.skip is None]
+    if not warning or not clippy:
+        return
+    for step in clippy:
+        if step.status == "fail":
+            step.detail += "; likely the old Rust above"
+    rust = Step("Rust", where="git")
+    rust.status, rust.detail = "warn", warning
+    steps.insert(steps.index(clippy[0]), rust)
+
+
 def mod_features(crates):
-    """Code mods are off by default (docs/mods.md): on wherever horizon-mods is checked, as in CI."""
-    if crates is not None and "horizon-mods" not in crates:
-        return ""
-    features = ["horizon-mods/runtime", "horizon-mods/pack"]
-    if crates is None or "horizon-client" in crates:
-        features.append("horizon-client/mods")
-    return f" --features {','.join(features)}"
+    """The features CI's workspace-wide test run gives these crates. Cargo unifies features over the packages it
+    builds, so a crate tested alone needs the ones the workspace would have turned on for it: horizon-mods' index."""
+    return " --features horizon-mods/index" if crates is not None and "horizon-mods" in crates else ""
+
+
+# What horizon-client's full content-root tests load (mod_content_tests.rs). They take minutes on prepared data, so
+# they are #[ignore]d and run here only when one of these changes.
+CONTENT_ROOT = ("crates/horizon-client/src/mod_content", "crates/horizon-client-render/src/assets.rs", "crates/horizon-items/",
+                "crates/horizon-mods/", "crates/horizon-assets/")
+CONTENT_ROOT_TESTS = "cargo test --locked -p horizon-client --lib mod_content::tests:: -- --ignored"
 
 
 def plan(args, base, changed, crates_of, libraries, dependencies):
@@ -283,16 +336,18 @@ def plan(args, base, changed, crates_of, libraries, dependencies):
     rust = any(workspace_rust(path) for path in changed)
     launcher = any(launcher_rust(path) for path in changed)
     # The Python tests also hold ROADMAP.md to roadmap/roadmap.toml (tests/test_roadmap.py).
-    python = any(path.endswith(".py") or path.startswith(("tests/", "tools/", "roadmap/")) or path == "ROADMAP.md"
-                 for path in changed)
     crates = touched_crates(changed, crates_of) if rust else []
     # An unrecognised Rust path must not silently skip validation.
     if rust and crates == []:
         crates = None
     selection = "--workspace" if crates is None else " ".join(f"-p {shlex.quote(c)}" for c in crates)
+    # CI's own clippy commands: a crate checked alone gets other features than in CI's workspace-wide run, and an
+    # unused import behind a feature passed here and failed in CI (#1895). Warm, the workspace run costs about what
+    # the touched crates and their dependents did (14-32 s against 14-17 s on the Mac mini, 2026-10-26).
     clippy_crates = dependent_crates(crates, dependencies)
-    clippy_selection = "--workspace" if clippy_crates is None else " ".join(
-        f"-p {shlex.quote(c)}" for c in clippy_crates)
+    clippy = CI_CLIPPY
+    if clippy_crates is None or "horizon-client" in clippy_crates:
+        clippy += f" && {CI_CLIPPY_SERVER}"
     test_skip = None if crates is None or crates else "no crate touched"
     doc_crates = sorted(libraries if crates is None else libraries.intersection(crates))
     doc_selection = "--workspace" if crates is None else " ".join(f"-p {shlex.quote(c)}" for c in doc_crates)
@@ -300,16 +355,18 @@ def plan(args, base, changed, crates_of, libraries, dependencies):
     steps = [
         Step("Cargo.lock", where="git"),
         Step("Public tree", "python3 tools/check_public_tree.py", where="here"),
-        Step("Python tests", "python3 -m unittest discover -s tests", where="here",
-             skip=None if python else "no Python change", summary=unittest_passed),
+        # Always, as in CI: some read the crates, the roadmap or the workflows.
+        Step("Python tests", "python3 -m unittest discover -s tests", where="here", summary=unittest_passed),
         Step("rustfmt", "cargo fmt --all -- --check", skip=None if rust else no_rust),
-        Step("clippy", f"cargo clippy {clippy_selection}{mod_features(clippy_crates)} --all-targets --locked -- -D warnings",
-             skip=None if rust else no_rust),
+        Step("clippy", clippy, skip=None if rust else no_rust),
         Step("tests" + (": workspace" if crates is None else f": {', '.join(crates)}" if crates else ""),
              f"cargo test --locked {selection}{mod_features(crates)} --tests",
              skip=test_skip, summary=tests_passed),
         Step("doc tests", f"cargo test --locked {doc_selection} --doc",
              skip=test_skip or (None if doc_crates else "no library touched"), summary=tests_passed),
+        Step("content root tests", CONTENT_ROOT_TESTS, summary=tests_passed,
+             skip=None if crates is None or any(p.startswith(CONTENT_ROOT) for p in changed)
+             else "content root untouched"),
         Step("tokens.css up to date", "cargo test --locked -p horizon-theme --lib tokens_css_is_up_to_date",
              skip=None if any(p.startswith(("crates/horizon-theme/", "xtask/")) for p in changed)
              else "theme untouched"),
@@ -404,7 +461,7 @@ def run_windows(steps, verbose):
         elif step.name == "rustfmt":
             command = ["cargo", "fmt", "--all", "--", "--check"]
         elif step.name == "clippy":
-            command = ["cargo", "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"]
+            command = shlex.split(CI_CLIPPY)  # the server build's clippy runs in CI (Linux)
         elif step.name.startswith("tests"):
             command = shlex.split(step.command)
         elif step.name == "tokens.css up to date":
@@ -503,6 +560,10 @@ def main():
         p.endswith("Cargo.lock") for p in changed) else "changes with a Cargo.toml")
     run_script([step for step in steps if step.where == "here" and step.status is None], "local", args.verbose)
     run_script([step for step in steps if step.where == "host" and step.status is None], args.host, args.verbose)
+    warning = old_rust(rust_version(), datetime.date.today()) if args.host == "local" else None
+    if warning and any(step.name.endswith("clippy") and step.skip is None for step in steps):
+        print(f"pr_ready: Rust {warning}", file=sys.stderr)
+    mark_old_rust(steps, warning)
 
     label = suggested_label(changed, release_train.exporters())
     print(block(args, args.base, merge_base, sorted(changed), counts, steps, label,

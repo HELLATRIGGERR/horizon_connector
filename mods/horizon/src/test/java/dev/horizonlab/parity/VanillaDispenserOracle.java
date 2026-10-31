@@ -299,6 +299,10 @@ public final class VanillaDispenserOracle {
             marker.setAccessible(true);
             marker.invoke(stand, true);
         }
+        // ArmorStand.lastHit: the game tick of the stand's previous punch.
+        if (e.has("last_hit") && ent instanceof net.minecraft.world.entity.decoration.ArmorStand stand) {
+            stand.lastHit = e.get("last_hit").getAsLong();
+        }
         if (e.has("brown") && ent instanceof net.minecraft.world.entity.animal.cow.MushroomCow cow) {
             Method variant = net.minecraft.world.entity.animal.cow.MushroomCow.class.getDeclaredMethod("setVariant", net.minecraft.world.entity.animal.cow.MushroomCow.Variant.class);
             variant.setAccessible(true);
@@ -461,7 +465,9 @@ public final class VanillaDispenserOracle {
             line.append(' ').append(num(v.x)).append(' ').append(num(v.y)).append(' ').append(num(v.z));
             if (e instanceof ItemEntity item) line.append(' ').append(ParityData.canon(item.getItem()));
             if (e instanceof PrimedTnt tnt) line.append(" fuse=").append(tnt.getFuse());
-            result.add(line.toString());
+            // An orb that took others in (ExperienceOrb.tryMergeToExisting) prints once per
+            // count: whether orbs merge depends on entity ids, which Horizon doesn't share.
+            for (int n = e instanceof ExperienceOrb orb ? orbCount(orb) : 1; n > 0; n--) result.add(line.toString());
         }
         for (int i = 0; i < targets.size(); i++) result.add(describe(i, targets.get(i)));
         for (String s : w.log.toString().split("\n")) {
@@ -798,6 +804,11 @@ public final class VanillaDispenserOracle {
             Entity e = targets.get(i);
             var v = e.getDeltaMovement();
             String health = e instanceof LivingEntity living && !(e instanceof net.minecraft.world.entity.decoration.ArmorStand) ? num(living.getHealth()) : "-";
+            // A stand the hit broke has left the level.
+            if (e.isRemoved()) {
+                out.add("V " + i + " gone");
+                continue;
+            }
             out.add("V " + i + " " + health + " " + num(v.x) + " " + num(v.y) + " " + num(v.z));
         }
         var v = player.getDeltaMovement();
@@ -821,6 +832,16 @@ public final class VanillaDispenserOracle {
     }
 
     /** A target's state after dispensing: removal, equipment and readiness for shearing. */
+    static int orbCount(ExperienceOrb orb) {
+        try {
+            var f = ExperienceOrb.class.getDeclaredField("count");
+            f.setAccessible(true);
+            return f.getInt(orb);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     static String describe(int index, Entity e) {
         StringBuilder line = new StringBuilder("T " + index + " " + BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()));
         if (e.isRemoved()) line.append(" removed");

@@ -16,8 +16,8 @@ is off: nothing leaves the machine.
     python3 tools/test_friends.py --client target/fast/horizon-client --relay target/fast/horizon-relay
 
 The host runs on its integrated server thread by default (the window is a
-client of it). `--in-frame` compares the fallback; `--server-thread` is accepted
-for compatibility.
+client of it). `--in-frame` is DEPRECATED (never use it, it will be removed soon);
+`--server-thread` is accepted for compatibility.
 
 `--role host|guest` runs one side only (two machines, e.g. over a tailnet):
 the host prints the code, the guest takes it with `--code` (`--relay-url`
@@ -31,6 +31,7 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -137,6 +138,24 @@ def guest_pos(host, name):
     return next(g['position'] for g in guests if g['name'] == name)
 
 
+def open_ground(host, guest, name):
+    """Puts the guest on a cleared, flat floor beside the host and returns where it stands.
+
+    A player new to the world spawns at a random free spot near the world spawn, as in vanilla
+    (`PlayerSpawnFinder`), often against a hill: walking and aiming need known, open ground.
+    Commands, not the control socket: the server has the last word on where the guest stands.
+    """
+    hp = host('status')['player']['position']
+    x, y, z = math.floor(hp[0]) - 6, math.floor(hp[1]), math.floor(hp[2])
+    host(f'command fill {x - 2} {y - 1} {z - 2} {x + 4} {y - 1} {z + 8} minecraft:stone')
+    host(f'command fill {x - 2} {y} {z - 2} {x + 4} {y + 3} {z + 8} minecraft:air')
+    spot = [x + 0.5, float(y), z + 0.5]
+    host(f'command tp {name} {spot[0]} {spot[1]} {spot[2]} 0 0')
+    guest.wait('status', lambda v: math.dist(v['player']['position'], spot) < 0.01 and v['player']['on_ground'], 20,
+               'the guest on its ground')
+    return spot
+
+
 def play_together(host, guest, name, round_index):
     """Chat, movement and blocks seen from both sides."""
     host.wait('lan status', lambda v: any(g['name'] == name and g['placed'] for g in v['guests']), 60,
@@ -150,6 +169,7 @@ def play_together(host, guest, name, round_index):
     guest.wait('status', lambda v: any(f'hello from the host {round_index}' in l for l in v['server']['chat']), 30,
                'host chat on the guest')
     # The guest walks; the host sees it move.
+    open_ground(host, guest, name)
     before = guest_pos(host, name)
     guest('look 0 0')
     guest('key w down')
@@ -167,7 +187,8 @@ def play_together(host, guest, name, round_index):
     guest.wait('status', lambda v: any(math.dist(p, target) < 0.6 for p in v['server']['player_positions']), 20,
                'host movement on the guest')
     # A block the host places, which the guest sees and then breaks.
-    gp = guest('status')['player']['position']
+    gp = guest.wait('status', lambda v: v['player']['on_ground'] and math.hypot(v['player']['velocity'][0],
+                    v['player']['velocity'][2]) < 1e-3, 10, 'the guest standing still')['player']['position']
     feet = [math.floor(gp[0]), math.floor(gp[1]), math.floor(gp[2])]
     block = [feet[0] + 2, feet[1] + 1, feet[2]]
     # Clear the line of sight (the test terrain has hills), then the block at eye level.
@@ -266,6 +287,16 @@ def full(args, work):
         assert "Couldn't reach your friend's game" in reason, reason
         print(f'after stopping: "{reason}"')
         guest.stop()
+        if Game.server_thread:
+            # Leaving the world ends its code; coming back shares a new one.
+            host('friends host')
+            host.wait('friends status', lambda v: v['code'], 30, 'invite code')
+            host('disconnect')
+            host.wait('screen', lambda v: v['screen'] == 'title', 60, 'the title screen')
+            assert host('friends status')['code'] is None, 'the code outlived its world'
+            assert host_world(host) != code
+            host('friends stop')
+            print('leaving the world ends its code')
         # (b) A self-hosted relay, run locally: the short code, relayed.
         relay, relay_log, relay_url = start_relay(args, work)
         set_relay(host, relay_url)
@@ -357,12 +388,14 @@ def main():
     mode.add_argument('--server-thread', dest='server_thread', action='store_true', default=True,
                       help='host on its server thread (default; retained for existing callers)')
     mode.add_argument('--in-frame', dest='server_thread', action='store_false',
-                      help='host the world in the window, for comparison')
+                      help='DEPRECATED, never use: unsupported, will be removed soon')
     parser.add_argument('--xvfb', action='store_true', help='run the games under xvfb-run (headless Linux)')
     args = parser.parse_args()
     Game.prefix = ['xvfb-run', '-a'] if args.xvfb else []
     Game.extra = ['--offscreen'] if args.offscreen else []
     Game.server_thread = args.server_thread
+    if not args.server_thread:
+        print('DEPRECATED: --in-frame is unsupported and will be removed soon. Do not use it.', file=sys.stderr)
     args.client, args.resources = args.client.resolve(), args.resources.resolve()
     try:
         require_server_reports(args.resources)

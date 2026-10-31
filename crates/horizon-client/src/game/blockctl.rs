@@ -1,7 +1,7 @@
 //! Control-socket block commands for scripted tests: `setblock`, `fill`,
 //! `getblock` and `container` (list or put items in a block entity).
 use super::Game;
-use horizon_client::{Result, containers::BlockEntity, items::ItemStack};
+use horizon_client::{Result, items::ItemStack};
 use horizon_world::{chunk::BlockState, registry::BlockStateId};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -89,7 +89,7 @@ impl Game<'_> {
                 );
             });
         }
-        if let Some(entity) = BlockEntity::for_block(&name) {
+        if let Some(entity) = self.new_block_entity(&name) {
             self.world.block_entities.get_or_insert_with(key, || entity);
         }
         Ok(())

@@ -37,6 +37,16 @@ SCRIPT = [
     ('bob-end', [f'cmd Bob execute in {END} run tp @s 2.5 100 0.5']),
     ('alice-back', [f'cmd Alice execute in {OVERWORLD} run tp @s 0.5 100 0.5']),
     ('bob-back-again', [f'cmd Bob execute in {OVERWORLD} run tp @s 2.5 100 0.5']),
+    # The dedicated server console has no player as its command source.
+    ('console-bob-nether', [f'console execute in {NETHER} run tp Bob 2.5 100 0.5']),
+    ('console-bob-end', [f'console execute in {END} run tp Bob 2.5 100 0.5']),
+    ('console-bob-back', [f'console execute in {OVERWORLD} run tp Bob 2.5 100 0.5']),
+    # A destination entity supplies its own dimension; a selector can move
+    # more than one player in the same command.
+    ('console-alice-end', [f'console execute in {END} run tp Alice 0.5 100 0.5']),
+    ('console-bob-to-alice', ['console tp Bob Alice']),
+    ('console-alice-back', [f'console execute in {OVERWORLD} run tp Alice 0.5 100 0.5']),
+    ('console-bob-back2', [f'console execute in {OVERWORLD} run tp Bob 2.5 100 0.5']),
     # Through an End portal (Entity.handlePortal), and back by command.
     ('bob-portal', ['cmd Bob setblock 2 101 3 minecraft:end_portal', 'cmd Bob tp @s 2.5 101 3.5']),
     ('bob-portal-back', [f'cmd Bob execute in {OVERWORLD} run tp @s 2.5 100 0.5']),
@@ -72,7 +82,10 @@ def run_side(label, server_command, client_command, build, world):
                 for step, actions in SCRIPT:
                     client.tell(f'step {step}')
                     for action in actions:
-                        client.tell(action)
+                        if action.startswith('console '):
+                            server.console(action.removeprefix('console '))
+                        else:
+                            client.tell(action)
                     # Standing still, a client still sends its position every 20 ticks
                     # (LocalPlayer.sendPosition): the server then tracks to it what it has sent the
                     # chunks of since (ChunkMap.move).
@@ -118,12 +131,12 @@ def main():
     subprocess.run(['javac', '--release', str(lock['minecraft']['java_major']), '-proc:none', '-nowarn', '-sourcepath',
                     lab.ROOT / 'mods/horizon/src/test/java', '-cp', dependencies, '-d', classes, oracle],
                    cwd=lab.ROOT, check=True, capture_output=True)
-    subprocess.run(['cargo', 'build', '--release', '-p', 'horizon-client', '--bin', 'horizon-client'], cwd=lab.ROOT,
+    subprocess.run(['cargo', 'build', '--profile', 'fast', '-p', 'horizon-client', '--bin', 'horizon-client'], cwd=lab.ROOT,
                    check=True, capture_output=True)
     import json
     metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--no-deps', '--format-version', '1'],
                                                   cwd=lab.ROOT, text=True))
-    binary = Path(metadata['target_directory']) / 'release' / ('horizon-client.exe' if os.name == 'nt' else 'horizon-client')
+    binary = Path(metadata['target_directory']) / 'fast' / ('horizon-client.exe' if os.name == 'nt' else 'horizon-client')
     vanilla_server = ['java', '-Xmx2g', '-Duser.timezone=UTC', '-cp', dependencies, 'net.minecraft.server.Main', 'nogui']
     horizon_server = [binary, '--resources', lab.LOCAL / 'horizon-client/26.3', '--dedicated', '--nogui']
     client = ['java', '-Xmx1g', '-cp', str(classes) + os.pathsep + dependencies, 'dev.horizonlab.parity.LocatorBarClient']

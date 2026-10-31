@@ -78,9 +78,28 @@ pub(super) fn resource_recipes(resources: &Path) -> BTreeMap<String, Value> {
     all
 }
 
+/// The packs' recipe files over the game's own: the top pack's file for
+/// each id (`SimpleJsonResourceReloadListener`).
+pub(super) fn overlay_recipes(
+    overlay: &horizon_world::loot::PackOverlay,
+    out: &mut BTreeMap<String, Value>,
+) {
+    for (id, files) in overlay.kind("recipe") {
+        if let Ok(v) = serde_json::from_slice::<Value>(horizon_world::loot::PackOverlay::top(files))
+        {
+            out.insert(id.to_owned(), v);
+        }
+    }
+}
+
 /// The packet's payload for the vanilla data pack in `resources`.
-pub fn update_recipes(resources: &Path, sync: &SyncData) -> Vec<u8> {
-    let all = resource_recipes(resources);
+pub fn update_recipes(
+    resources: &Path,
+    sync: &SyncData,
+    overlay: &horizon_world::loot::PackOverlay,
+) -> Vec<u8> {
+    let mut all = resource_recipes(resources);
+    overlay_recipes(overlay, &mut all);
     let tags: BTreeMap<&str, &[i32]> = sync
         .tags
         .registries

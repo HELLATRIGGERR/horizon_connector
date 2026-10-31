@@ -63,6 +63,8 @@ pub fn register(m: &mut Mob) {
             g.add(6, LookAtPlayer::new(6.0));
             g.add(7, RandomLookAround::default());
             m.extra.egg_time = m.random.next_int_bound(6000).unwrap_or(0) + 6000;
+            // `Chicken()`: water costs nothing.
+            m.set_malus(super::path::PathType::Water, 0.0);
         }
         _ => {}
     }
@@ -80,6 +82,7 @@ pub fn chicken_ai_step(m: &mut Mob, _w: &MobWorld, events: &mut Vec<MobEvent>) {
             let at = [m.position.x, m.position.y, m.position.z];
             events.push(MobEvent::Sound("entity.chicken.egg", at, 1.0, pitch));
             events.push(MobEvent::GiftLoot {
+                mob: m.id,
                 table: "minecraft:gameplay/chicken_lay",
                 at,
             });

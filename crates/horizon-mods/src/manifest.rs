@@ -14,7 +14,7 @@ pub const WASM: &str = "mod.wasm";
 /// built for any 0.1.x SDK.
 pub const API: &str = "0.1";
 /// The manifest `api` lines this build loads. 0.2 is 0.1 plus content:
-/// `assets/` and `data/` in the `.hmod`, with blocks and items declared in
+/// `assets/` and `data/` in the `.hmod`, with blocks, items and mob effects declared in
 /// `data/<id>/horizon/` (docs/modpacks.md). Code still links API 0.1.
 /// 0.3 is a server mod (experimental): the `horizon-server-mod` world.
 pub const APIS: [&str; 3] = [API, "0.2", SERVER_API];
@@ -83,7 +83,7 @@ pub enum Capability {
     Storage,
     /// Runs vanilla commands as the player, with the player's permissions.
     Command,
-    /// New blocks and items from the mod's `data/` (API 0.2): no WIT
+    /// New blocks, items and mob effects from the mod's `data/` (API 0.2): no WIT
     /// interface, the game reads them before the world loads.
     Registries,
     /// A screen the mod owns and a settings page in Options > Mods, drawn
@@ -97,9 +97,15 @@ pub enum Capability {
     Input,
     /// The players on the server and messages to them (server mods).
     Players,
+    /// Blocks in the server's loaded chunks, and changes to them (server
+    /// mods; client mods later, where the game runs the world).
+    World,
+    /// The recipes and items the game knows, for recipe viewers
+    /// (interface `recipes`).
+    Recipes,
 }
 impl Capability {
-    pub const ALL: [Capability; 10] = [
+    pub const ALL: [Capability; 12] = [
         Capability::GameRead,
         Capability::Chat,
         Capability::Hud,
@@ -110,10 +116,15 @@ impl Capability {
         Capability::Render,
         Capability::Input,
         Capability::Players,
+        Capability::World,
+        Capability::Recipes,
     ];
     /// Whether a server mod may have it: the others act on a local player.
     pub fn on_server(self) -> bool {
-        matches!(self, Capability::Storage | Capability::Players)
+        matches!(
+            self,
+            Capability::Storage | Capability::Players | Capability::World
+        )
     }
     /// The WIT interface it grants, in `horizon:mods`.
     pub fn interface(self) -> &'static str {
@@ -128,6 +139,8 @@ impl Capability {
             Capability::Render => "render",
             Capability::Input => "input",
             Capability::Players => "players",
+            Capability::World => "world",
+            Capability::Recipes => "recipes",
         }
     }
     /// May change in any release: a mod uses it only with
@@ -135,7 +148,7 @@ impl Capability {
     pub fn is_experimental(self) -> bool {
         matches!(
             self,
-            Capability::Ui | Capability::Render | Capability::Input
+            Capability::Ui | Capability::Render | Capability::Input | Capability::Recipes
         )
     }
     /// What the player reads before turning the mod on: "May <this>".
@@ -146,13 +159,17 @@ impl Capability {
             Capability::Hud => "draw text on your screen",
             Capability::Storage => "save its own settings to disk",
             Capability::Command => "run commands as you, with your permissions",
-            Capability::Registries => "add blocks and items to your worlds",
+            Capability::Registries => "add blocks, items and mob effects to your worlds",
             Capability::Ui => "show its own screens and a settings page",
             Capability::Render => "draw on your screen, shake and zoom the camera",
             Capability::Input => {
                 "see the keys you hold and your clicks, take over the use button on its own items and the mouse wheel, and add keys"
             }
             Capability::Players => "see who is on the server and message them",
+            Capability::World => "read and change the world's blocks",
+            Capability::Recipes => {
+                "read the game's recipes and items and which recipes you know, place recipes in your crafting grid and, in creative mode, give you items"
+            }
         }
     }
     /// The capability a component import needs, `Ok(None)` for one every
@@ -166,6 +183,10 @@ impl Capability {
         }
         if interface == "log" {
             return Ok(None);
+        }
+        // A recipe viewer's panel is part of capability `ui`.
+        if interface == "browser" {
+            return Ok(Some(Capability::Ui));
         }
         Capability::ALL
             .into_iter()
@@ -188,6 +209,8 @@ impl fmt::Display for Capability {
             Capability::Render => "render",
             Capability::Input => "input",
             Capability::Players => "players",
+            Capability::World => "world",
+            Capability::Recipes => "recipes",
         };
         f.write_str(name)
     }
@@ -381,37 +404,6 @@ pub fn find(dir: &Path) -> Vec<PathBuf> {
         .collect();
     found.sort();
     found
-}
-
-/// Turns a `wasm32-unknown-unknown` cdylib built with the SDK into the
-/// component the game loads.
-#[cfg(feature = "pack")]
-pub fn componentize(core: &[u8]) -> Result<Vec<u8>, String> {
-    wit_component::ComponentEncoder::default()
-        .module(core)
-        .and_then(|e| e.validate(true).encode())
-        .map_err(|e| format!("{e:#}"))
-}
-
-/// The names a component imports: `horizon:mods/game@0.1.0`, ...
-#[cfg(feature = "pack")]
-pub fn component_imports(component: &[u8]) -> Result<Vec<String>, String> {
-    use wit_parser::{WorldItem, WorldKey};
-    let wit_component::DecodedWasm::Component(resolve, world) =
-        wit_component::decode(component).map_err(|e| format!("{e:#}"))?
-    else {
-        return Err("a WIT package, not a component".into());
-    };
-    let names = resolve.worlds[world]
-        .imports
-        .iter()
-        .map(|(key, item)| match (key, item) {
-            (WorldKey::Interface(id), _) | (_, WorldItem::Interface { id, .. }) => resolve
-                .id_of(*id)
-                .unwrap_or_else(|| resolve.name_world_key(key)),
-            _ => resolve.name_world_key(key),
-        });
-    Ok(names.collect())
 }
 
 #[cfg(test)]

@@ -32,7 +32,7 @@ impl Game<'_> {
 
     /// Every recipe id of the recipe manager (what `/recipe` resolves and suggests).
     pub(super) fn learnable_recipes(&self) -> Vec<String> {
-        self.res.stations().recipe_index.ids().cloned().collect()
+        self.stations().recipe_index.ids().cloned().collect()
     }
     pub(super) fn cmd_recipe(&mut self, id: &str, ctx: &Context) -> R<i32> {
         let targets = self.entities(ctx, "targets", true)?;
@@ -82,7 +82,7 @@ impl Game<'_> {
     /// many recipe book displays changed (a transmute recipe has one per
     /// material count).
     fn change_recipes(&mut self, give: bool, recipes: &[String]) -> i32 {
-        let index = &self.res.stations().recipe_index;
+        let index = &world_stations!(self).recipe_index;
         if give {
             let (count, unlocked) = self.level.recipe_book.add_recipes(index, recipes);
             self.recipe_unlocked(&unlocked);
@@ -107,6 +107,7 @@ impl Game<'_> {
             "ae2:matter_cannon" => DamageKind::MatterCannon,
             "player_attack" => DamageKind::PlayerAttack,
             "mace_smash" => DamageKind::MaceSmash,
+            "spear" => DamageKind::Spear,
             "mob_attack" | "mob_attack_no_aggro" => DamageKind::MobAttack,
             "arrow" => DamageKind::Arrow,
             "thrown" | "trident" | "mob_projectile" => DamageKind::Thrown,
@@ -114,14 +115,34 @@ impl Game<'_> {
             "explosion" | "player_explosion" | "bad_respawn_point" => DamageKind::Explosion,
             "fall" | "ender_pearl" | "fly_into_wall" => DamageKind::Fall,
             "on_fire" => DamageKind::OnFire,
-            "in_fire" | "campfire" | "hot_floor" => DamageKind::InFire,
+            "in_fire" => DamageKind::InFire,
+            "hot_floor" => DamageKind::HotFloor,
+            "campfire" => DamageKind::Campfire,
             "lava" => DamageKind::Lava,
             "drown" => DamageKind::Drown,
+            "dry_out" => DamageKind::DryOut,
             "magic" | "indirect_magic" | "dragon_breath" => DamageKind::Magic,
             "sting" => DamageKind::Sting,
-            "cactus" | "sweet_berry_bush" => DamageKind::Cactus,
+            "cactus" => DamageKind::Cactus,
+            "sweet_berry_bush" => DamageKind::SweetBerryBush,
+            "freeze" => DamageKind::Freeze,
             "in_wall" => DamageKind::InWall,
             "thorns" => DamageKind::Thorns,
+            "cramming" => DamageKind::Cramming,
+            "falling_anvil" => DamageKind::FallingAnvil,
+            "falling_block" => DamageKind::FallingBlock,
+            "fireworks" => DamageKind::Fireworks,
+            "generic_kill" => DamageKind::GenericKill,
+            "lightning_bolt" => DamageKind::LightningBolt,
+            "out_of_world" => DamageKind::OutOfWorld,
+            "outside_border" => DamageKind::OutsideBorder,
+            "sonic_boom" => DamageKind::SonicBoom,
+            "spit" => DamageKind::Spit,
+            "stalagmite" => DamageKind::Stalagmite,
+            "starve" => DamageKind::Starve,
+            "sulfur_cube_hot" => DamageKind::SulfurCubeHot,
+            "wind_charge" => DamageKind::WindCharge,
+            "wither" => DamageKind::Wither,
             _ => DamageKind::Generic,
         }
     }
@@ -142,27 +163,39 @@ impl Game<'_> {
             Some(Arg::Entity(_)) => self.entities(ctx, "entity", false)?.first().copied(),
             _ => None,
         };
+        let cause = match ctx.get("cause") {
+            Some(Arg::Entity(_)) => self.entities(ctx, "cause", false)?.first().copied(),
+            _ => None,
+        };
         let from = match ctx.get("location") {
             Some(Arg::Coords(_)) => self.position_arg(ctx, "location"),
             _ => by.and_then(|t| self.target_position(t)),
         };
         let hurt = match target {
-            Target::Player => {
-                if self.creative || self.spectator() {
-                    false
-                } else if let Some(player) = self.player.as_mut() {
-                    match self.motion.health.damage.id(&ty) {
-                        Some(id) => player
-                            .hurt(&self.motion.health, self.world.health_rules, id, amount)
-                            .unwrap_or(false),
-                        None => false,
+            // The causing mob is the one the hit is credited to and thorns
+            // answer; the source position gives the knockback its direction.
+            Target::Player | Target::Guest(_) => {
+                // `DamageSource(type, cause, by)`: the death message names the
+                // causing entity, else the direct one. A mob is noted by
+                // `hurt_player_from`, a player here.
+                let named = match cause.or(by) {
+                    Some(t @ (Target::Player | Target::Guest(_))) => Some(self.target_name(t)),
+                    _ => None,
+                };
+                let attacker = match cause.or(by) {
+                    Some(Target::Mob(i)) => Some(Some(i)),
+                    _ => Some(None),
+                };
+                self.for_player(target, |g| {
+                    if let Some(name) = named {
+                        g.note_direct_entity(&ty, name);
                     }
-                } else {
-                    false
-                }
+                    !g.spectator() && g.hurt_player_from(amount, from, &ty, attacker)
+                })
+                .unwrap_or(false)
             }
             Target::Mob(id) => {
-                let attacker = by.and_then(|t| match t {
+                let attacker = cause.or(by).and_then(|t| match t {
                     Target::Player => Some(Who::Player),
                     Target::Mob(i) => Some(Who::Mob(i)),
                     _ => None,
@@ -172,10 +205,15 @@ impl Game<'_> {
                     attacker,
                     from,
                 };
-                self.mobs
+                let hurt = self
+                    .mobs
                     .iter_mut()
                     .find(|m| m.id == id)
-                    .is_some_and(|m| m.damage(amount, damage))
+                    .is_some_and(|m| m.damage(amount, damage));
+                if hurt {
+                    self.resolve_player_responsible(id, damage);
+                }
+                hurt
             }
             _ => false,
         };
@@ -204,27 +242,43 @@ impl Game<'_> {
             return Ok(0);
         };
         let current = self.target_rotation(t);
+        let mut look_at_target = None;
         let rot = if let Some(Arg::Coords(c)) = ctx.get("rotation") {
             // Relative parts are offsets from the entity's own rotation.
             c.rotation(current)
         } else {
+            let mut faced_entity = None;
             let to = if ctx.has("entity") {
                 let faced = self.entities(ctx, "facingEntity", false)?;
                 let Some(f) = faced.first().copied() else {
                     return Ok(0);
                 };
                 let mut p = self.target_position(f).unwrap_or(pos);
-                if matches!(ctx.get("facingAnchor"), Some(Arg::Anchor(true))) {
+                let eyes = matches!(ctx.get("facingAnchor"), Some(Arg::Anchor(true)));
+                if eyes {
                     p[1] += self.target_eye_height(f);
                 }
+                faced_entity = Some((f, eyes));
                 p
             } else {
                 self.position_arg(ctx, "facingLocation").unwrap_or(pos)
             };
-            let from = [pos[0], pos[1] + self.target_eye_height(t), pos[2]];
+            // LookAt.perform: Entity.lookAt from the source's anchor (the
+            // feet, unless `anchored eyes`).
+            let anchored_eyes = self.command_source.is_some_and(|s| s.eyes);
+            let eye = if anchored_eyes {
+                self.target_eye_height(t)
+            } else {
+                0.0
+            };
+            let from = [pos[0], pos[1] + eye, pos[2]];
+            look_at_target = Some((anchored_eyes, to, faced_entity));
             look_at(from, to)
         };
         self.teleport_to(t, pos, Some(rot));
+        if let Some((eyes, to, entity)) = look_at_target {
+            self.send_player_look_at(t, eyes, to, entity);
+        }
         if t == Target::Player {
             self.pitch = rot[1].clamp(-90.0, 90.0);
         }
@@ -303,9 +357,18 @@ impl Game<'_> {
             float("minVolume", 0.0),
         );
         let range = if volume > 1.0 { 16.0 * volume } else { 16.0 };
+        // PlaySoundCommand: one seed for every player.
+        let seed = self.world.random.next_long();
+        let here = self.dim.id();
         let mut tracker = Tracker::default();
         for t in targets {
-            if t != Target::Player {
+            if !matches!(t, Target::Player | Target::Guest(_)) {
+                continue;
+            }
+            // Only players in the source's level hear it.
+            if let Target::Guest(conn) = t
+                && self.command_guest(conn).is_none_or(|g| g.dimension != here)
+            {
                 continue;
             }
             let Some(p) = self.target_position(t) else {
@@ -329,8 +392,26 @@ impl Game<'_> {
             } else {
                 (pos, volume)
             };
-            self.audio.play_on(source, &sound, Some(at), v, pitch);
-            tracker.mark(&holder(Text::literal(self.acting_player_name())));
+            // The connection is sent the sound; the window's own player
+            // plays it.
+            let guest = match t {
+                Target::Guest(conn) => Some(conn),
+                _ => self.lan_acting,
+            };
+            match guest.and_then(|conn| Some((conn, self.lan.as_ref()?))) {
+                Some((conn, host)) => {
+                    let packet = host
+                        .hub
+                        .sound_packet(&sound, at, v, pitch, source as i32, seed);
+                    if t == Target::Player {
+                        self.guest_packets.push(packet);
+                    } else {
+                        host.hub.send_to(conn, &packet);
+                    }
+                }
+                None => self.audio.play_on(source, &sound, Some(at), v, pitch),
+            }
+            tracker.mark(&holder(self.target_name(t)));
         }
         let name = Text::literal(sound.clone());
         let (message, total) = tracker.message(
@@ -607,8 +688,10 @@ impl Game<'_> {
         let reached = reached.len() as i32;
         if !local {
         } else if count <= 0 {
-            // No count: one particle with the delta as velocity.
-            self.particles.create(&options, pos, delta);
+            // handleParticleEvent, count 0: one particle, the speed times
+            // the delta as velocity (both sent as floats, multiplied as floats).
+            self.particles
+                .create(&options, pos, delta.map(|d| f64::from(speed * d as f32)));
         } else {
             for _ in 0..count {
                 let r = self.particles.random();
@@ -1180,7 +1263,7 @@ impl Game<'_> {
     /// LivingEntity.stopRiding for a mob: off its vehicle
     /// (Entity.removePassenger), then to where the vehicle lets it out
     /// (LivingEntity.dismountVehicle).
-    fn dismount_mob(&mut self, rider: u32) {
+    pub(in crate::game) fn dismount_mob(&mut self, rider: u32) {
         let Some(i) = self.mobs.iter().position(|m| m.id == rider) else {
             return;
         };
@@ -1219,12 +1302,12 @@ impl Game<'_> {
         let respect = matches!(ctx.get("respectTeams"), Some(Arg::Bool(true)));
         let max_y = match ctx.get("maxHeight") {
             Some(Arg::Int(h)) => *h,
-            _ => horizon_client::chunk::MIN_Y + horizon_client::chunk::HEIGHT,
+            _ => self.world.top_y(),
         };
-        if max_y < horizon_client::chunk::MIN_Y {
+        if max_y < self.world.bottom_y() {
             return Err(err(
                 "commands.spreadplayers.failed.invalid.height",
-                &[&max_y, &horizon_client::chunk::MIN_Y],
+                &[&max_y, &self.world.bottom_y()],
             ));
         }
         let targets = self.entities(ctx, "targets", false)?;
@@ -1425,7 +1508,7 @@ impl Game<'_> {
         let mut air2 = air(y);
         y -= 1;
         let mut air1 = air(y);
-        while y > horizon_client::chunk::MIN_Y {
+        while y > self.world.bottom_y() {
             y -= 1;
             let current = air(y);
             if !current && air1 && air2 {

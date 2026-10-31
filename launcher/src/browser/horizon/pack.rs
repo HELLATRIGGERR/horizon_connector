@@ -37,7 +37,7 @@ pub fn list() -> Vec<Installed> {
     list_in(&packs_dir())
 }
 
-fn list_in(dir: &Path) -> Vec<Installed> {
+pub(crate) fn list_in(dir: &Path) -> Vec<Installed> {
     let mut packs: Vec<Installed> = fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -57,7 +57,8 @@ fn read(work: &Path) -> Option<Installed> {
 
 /// Whether `work` is a registry pack's folder.
 pub fn is_pack(work: &Path) -> bool {
-    work.join(RECORD).is_file()
+    // Imported Java packs also have pack.json, with a different record format.
+    read(work).is_some()
 }
 
 /// The profile's game folder.

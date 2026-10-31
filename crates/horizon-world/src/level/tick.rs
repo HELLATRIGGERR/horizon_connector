@@ -1,7 +1,7 @@
 //! Scheduled block ticks (`BlockBehaviour.tick`), random ticks
 //! (`BlockBehaviour.randomTick`) and the per-tick drivers.
 use super::{
-    Behaviours, LevelAccess, LevelEvent, Sim, Ticks,
+    Behaviours, LevelAccess, LevelEvent, Sim, Spread, Ticks,
     classes::Class,
     data::state_flags,
     update::{HORIZONTAL, above, below, rel},
@@ -125,10 +125,25 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                         kind: "command_block",
                     });
                 }
+                // TestBlock.tick resets the block entity: the caller owns it.
+                Class::TestBlock => {
+                    self.emit(LevelEvent::BlockEvent {
+                        pos,
+                        state,
+                        kind: "test_block_tick",
+                    });
+                }
                 Class::FallingBlock => self.falling_block_tick(pos, state),
                 Class::Brushable => {
+                    // BrushableBlock.tick checks the brush reset first (the
+                    // caller keeps the brush counts).
+                    self.emit(LevelEvent::BlockEvent {
+                        pos,
+                        state,
+                        kind: "brushable",
+                    });
                     if self.is_free(self.below_state(pos)) && pos.y >= self.level.min_y() {
-                        self.falling_block_fall(pos, state);
+                        self.falling_block_fall(pos, state, None);
                     }
                 }
                 Class::Farmland => {
@@ -206,11 +221,31 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         }
     }
 
+    /// `ServerLevel.tickBlock` once the block at `pos` is the tick's: the
+    /// level may handle the tick first, else `BlockState.tick`.
+    fn tick_due_block(&mut self, state: BlockStateId, pos: BlockPos) {
+        let (mut current, mut handled) = (state, false);
+        self.level
+            .before_tick_block(self.ticks, pos, &mut current, &mut handled);
+        // A block the level changed ticks as it is now, if it is still the
+        // tick's block.
+        if !handled && (current == state || self.block_of(current) == self.block_of(state)) {
+            self.tick_block(current, pos);
+        }
+    }
+
     /// `BlockState.randomTick` followed by the fluid's random tick.
     pub fn random_tick_at(&mut self, pos: BlockPos) {
         let state = self.state(pos);
         if self.b.is_randomly_ticking(state) {
-            self.random_tick_block(state, pos);
+            let (mut current, mut handled) = (state, false);
+            self.level
+                .before_random_tick(self.ticks, pos, &mut current, &mut handled);
+            // A block the level changed ticks as it is now, if it still ticks
+            // randomly.
+            if !handled && (current == state || self.b.is_randomly_ticking(current)) {
+                self.random_tick_block(current, pos);
+            }
         }
         // Only lava's fluid state ticks randomly. A lava block is ticked twice
         // (LiquidBlock.randomTick, then FluidState.randomTick), as in vanilla.
@@ -506,7 +541,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         );
         if distance == 7 {
             if b.table.int(state, b.props.distance) == 7 {
-                self.falling_block_fall(pos, next);
+                self.falling_block_fall(pos, next, None);
             } else {
                 self.destroy_block(pos, true, 512);
             }
@@ -577,7 +612,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             (Direction::North, 300),
             (Direction::South, 300),
         ] {
-            self.fire_check_burn_out(rel(pos, direction), chance + extra, age);
+            self.fire_check_burn_out(pos, rel(pos, direction), chance + extra, age);
         }
         for xx in -1..=1 {
             for zz in -1..=1 {
@@ -601,8 +636,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                             && (!self.level.is_raining() || !self.fire_near_rain(test))
                         {
                             let spread_age = 15.min(age + self.rand_int(5) / 4);
-                            let next = self.fire_state_with_age(test, spread_age);
-                            self.set_block_and_update(test, next);
+                            if self.level.allow_spread(Spread::Fire, pos, test) {
+                                let next = self.fire_state_with_age(test, spread_age);
+                                self.set_block_and_update(test, next);
+                            }
                         }
                     }
                 }
@@ -627,19 +664,23 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             || self.level.is_raining_at(rel(pos, Direction::North))
             || self.level.is_raining_at(rel(pos, Direction::South))
     }
-    fn fire_check_burn_out(&mut self, pos: BlockPos, chance: i32, age: i32) {
+    /// `FireBlock.checkBurnOut` of the block at `pos` by the fire at `fire`.
+    fn fire_check_burn_out(&mut self, fire: BlockPos, pos: BlockPos, chance: i32, age: i32) {
         let b = self.b;
         let odds = self.burn_odds(self.state(pos));
         if self.rand_int(chance) < odds {
             let old = self.state(pos);
+            let allowed = self.level.allow_spread(Spread::Fire, fire, pos);
             if self.rand_int(age + 10) < 5 && !self.level.is_raining_at(pos) {
                 let new_age = (age + self.rand_int(5) / 4).min(15);
-                let next = self.fire_state_with_age(pos, new_age);
-                self.set_block_and_update(pos, next);
-            } else {
+                if allowed {
+                    let next = self.fire_state_with_age(pos, new_age);
+                    self.set_block_and_update(pos, next);
+                }
+            } else if allowed {
                 self.remove_block(pos, false);
             }
-            if b.instance_of(old, Class::Tnt) {
+            if allowed && b.instance_of(old, Class::Tnt) {
                 self.prime_tnt(pos);
             }
         }
@@ -1146,7 +1187,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let b = self.b;
         let p = b.props;
         let block = b.block(state);
-        if self.rand_int(4) != 0 {
+        // The spread_vines rule, checked before the roll.
+        if !self.level.game_rules().spread_vines || self.rand_int(4) != 0 {
             return;
         }
         let direction = Direction::ALL[self.rand_int(6) as usize];
@@ -1479,6 +1521,80 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let block = b.table.block_by_name(&format!("minecraft:{next}"))?;
         Some(b.table.with_properties_of(block, state))
     }
+    /// `WeatheringCopper.getPrevious` (and `getFirst` by repeating it) by
+    /// registry naming: the block one oxidation step back.
+    fn copper_previous_name(path: &str) -> Option<String> {
+        if let Some(rest) = path.strip_prefix("oxidized_") {
+            Some(format!("weathered_{rest}"))
+        } else if let Some(rest) = path.strip_prefix("weathered_") {
+            Some(format!("exposed_{rest}"))
+        } else {
+            path.strip_prefix("exposed_").map(|rest| {
+                if rest == "copper" {
+                    "copper_block".to_owned()
+                } else {
+                    rest.to_owned()
+                }
+            })
+        }
+    }
+    fn copper_stepped(&self, state: BlockStateId, all_the_way: bool) -> Option<BlockStateId> {
+        let b = self.b;
+        let name = &*b.table.info(b.block(state)).name;
+        let mut path = Self::copper_previous_name(name.strip_prefix("minecraft:")?)?;
+        while all_the_way && let Some(earlier) = Self::copper_previous_name(&path) {
+            path = earlier;
+        }
+        let block = b.table.block_by_name(&format!("minecraft:{path}"))?;
+        Some(b.table.with_properties_of(block, state))
+    }
+    /// `LightningBolt.clearCopperOnLightningStrike`: the struck copper goes
+    /// back to unoxidized, then 3 to 5 random walks of up to 8 steps each
+    /// scrape one step of oxidation off the weathering copper they land on.
+    /// A waxed block is left as it is but still starts the walks.
+    pub(crate) fn lightning_clear_copper(&mut self, struck: BlockPos) {
+        let b = self.b;
+        let state = self.state(struck);
+        let weathering = b
+            .data(state)
+            .implements(super::classes::Interface::WeatheringCopper);
+        let waxed = b.table.name(state).starts_with("minecraft:waxed_");
+        if !(weathering || waxed) {
+            return;
+        }
+        if weathering && let Some(first) = self.copper_stepped(state, true) {
+            self.set_block_and_update(struck, first);
+        }
+        for _ in 0..self.rand_int(3) + 3 {
+            let mut at = struck;
+            for _ in 0..self.rand_int(8) + 1 {
+                // randomStepCleaningCopper: up to 10 random blocks in the
+                // 3x3x3 cube around the walk's position.
+                let mut next = None;
+                for _ in 0..10 {
+                    let x = at.x - 1 + self.rand_int(3);
+                    let y = at.y - 1 + self.rand_int(3);
+                    let z = at.z - 1 + self.rand_int(3);
+                    let candidate = BlockPos::new(x, y, z);
+                    let state = self.state(candidate);
+                    if b.data(state)
+                        .implements(super::classes::Interface::WeatheringCopper)
+                    {
+                        if let Some(previous) = self.copper_stepped(state, false) {
+                            self.set_block_and_update(candidate, previous);
+                        }
+                        self.level_event(3002, candidate, -1);
+                        next = Some(candidate);
+                        break;
+                    }
+                }
+                match next {
+                    Some(p) => at = p,
+                    None => break,
+                }
+            }
+        }
+    }
 }
 
 /// `Biome.Precipitation` at a position.
@@ -1524,7 +1640,7 @@ impl Behaviours {
             let mut sim = self.sim(level, ticks);
             let state = sim.state(tick.pos);
             if u32::from(self.block(state).0) == tick.kind.0 {
-                sim.tick_block(state, tick.pos);
+                sim.tick_due_block(state, tick.pos);
             }
         }
         let _ = ticks.blocks.finish_tick();
@@ -1603,7 +1719,7 @@ impl Behaviours {
             let mut sim = self.sim(level, ticks);
             let state = sim.state(tick.pos);
             if u32::from(self.block(state).0) == tick.kind.0 {
-                sim.tick_block(state, tick.pos);
+                sim.tick_due_block(state, tick.pos);
             }
         }
         true
@@ -1673,6 +1789,14 @@ impl Behaviours {
         let mut sim = self.sim(level, ticks);
         let state = sim.state(pos);
         sim.random_tick_block(state, pos);
+    /// `LightningBolt.clearCopperOnLightningStrike` for the block at `struck`.
+    pub fn lightning_clear_copper<L: LevelAccess + ?Sized>(
+        &self,
+        level: &mut L,
+        ticks: &mut Ticks,
+        struck: BlockPos,
+    ) {
+        self.sim(level, ticks).lightning_clear_copper(struck);
     }
     /// Run one scheduled block tick at `pos` immediately (no queue check).
     pub fn scheduled_block_tick<L: LevelAccess + ?Sized>(

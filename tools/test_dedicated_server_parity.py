@@ -27,7 +27,8 @@ exactly:
 - the status response (MOTD, players, version, favicon) and the ping;
 - the legacy (pre-1.7, 0xFE) ping reply;
 - the login and configuration packets in order (compression, profile,
-  brand, features, known packs, every registry, tags);
+  brand (Horizon's server says "horizon", vanilla's "vanilla"), features,
+  known packs, every registry, tags);
 - the play packets up to the first chunk batch, in order, with entity ids,
   keep-alive ids and times left out (the recipe property sets and
   advancements, which vanilla keeps in hash maps, sorted); the command tree
@@ -424,11 +425,11 @@ def main():
     oh.run_logged(['javac', '--release', lock['minecraft']['java_major'], '-proc:none', '-nowarn', '-sourcepath',
                    lab.ROOT / 'mods/horizon/src/test/java', '-cp', dependencies, '-d', classes, oracle],
                   build, 'compile-java')
-    oh.run_logged(['cargo', 'build', '--release', '-p', 'horizon-client', '--bin', 'horizon-client'], build,
+    oh.run_logged(['cargo', 'build', '--profile', 'fast', '-p', 'horizon-client', '--bin', 'horizon-client'], build,
                   'compile-rust')
     metadata = json.loads(subprocess.check_output(['cargo', 'metadata', '--no-deps', '--format-version', '1'],
                                                   cwd=lab.ROOT, text=True))
-    binary = Path(metadata['target_directory']) / 'release' / ('horizon-client.exe' if os.name == 'nt' else 'horizon-client')
+    binary = Path(metadata['target_directory']) / 'fast' / ('horizon-client.exe' if os.name == 'nt' else 'horizon-client')
     vanilla_server = ['java', '-Xmx2g', '-Duser.timezone=UTC', '-cp', dependencies, 'net.minecraft.server.Main', 'nogui']
     horizon_server = [binary, '--resources', lab.RESOURCES, '--dedicated', '--nogui']
 
@@ -477,7 +478,12 @@ def main():
         (build / f'{label}.txt').write_text('\n'.join(results[label]) + '\n', encoding='utf-8')
     client_checks = horizon_client_joins(vanilla_server, binary, world, build, results['vanilla'])
     vanilla, horizon = results['vanilla'], results['horizon']
-    errors = [l for l in vanilla + horizon if l.startswith('error')] + [l for l in client_checks if not l.endswith(': ok')]
+    # The one intended difference: MinecraftServer.getServerModName is "vanilla" there, and Horizon's server names
+    # itself "horizon" as a modded server does (#3756). Check that, then compare the rest as vanilla's.
+    brand = 'config minecraft:custom_payload BrandPayload[brand={}]'
+    errors_brand = [] if brand.format('horizon') in horizon else ['error: Horizon\'s server did not send the brand "horizon"']
+    horizon = [brand.format('vanilla') if l == brand.format('horizon') else l for l in horizon]
+    errors = [l for l in vanilla + horizon if l.startswith('error')] + [l for l in client_checks if not l.endswith(': ok')] + errors_brand
     for line in client_checks:
         print(line)
     differences = []
