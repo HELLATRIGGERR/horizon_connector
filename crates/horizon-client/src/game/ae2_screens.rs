@@ -23,10 +23,30 @@ use std::ops::Range;
 /// Set on a button's menu-button id for a right press, which steps the
 /// setting back (`SettingToggleButton`).
 pub(super) const REVERSE: i32 = 0x1000;
+/// Set on a menu-button id for a press that acts as a shift-click on its
+/// entry (the Interface's stock cogs open the stock editor that way).
+pub(super) const QUICK: i32 = 0x2000;
 
 /// `Icon`s in `guis/states.png`: (x, y), 16 x 16 unless noted.
 mod icon {
     pub const HELP: (i32, i32) = (176, 0);
+    pub const REDSTONE_PULSE: (i32, i32) = (32, 0);
+    pub const REDSTONE_OFF: (i32, i32) = (64, 0);
+    pub const REDSTONE_ON: (i32, i32) = (80, 0);
+    pub const ENTER: (i32, i32) = (112, 0);
+    pub const LOCKED: (i32, i32) = (144, 0);
+    pub const UNLOCKED: (i32, i32) = (160, 0);
+    pub const BLOCKING_MODE_NO: (i32, i32) = (64, 16);
+    pub const BLOCKING_MODE_YES: (i32, i32) = (80, 16);
+    pub const COG: (i32, i32) = (32, 64);
+    pub const COG_DISABLED: (i32, i32) = (48, 64);
+    pub const PATTERN_ACCESS_SHOW: (i32, i32) = (64, 80);
+    pub const PATTERN_ACCESS_HIDE: (i32, i32) = (80, 80);
+    pub const FUZZY_PERCENT_25: (i32, i32) = (0, 96);
+    pub const FUZZY_PERCENT_50: (i32, i32) = (16, 96);
+    pub const FUZZY_PERCENT_75: (i32, i32) = (32, 96);
+    pub const FUZZY_PERCENT_99: (i32, i32) = (48, 96);
+    pub const FUZZY_IGNORE: (i32, i32) = (64, 96);
     pub const REDSTONE_LOW: (i32, i32) = (0, 0);
     pub const REDSTONE_HIGH: (i32, i32) = (16, 0);
     pub const REDSTONE_IGNORE: (i32, i32) = (48, 0);
@@ -63,12 +83,24 @@ mod icon {
     pub const SLOT_BACKGROUND: (i32, i32) = (192, 192);
 }
 
+/// How a toggle's value sits in the machine's config.
+#[derive(Clone, Copy)]
+enum Stored {
+    /// A string, one of the values' names.
+    Text,
+    /// A byte, 1 for the second value; the flag when it is absent.
+    Flag(bool),
+    /// An int, the value's index.
+    Index,
+}
+
 /// A `ServerSettingToggleButton`.
 struct Toggle {
     /// The menu entry a press on the button acts as a press on.
     entry: i32,
-    /// The machine config key it sets, and the index of its default value.
+    /// The machine config key it sets, how, and the index of its default value.
     key: &'static str,
+    stored: Stored,
     default: usize,
     /// The data slot with the index of the value set.
     data: usize,
@@ -110,6 +142,12 @@ struct Layout {
     /// Crafting grid entries, dimmed unless the data slot's bit for them is
     /// set (`MolecularAssemblerPatternSlot`).
     grid: Option<(Range<usize>, usize)>,
+    /// `SetAmountButton`s: a cog above each filled entry of the range, at the
+    /// first one's place and 18 apart; a press opens its stock editor.
+    cogs: Option<(Range<usize>, (i32, i32))>,
+    /// The Pattern Provider's lock line (`lockReason`): data slots with the
+    /// lock mode, whether it is locked, and why.
+    lock_line: Option<[usize; 3]>,
 }
 
 const NO_YES: [&str; 2] = ["NO", "YES"];
@@ -125,6 +163,7 @@ const LAYOUTS: &[Layout] = &[
             Toggle {
                 entry: 25,
                 key: "inscriber_separate_sides",
+                stored: Stored::Text,
                 default: 0,
                 data: 4,
                 title: "gui.tooltips.ae2.InscriberSideness",
@@ -138,6 +177,7 @@ const LAYOUTS: &[Layout] = &[
             Toggle {
                 entry: 24,
                 key: "auto_export",
+                stored: Stored::Text,
                 default: 0,
                 data: 5,
                 title: "gui.tooltips.ae2.AutoExport",
@@ -153,6 +193,7 @@ const LAYOUTS: &[Layout] = &[
             Toggle {
                 entry: 26,
                 key: "inscriber_input_capacity",
+                stored: Stored::Text,
                 default: 0,
                 data: 6,
                 title: "gui.tooltips.ae2.InscriberBufferSize",
@@ -169,6 +210,8 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
+        cogs: None,
+        lock_line: None,
     },
     Layout {
         kind: MachineKind::Drive,
@@ -203,6 +246,8 @@ const LAYOUTS: &[Layout] = &[
         priority: Some(26),
         decorations: &[],
         grid: None,
+        cogs: None,
+        lock_line: None,
     },
     Layout {
         kind: MachineKind::VibrationChamber,
@@ -215,6 +260,8 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
+        cogs: None,
+        lock_line: None,
     },
     Layout {
         kind: MachineKind::IoPort,
@@ -252,6 +299,7 @@ const LAYOUTS: &[Layout] = &[
             Toggle {
                 entry: 24,
                 key: "io_fullness",
+                stored: Stored::Text,
                 default: 0,
                 data: 0,
                 title: "gui.tooltips.ae2.OperationMode",
@@ -267,6 +315,7 @@ const LAYOUTS: &[Layout] = &[
             Toggle {
                 entry: 25,
                 key: "io_redstone",
+                stored: Stored::Text,
                 default: 0,
                 data: 1,
                 title: "gui.tooltips.ae2.RedstoneMode",
@@ -281,6 +330,7 @@ const LAYOUTS: &[Layout] = &[
             Toggle {
                 entry: 26,
                 key: "io_operation",
+                stored: Stored::Text,
                 default: 1,
                 data: 2,
                 title: "gui.tooltips.ae2.TransferDirection",
@@ -296,6 +346,8 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[("ae2:item_storage_cell_1k", (58, 17)), ("ae2:drive", (102, 17))],
         grid: None,
+        cogs: None,
+        lock_line: None,
     },
     Layout {
         kind: MachineKind::Condenser,
@@ -306,6 +358,7 @@ const LAYOUTS: &[Layout] = &[
         toggles: &[Toggle {
             entry: 26,
             key: "condenser_output",
+            stored: Stored::Text,
             default: 0,
             data: 4,
             title: "gui.tooltips.ae2.CondenserOutput",
@@ -321,6 +374,8 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
+        cogs: None,
+        lock_line: None,
     },
     Layout {
         kind: MachineKind::MolecularAssembler,
@@ -345,6 +400,147 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: Some((0..9, 4)),
+        cogs: None,
+        lock_line: None,
+    },
+    Layout {
+        kind: MachineKind::PatternProvider,
+        style: "pattern_provider.json",
+        slots: &[
+            (0, "ENCODED_PATTERN"),
+            (1, "ENCODED_PATTERN"),
+            (2, "ENCODED_PATTERN"),
+            (3, "ENCODED_PATTERN"),
+            (4, "ENCODED_PATTERN"),
+            (5, "ENCODED_PATTERN"),
+            (6, "ENCODED_PATTERN"),
+            (7, "ENCODED_PATTERN"),
+            (8, "ENCODED_PATTERN"),
+            (9, "STORAGE"),
+            (10, "STORAGE"),
+            (11, "STORAGE"),
+            (12, "STORAGE"),
+            (13, "STORAGE"),
+            (14, "STORAGE"),
+            (15, "STORAGE"),
+            (16, "STORAGE"),
+            (17, "STORAGE"),
+        ],
+        icons: &[
+            (0, icon::BACKGROUND_BLANK_PATTERN),
+            (1, icon::BACKGROUND_BLANK_PATTERN),
+            (2, icon::BACKGROUND_BLANK_PATTERN),
+            (3, icon::BACKGROUND_BLANK_PATTERN),
+            (4, icon::BACKGROUND_BLANK_PATTERN),
+            (5, icon::BACKGROUND_BLANK_PATTERN),
+            (6, icon::BACKGROUND_BLANK_PATTERN),
+            (7, icon::BACKGROUND_BLANK_PATTERN),
+            (8, icon::BACKGROUND_BLANK_PATTERN),
+        ],
+        upgrades: 0..0,
+        toggles: &[
+            Toggle {
+                entry: 18,
+                key: "ae2_blocking",
+                stored: Stored::Flag(false),
+                default: 0,
+                data: 0,
+                title: "gui.tooltips.ae2.InterfaceBlockingMode",
+                values: &[
+                    ("NO", icon::BLOCKING_MODE_NO, "gui.tooltips.ae2.NonBlocking"),
+                    ("YES", icon::BLOCKING_MODE_YES, "gui.tooltips.ae2.Blocking"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+            Toggle {
+                entry: 19,
+                key: "ae2_lock_mode",
+                stored: Stored::Index,
+                default: 0,
+                data: 1,
+                title: "gui.tooltips.ae2.LockCraftingMode",
+                values: &[
+                    ("NONE", icon::UNLOCKED, "gui.tooltips.ae2.LockCraftingModeNone"),
+                    ("LOCK_UNTIL_PULSE", icon::REDSTONE_PULSE, "gui.tooltips.ae2.LockCraftingUntilRedstonePulse"),
+                    ("LOCK_WHILE_HIGH", icon::REDSTONE_ON, "gui.tooltips.ae2.LockCraftingWhileRedstoneHigh"),
+                    ("LOCK_WHILE_LOW", icon::REDSTONE_OFF, "gui.tooltips.ae2.LockCraftingWhileRedstoneLow"),
+                    ("LOCK_UNTIL_RESULT", icon::ENTER, "gui.tooltips.ae2.LockCraftingUntilResultReturned"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+            // The port keeps "visible" as the absence of the flag.
+            Toggle {
+                entry: 20,
+                key: "terminal_visible",
+                stored: Stored::Flag(true),
+                default: 1,
+                data: 2,
+                title: "gui.ae2.PatternAccessTerminal",
+                values: &[
+                    ("NO", icon::PATTERN_ACCESS_HIDE, "gui.ae2.PatternAccessTerminalHint"),
+                    ("YES", icon::PATTERN_ACCESS_SHOW, "gui.ae2.PatternAccessTerminalHint"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+        ],
+        progress: None,
+        priority: Some(26),
+        decorations: &[],
+        grid: None,
+        cogs: None,
+        lock_line: Some([1, 3, 4]),
+    },
+    Layout {
+        kind: MachineKind::Interface,
+        style: "interface.json",
+        slots: &[
+            (9, "CONFIG"),
+            (10, "CONFIG"),
+            (11, "CONFIG"),
+            (12, "CONFIG"),
+            (13, "CONFIG"),
+            (14, "CONFIG"),
+            (15, "CONFIG"),
+            (16, "CONFIG"),
+            (17, "CONFIG"),
+            (0, "STORAGE"),
+            (1, "STORAGE"),
+            (2, "STORAGE"),
+            (3, "STORAGE"),
+            (4, "STORAGE"),
+            (5, "STORAGE"),
+            (6, "STORAGE"),
+            (7, "STORAGE"),
+            (8, "STORAGE"),
+        ],
+        icons: &[],
+        upgrades: 18..19,
+        toggles: &[Toggle {
+            entry: 23,
+            key: "ae2_fuzzy_mode",
+            stored: Stored::Text,
+            default: 0,
+            data: 0,
+            title: "gui.tooltips.ae2.FuzzyMode",
+            values: &[
+                ("ignore_all", icon::FUZZY_IGNORE, "gui.tooltips.ae2.FZIgnoreAll"),
+                ("percent_99", icon::FUZZY_PERCENT_99, "gui.tooltips.ae2.FZPercent_99"),
+                ("percent_75", icon::FUZZY_PERCENT_75, "gui.tooltips.ae2.FZPercent_75"),
+                ("percent_50", icon::FUZZY_PERCENT_50, "gui.tooltips.ae2.FZPercent_50"),
+                ("percent_25", icon::FUZZY_PERCENT_25, "gui.tooltips.ae2.FZPercent_25"),
+            ],
+            place: None,
+            shown_by: Some(1),
+        }],
+        progress: None,
+        priority: Some(26),
+        decorations: &[],
+        grid: None,
+        cogs: Some((9..18, (8, 35))),
+        lock_line: None,
     },
 ];
 
@@ -416,6 +612,19 @@ impl Ae2Screen {
         1 + self.layout.toggles.iter().filter(|t| t.place.is_none() && t.shown_by.is_none_or(|i| value(data, i) != 0)).count()
     }
 
+    /// The stock cogs shown: each one's 16 x 16 box and its entry, above the
+    /// entries `filled` says hold something.
+    fn cogs(&self, filled: impl Fn(usize) -> bool) -> Vec<([i32; 4], usize)> {
+        let Some((entries, (x, y))) = self.layout.cogs.clone() else {
+            return Vec::new();
+        };
+        let first = entries.start;
+        entries
+            .filter(|e| filled(*e))
+            .map(|e| ([x + 18 * (e - first) as i32, y, 16, 16], e))
+            .collect()
+    }
+
     /// The priority tab's 20 x 20 box (`openPriority`).
     fn priority_tab(&self) -> Option<[i32; 4]> {
         self.layout.priority?;
@@ -455,14 +664,16 @@ fn short(v: f64) -> i16 {
 
 /// The index of `t`'s value in `m`'s config (its default when unset).
 fn setting(m: &Machine, t: &Toggle) -> i16 {
-    match m.config.get(&t.key.into()) {
-        Some(Tag::String(s)) => s
-            .to_string()
-            .ok()
-            .and_then(|s| t.values.iter().position(|v| v.0 == s))
-            .unwrap_or(t.default) as i16,
-        _ => t.default as i16,
-    }
+    let at = match (t.stored, m.config.get(&t.key.into())) {
+        (Stored::Text, Some(Tag::String(s))) => {
+            s.to_string().ok().and_then(|s| t.values.iter().position(|v| v.0 == s))
+        }
+        (Stored::Flag(_), Some(Tag::Byte(b))) => Some(usize::from(*b != 0)),
+        (Stored::Flag(absent), None) => Some(usize::from(absent)),
+        (Stored::Index, Some(Tag::Int(n))) => usize::try_from(*n).ok().filter(|n| *n < t.values.len()),
+        _ => None,
+    };
+    at.unwrap_or(t.default) as i16
 }
 
 fn layout(kind: MachineKind) -> Option<&'static Layout> {
@@ -479,7 +690,12 @@ pub(super) fn step_setting(m: &mut Machine, slot: usize, reverse: bool) -> bool 
     let n = t.values.len();
     let at = setting(m, t) as usize;
     let next = if reverse { (at + n - 1) % n } else { (at + 1) % n };
-    m.config.insert(t.key.into(), Tag::String(t.values[next].0.into()));
+    let value = match t.stored {
+        Stored::Text => Tag::String(t.values[next].0.into()),
+        Stored::Flag(_) => Tag::Byte(i8::from(next != 0)),
+        Stored::Index => Tag::Int(next as i32),
+    };
+    m.config.insert(t.key.into(), value);
     true
 }
 
@@ -535,6 +751,39 @@ impl Game<'_> {
                 data.extend(wide(required));
             }
             MachineKind::IoPort => data.resize(4, 0),
+            // PatternProviderMenu: the settings, then whether crafting is
+            // locked now and why (`craftingLockedReason`): 1 until a pulse,
+            // 2 by a signal, 3 by its lack, 4 until a result returns.
+            MachineKind::PatternProvider => {
+                let mode = match m.config.get(&"ae2_lock_mode".into()) {
+                    Some(Tag::Int(n)) => *n,
+                    _ => 0,
+                };
+                let high = m.config.get(&"ae2_redstone_high".into()) == Some(&Tag::Byte(1));
+                let event = match m.config.get(&"ae2_unlock_event".into()) {
+                    Some(Tag::Int(n)) => *n,
+                    _ => 0,
+                };
+                let reason = if mode == 2 && high {
+                    2
+                } else if mode == 3 && !high {
+                    3
+                } else if event == 3 {
+                    4
+                } else if event != 0 {
+                    1
+                } else {
+                    0
+                };
+                data.resize(5, 0);
+                data[3] = i16::from(reason != 0);
+                data[4] = reason;
+            }
+            // InterfaceMenu: the fuzzy button shows with a fuzzy card.
+            MachineKind::Interface => {
+                data.resize(2, 0);
+                data[1] = i16::from(m.upgrades.iter().flatten().any(|s| s.item.as_ref() == "ae2:fuzzy_card"));
+            }
             _ => {}
         }
         for t in l.toggles {
@@ -721,6 +970,24 @@ impl Game<'_> {
             self.ae2_icon(batch, icon::TAB_BUTTON_BACKGROUND, (20, 20), x, y);
             self.ae2_icon(batch, icon::PRIORITY, (16, 16), x + 2.0, y + 1.0);
         }
+        // SetAmountButton: no backdrop, the cog lit while hovered.
+        for (rect, _) in screen.cogs(|e| self.ae2_screen_entry_filled(e)) {
+            let cog = if inside(rect, mouse) { icon::COG } else { icon::COG_DISABLED };
+            self.ae2_icon(batch, cog, (16, 16), ox + rect[0] as f32, oy + rect[1] as f32);
+        }
+        // PatternProviderLockReason: shown while a lock mode is set.
+        if let Some([mode, locked, _]) = layout.lock_line
+            && value(data, mode) != 0
+        {
+            let locked = value(data, locked) != 0;
+            let (mark, key, color) = if locked {
+                (icon::LOCKED, "gui.ae2.CraftingLockIsLocked", rgba(193, 66, 75, 255))
+            } else {
+                (icon::UNLOCKED, "gui.ae2.CraftingLockIsUnlocked", rgba(125, 169, 210, 255))
+            };
+            self.ae2_icon(batch, mark, (16, 16), ox + 5.0, oy + 15.0);
+            batch.text(&self.gui.atlas, &self.translate(key, key), ox + 20.0, oy + 20.0, color, false);
+        }
         if let Some(progress) = layout.progress.as_ref()
             && let (Some(image), Some(widget)) = (style.images.get(progress.name), style.widgets.get(progress.name))
         {
@@ -861,7 +1128,17 @@ impl Game<'_> {
         {
             return screen.layout.priority;
         }
+        if !right
+            && let Some((_, entry)) = screen.cogs(|e| self.ae2_screen_entry_filled(e)).into_iter().find(|(r, _)| inside(*r, at))
+        {
+            return Some(entry as i32 | QUICK);
+        }
         None
+    }
+
+    /// Whether menu entry `entry` of the open container holds something.
+    fn ae2_screen_entry_filled(&self, entry: usize) -> bool {
+        self.container_kind().is_some_and(|e| e.slots().get(entry).is_some_and(Option::is_some))
     }
 
     /// The tooltip at `at`: a button's setting and value, the priority tab,
@@ -893,6 +1170,24 @@ impl Game<'_> {
         }
         if screen.priority_tab().is_some_and(|tab| inside(tab, at)) {
             lines.push(self.translate("gui.ae2.Priority", "Priority"));
+            return;
+        }
+        if screen.cogs(|e| self.ae2_screen_entry_filled(e)).iter().any(|(r, _)| inside(*r, at)) {
+            lines.push(self.translate("gui.tooltips.ae2.InterfaceSetStockAmount", "Set Stock Amount"));
+            return;
+        }
+        if let Some([mode, locked, reason]) = screen.layout.lock_line
+            && value(data, mode) != 0
+            && value(data, locked) != 0
+            && inside([5, 15, 126, 16], at)
+        {
+            let key = match value(data, reason) {
+                2 => "waila.ae2.CraftingLockedByRedstoneSignal",
+                3 => "waila.ae2.CraftingLockedByLackOfRedstoneSignal",
+                4 => "waila.ae2.CraftingLockedUntilResult",
+                _ => "waila.ae2.CraftingLockedUntilPulse",
+            };
+            lines.push(self.translate(key, key).replace("%s", "?"));
             return;
         }
         let (w, h) = screen.size();

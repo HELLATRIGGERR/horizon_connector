@@ -4852,6 +4852,8 @@ enum PriorityTarget {
     Chest { pos:(i32,i32,i32), identity:u64 },
     Drive { pos:(i32,i32,i32), identity:u64 },
     Provider { pos:(i32,i32,i32), part:Option<super::ae2_parts::PartAddress>, identity:ProviderMenuOwner },
+    /// `InterfaceLogicHost`'s priority (`IPriorityHost`), kept in the machine's config.
+    Interface { pos:(i32,i32,i32), part:Option<super::ae2_parts::PartAddress>, owner:MachineMenuOwner },
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 struct WorkbenchRevision { state:i32, page:usize, keep:bool }
@@ -5269,6 +5271,13 @@ impl Game<'_> {
                 };
                 match machine.config.get(&"priority".into()){None=>Some(0),Some(Tag::Int(value))=>Some(*value),_=>None}
             }
+            PriorityTarget::Interface{pos,part,owner} => {
+                if self.ae2_machine_menu_owner(pos,part)!=Some(owner){return None;}
+                let machine=if let Some(part)=part {self.ae2_part_machine(part).ok().flatten()?} else {
+                    let BlockEntity::Ae2(machine)=self.world.block_entities.get(&pos)? else{return None};(**machine).clone()
+                };
+                match machine.config.get(&"priority".into()){None=>Some(0),Some(Tag::Int(value))=>Some(*value),_=>None}
+            }
         }
     }
     fn priority_target_set(&mut self,target:PriorityTarget,old:i32,value:i32)->bool {
@@ -5288,6 +5297,16 @@ impl Game<'_> {
                 }
                 self.ae2_provider_priority_setter_local(pos,part.map(|p|p.face));true
             }
+            PriorityTarget::Interface{pos,part,owner:_} => {
+                if let Some(part)=part {
+                    let Some(mut machine)=self.ae2_part_machine(part).ok().flatten() else{return false};
+                    machine.config.insert("priority".into(),Tag::Int(value));
+                    self.ae2_store_part_machine(part,&machine).is_ok()
+                } else {
+                    let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get_mut(&pos) else{return false};
+                    machine.config.insert("priority".into(),Tag::Int(value));self.world.modified.insert((pos.0>>4,pos.2>>4));true
+                }
+            }
         }
     }
     fn priority_session(&self,host:&super::lan::LanHost,conn:u32)->Option<(i32,PriorityTarget,PriorityEdit)> {
@@ -5301,6 +5320,7 @@ impl Game<'_> {
         let m=play.ae2_machine.as_ref()?;let edit=m.priority_edit.clone()?;
         if m.owner_dim!=self.dim.id() || !player.within_block_range([m.pos.0,m.pos.1,m.pos.2],4.0){return None;}
         let target=if let Some(identity)=m.provider_owner {PriorityTarget::Provider{pos:m.pos,part:m.part,identity}}
+            else if m.owner.kind==horizon_client::ae2_world::MachineKind::Interface {PriorityTarget::Interface{pos:m.pos,part:m.part,owner:m.owner}}
             else {PriorityTarget::Drive{pos:m.pos,identity:m.drive_owner?}};
         Some((m.window,target,edit))
     }
@@ -5339,7 +5359,7 @@ impl Game<'_> {
         for (i,n) in [1,10,100,1000].into_iter().enumerate(){items[i]=Some(navigation(&format!("Priority +{n}; shift uses 1/16/32/64")));items[i+4]=Some(navigation(&format!("Priority -{n}; shift uses 1/16/32/64")));}
         items[8]=Some(navigation("Back to owner"));items[9]=Some(navigation(&format!("Priority: {}",edit.text)));
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));let carried=g.carried.clone();
-        let snapshot=if is_machine {match target {PriorityTarget::Drive{pos,..}=>self.ae2_owned_machine_slots(pos,None),PriorityTarget::Provider{pos,part,..}=>self.ae2_owned_machine_slots(pos,part),_=>None}}else{None};
+        let snapshot=if is_machine {match target {PriorityTarget::Drive{pos,..}=>self.ae2_owned_machine_slots(pos,None),PriorityTarget::Provider{pos,part,..}|PriorityTarget::Interface{pos,part,..}=>self.ae2_owned_machine_slots(pos,part),_=>None}}else{None};
         let chest_settings=match target {PriorityTarget::Chest{pos,identity}=>self.chest_terminal_read(pos).filter(|(current,_)|*current==identity).map(|(_,settings)|settings),_=>None};
         let state=if is_machine {
             let Some(m)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()) else{return};
@@ -6446,7 +6466,7 @@ impl Game<'_> {
         else {
             return false;
         };
-        let slot = id & !super::ae2_screens::REVERSE;
+        let slot = id & !(super::ae2_screens::REVERSE | super::ae2_screens::QUICK);
         if !(0..27).contains(&slot) {
             return true;
         }
@@ -6455,7 +6475,7 @@ impl Game<'_> {
             state,
             slot: slot as i16,
             button: i8::from(id & super::ae2_screens::REVERSE != 0),
-            input: 0,
+            input: i32::from(id & super::ae2_screens::QUICK != 0),
             changed: Vec::new(),
             carried: None,
         };
@@ -6509,7 +6529,8 @@ impl Game<'_> {
         if p.slot==26 && super::lan_crafting::input(p.input)==Input::Pickup {
             let target=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).and_then(|m|
                 m.provider_owner.map(|identity|PriorityTarget::Provider{pos,part,identity})
-                    .or_else(||m.drive_owner.map(|identity|PriorityTarget::Drive{pos,identity})));
+                    .or_else(||m.drive_owner.map(|identity|PriorityTarget::Drive{pos,identity}))
+                    .or_else(||(m.owner.kind==horizon_client::ae2_world::MachineKind::Interface).then_some(PriorityTarget::Interface{pos,part,owner:m.owner})));
             if let Some(target)=target {return self.lan_priority_open(host,conn,p.container,target);}
         }
         let paged_ghost = part.is_none()
@@ -6575,7 +6596,7 @@ impl Game<'_> {
                             };
                             machine
                                 .config
-                                .insert("ae2_lock_mode".into(), Tag::Int((mode + 1).rem_euclid(5)));
+                                .insert("ae2_lock_mode".into(), Tag::Int((mode + if p.button == 1 { 4 } else { 1 }).rem_euclid(5)));
                             machine.config.remove(&"ae2_unlock_event".into());
                             machine.config.remove(&"ae2_unlock_stack".into());
                         }
@@ -6609,7 +6630,7 @@ impl Game<'_> {
                         };
                         machine
                             .config
-                            .insert("ae2_lock_mode".into(), Tag::Int((mode + 1).rem_euclid(5)));
+                            .insert("ae2_lock_mode".into(), Tag::Int((mode + if p.button == 1 { 4 } else { 1 }).rem_euclid(5)));
                         machine.config.remove(&"ae2_unlock_event".into());
                         machine.config.remove(&"ae2_unlock_stack".into());
                     }
