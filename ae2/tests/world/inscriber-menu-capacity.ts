@@ -20,14 +20,14 @@ try {
   await fixture.replace('hotbar.1', 'ae2:silicon', 8);
   await fixture.replace('hotbar.8', 'minecraft:stick'); await fixture.select(8, 'minecraft:stick');
   await fixture.command(`tp @s ${x + .5} ${y} ${z + 2.5}`); await fixture.raw(`interact ${machine} south`);
-  await until(() => fixture.raw('screen'), view => slot(view, 300) && String(slot(view, 326)?.components ?? '').includes('SIXTY_FOUR'), 'physical Inscriber with default input capacity');
+  await until(() => fixture.raw('screen'), view => slot(view, 300) && fixture.settingIs(view, 26, 'SIXTY_FOUR'), 'physical Inscriber with default input capacity');
 
   await fixture.raw('click-slot 0'); await fixture.raw('click-slot 300');
   await fixture.command(`data get block ${machine}`);
   await until(() => fixture.raw('screen'), view => slot(view, 300)?.item === 'ae2:silicon_press' && slot(view, 300)?.count === 4 && !view.carried, 'default top input accepts four physical presses');
   for (const [setting, amount] of [['ONE', 1], ['FOUR', 4], ['SIXTY_FOUR', 8]] as const) {
-    await fixture.raw('click-slot 326');
-    await until(() => fixture.raw('screen'), view => String(slot(view, 326)?.components ?? '').includes(setting), `${setting} source capacity selected`);
+    await fixture.pressSetting(26);
+    await until(() => fixture.raw('screen'), view => fixture.settingIs(view, 26, setting), `${setting} source capacity selected`);
     await fixture.raw('click-slot 1'); await fixture.raw('click-slot 302');
     await fixture.command(`data get block ${machine}`);
     await until(() => fixture.raw('screen'), view => slot(view, 302)?.item === 'ae2:silicon' && slot(view, 302)?.count === amount && (amount === 8 ? !view.carried : view.carried?.count === 8 - amount), `${setting} limits the middle input and retains the remainder`);

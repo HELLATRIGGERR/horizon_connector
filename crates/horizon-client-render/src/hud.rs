@@ -587,29 +587,32 @@ impl HudAtlas {
                     }
                 }
             }
-            // Native AE2 crafting terminal uses its source GUI texture.
-            let knife = root.join("assets/ae2/textures/guis/quartzknife.png");
-            if let Ok((w,h,pixels))=decode(&knife) {images.push(("ae2:guis/quartzknife".into(),w,h,pixels));}
-            let path = root.join("assets/ae2/textures/guis/crafting.png");
-            if let Ok((w, h, pixels)) = decode(&path) {
-                images.push(("ae2:guis/crafting".into(), w, h, pixels));
-            }
-            let path = root.join("assets/ae2/textures/guis/toolbox.png");
-            if let Ok((w, h, pixels)) = decode(&path) {
-                images.push(("ae2:guis/toolbox".into(), w, h, pixels));
-            }
-            let path = root.join("assets/ae2/textures/guis/extra_panels.png");
-            if let Ok((w, h, pixels)) = decode(&path) {
-                images.push(("ae2:guis/extra_panels".into(), w, h, pixels));
-            }
-            let path = root.join("assets/ae2/textures/guis/networkstatus.png");
-            if let Ok((w, h, pixels)) = decode(&path) {
-                images.push(("ae2:guis/networkstatus".into(), w, h, pixels));
-            }
-            for name in ["craft_amt", "craftingreport", "craftingcpu", "patternaccessterminal", "spatialanchor"] {
-                let path=root.join(format!("assets/ae2/textures/guis/{name}.png"));
-                if let Ok((w,h,pixels))=decode(&path) {
-                    images.push((format!("ae2:guis/{name}"),w,h,pixels));
+            // AE2's screens draw from its GUI textures (`textures/guis/*.png`,
+            // named `ae2:guis/<name>`): backgrounds, toolbar icons, panels.
+            #[cfg(feature = "ae2-lab")]
+            {
+                let guis = root.join("assets/ae2/textures/guis");
+                let mut files: Vec<_> = std::fs::read_dir(&guis)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|e| e == "png"))
+                    .collect();
+                files.sort();
+                for path in files {
+                    let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                        continue;
+                    };
+                    match decode(&path) {
+                        Ok((w, h, pixels)) => images.push((format!("ae2:guis/{name}"), w, h, pixels)),
+                        Err(error) => log::warn!("AE2 GUI texture {}: {error}", path.display()),
+                    }
+                }
+                // VerticalButtonBar's backdrop, a GUI sprite drawn in three slices.
+                let path = root.join("assets/ae2/textures/gui/sprites/vertical_buttons_bg.png");
+                if let Ok((w, h, pixels)) = decode(&path) {
+                    images.push(("ae2:gui/vertical_buttons_bg".into(), w, h, pixels));
                 }
             }
         }

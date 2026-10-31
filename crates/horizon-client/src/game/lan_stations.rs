@@ -442,6 +442,11 @@ impl Game<'_> {
             }
             return;
         }
+        // An AE2 machine screen's toolbar.
+        #[cfg(feature = "ae2-lab")]
+        if self.lan_ae2_machine_button(host, conn, window, id) {
+            return;
+        }
         // LecternMenu's page buttons and Take Book.
         if self.lan_lectern_op(host, conn, window, |menu, env| {
             menu.button(env, id);

@@ -18,7 +18,8 @@ if (!existsSync(join(vanillaResources, 'assets/minecraft/models'))) throw new Er
 for (const path of ['models/item/horizon_static','models/block/horizon_static']) rmSync(join(assets,path), {recursive:true,force:true});
 const report: any = { source: coverage.reference, generated_at: new Date().toISOString(), scope: 'Static catalog projection, not a runtime registry dump or gameplay implementation.', blocks: [], items: [], excluded: [], errors: [], unsupported_model_loaders: [], limitations: [ 'Every block uses minecraft:iron_block behavior, cube collision and no AE2 blockstate properties.', 'Static source item model used as block model where resolvable. Animated states, orientations, cables, cell contents and dynamic block entities are not reproduced.', 'Custom loaders and procedural models use explicit static texture fallback. Multipart item registrations are not placed multipart blocks.', 'Item templates are generic; item mechanics, recipes, upgrades, max stack sizes and gameplay are not generally reproduced.', 'Registry coverage comes from static source, not a confirmed game runtime dump.' ] };
 function put(path: string, value: unknown) { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, JSON.stringify(value, null, 2) + '\n'); }
-for (const type of ['models', 'textures', 'blockstates', 'lang']) {
+// `screens` are AE2's screen styles (ScreenStyle JSON): background, slot positions, texts, widgets.
+for (const type of ['models', 'textures', 'blockstates', 'lang', 'screens']) {
   for (const sub of ['generated', 'main']) {
     const src = join(reference, 'src', sub, 'resources/assets/ae2', type);
     if (existsSync(src)) { mkdirSync(join(assets,type), {recursive:true}); cpSync(src, join(assets,type), {recursive:true,force:true}); }

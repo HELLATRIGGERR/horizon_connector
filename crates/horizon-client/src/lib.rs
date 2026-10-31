@@ -12,6 +12,8 @@ pub mod ae2_transform;
 pub mod ae2_network_tool;
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_job_status;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_screen_style;
 pub mod ambience;
 pub mod animate_tick;
 pub mod arrows;

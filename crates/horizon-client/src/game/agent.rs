@@ -762,6 +762,14 @@ impl Game<'_> {
             #[cfg(feature = "ae2-lab")]
             if self.ae2_local_machine_open() {v["title"]=json!([{ "text": self.ae2_local_machine_title() }]);}
             #[cfg(feature = "ae2-lab")]
+            if let Some(renderer) = self.renderer.as_ref() {
+                let batch = super::HudBatch::new([renderer.config.width, renderer.config.height]);
+                let origin = self.inventory_origin(&batch);
+                if let Some(screen) = self.ae2_screen_agent_value(origin) {
+                    v["ae2_screen"] = screen;
+                }
+            }
+            #[cfg(feature = "ae2-lab")]
             if self.ae2_local_bus_open() {v["title"]=json!([{ "text": self.ae2_local_bus_title() }]);}
             #[cfg(feature = "ae2-lab")]
             if self.ae2_local_pattern_access_open() {v["title"]=json!([{ "text": "AE2 Pattern Access" }]);}

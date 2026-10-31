@@ -4905,6 +4905,8 @@ pub(super) struct GuestMachine {
     stock_edit: Option<StockEdit>,
     link_input: Option<ItemStack>,
     link_output: Option<ItemStack>,
+    /// The data slots last sent for the AE2 screen (`ae2_screens::screen_data`).
+    screen_data: Vec<i16>,
 }
 impl Game<'_> {
     /// A provider window belongs to the original physical block entity and
@@ -5765,6 +5767,7 @@ impl Game<'_> {
             stock_edit: None,
             link_input: None,
             link_output: None,
+            screen_data: Vec::new(),
         });
         Self::lan_mark_ae2_base_screen(host,conn,window);
         self.lan_send_ae2_machine(host, conn);
@@ -5900,6 +5903,7 @@ impl Game<'_> {
             stock_edit: None,
             link_input: None,
             link_output: None,
+            screen_data: Vec::new(),
         });
         Self::lan_mark_ae2_base_screen(host,conn,window);
         self.lan_send_ae2_machine(host, conn);
@@ -6331,6 +6335,7 @@ impl Game<'_> {
             carried: host.hub.stack(&carried),
         });
         host.hub.send_to(conn, &packet);
+        self.lan_send_ae2_screen_data(host, conn, true);
     }
     pub(super) fn lan_refresh_ae2_machines(&mut self, host: &mut super::lan::LanHost) {
         let windows: Vec<_> = host
@@ -6380,7 +6385,83 @@ impl Game<'_> {
             if self.ae2_owned_machine_slots(pos, part).as_ref() != Some(&old) {
                 self.lan_send_ae2_machine(host, conn);
             }
+            self.lan_send_ae2_screen_data(host, conn, false);
         }
+    }
+    /// The AE2 screen's data slots of `conn`'s machine window
+    /// (`ContainerSetData`): all of them with `all`, else the changed ones.
+    fn lan_send_ae2_screen_data(&mut self, host: &mut super::lan::LanHost, conn: u32, all: bool) {
+        let Some((pos, part, window)) =
+            host.play.get(&conn).and_then(|p| p.ae2_machine.as_ref()).map(|m| (m.pos, m.part, m.window))
+        else {
+            return;
+        };
+        let machine = match part {
+            Some(part) => self.ae2_part_machine(part).ok().flatten(),
+            None => match self.world.block_entities.get(&pos) {
+                Some(horizon_client::containers::BlockEntity::Ae2(m)) => Some((**m).clone()),
+                _ => None,
+            },
+        };
+        let Some(data) = machine.as_ref().map(|m| self.ae2_screen_data(m)) else {
+            return;
+        };
+        let Some(m) = host.play.get_mut(&conn).and_then(|p| p.ae2_machine.as_mut()) else {
+            return;
+        };
+        let changed: Vec<(i16, i16)> = data
+            .iter()
+            .enumerate()
+            .filter(|(i, v)| all || m.screen_data.get(*i) != Some(*v))
+            .map(|(i, v)| (i as i16, *v))
+            .collect();
+        m.screen_data = data;
+        for (id, value) in changed {
+            host.hub.send_to(
+                conn,
+                &horizon_protocol::packets::play::Clientbound::ContainerSetData(
+                    horizon_protocol::packets::play::ContainerSetData { container: window, id, value },
+                ),
+            );
+        }
+    }
+    /// A press on an AE2 screen's toolbar (`ContainerButtonClick`): button
+    /// `id` is the menu index of the setting entry it stands for, with
+    /// `ae2_screens::REVERSE` for a right press, and acts as a press on that
+    /// entry does, through the same checks. False when `window` is not the
+    /// player's AE2 machine window.
+    pub(super) fn lan_ae2_machine_button(
+        &mut self,
+        host: &mut super::lan::LanHost,
+        conn: u32,
+        window: i32,
+        id: i32,
+    ) -> bool {
+        let Some(state) = host
+            .play
+            .get(&conn)
+            .and_then(|p| p.ae2_machine.as_ref())
+            .filter(|m| m.window == window)
+            .map(|m| m.state)
+        else {
+            return false;
+        };
+        let slot = id & !super::ae2_screens::REVERSE;
+        if !(0..27).contains(&slot) {
+            return true;
+        }
+        let click = horizon_protocol::packets::play::ContainerClick {
+            container: window,
+            state,
+            slot: slot as i16,
+            button: i8::from(id & super::ae2_screens::REVERSE != 0),
+            input: 0,
+            changed: Vec::new(),
+            carried: None,
+        };
+        self.lan_ae2_machine_click(host, conn, &click);
+        self.lan_send_ae2_screen_data(host, conn, false);
+        true
     }
     pub(super) fn lan_ae2_machine_click(
         &mut self,
@@ -6942,6 +7023,8 @@ impl Game<'_> {
     fn ae2_machine_click(&mut self,pos:(i32,i32,i32),slot:Option<usize>,button:i32,input:Input) {
         if matches!(slot,Some(324|325|326)) && input==Input::Pickup && (0..=1).contains(&button)
             && self.ae2_inscriber_setting(pos,slot.unwrap(),button==1) {return;}
+        if matches!(slot,Some(324|325|326)) && input==Input::Pickup && (0..=1).contains(&button)
+            && self.ae2_io_setting(pos,slot.unwrap(),button==1) {return;}
         let condenser=matches!(self.world.block_entities.get(&pos),Some(horizon_client::containers::BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::Condenser);
         if !condenser {
             let before=match self.world.block_entities.get(&pos) {Some(horizon_client::containers::BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::QuantumLink=>Some(m.slots.first().cloned()),_=>None};
@@ -7632,6 +7715,13 @@ fn inscriber_setting_click(m:&mut horizon_client::ae2_world::Machine, slot:usize
     m.config.insert(key.into(),Tag::String(next.into()));true
 }
 impl Game<'_> {
+    /// The IO Port's settings, which its menu had no entries for: entries
+    /// 24 to 26 step fullness, redstone and operation (`ae2_screens`).
+    fn ae2_io_setting(&mut self, pos:(i32,i32,i32), slot:usize, reverse:bool)->bool {
+        let Some(horizon_client::containers::BlockEntity::Ae2(m))=self.world.block_entities.get_mut(&pos) else{return false};
+        if m.kind!=horizon_client::ae2_world::MachineKind::IoPort || !super::ae2_screens::step_setting(m,slot,reverse){return false}
+        self.world.modified.insert((pos.0>>4,pos.2>>4));true
+    }
     fn ae2_inscriber_setting(&mut self, pos:(i32,i32,i32), slot:usize, reverse:bool)->bool {
         let Some(horizon_client::containers::BlockEntity::Ae2(m))=self.world.block_entities.get_mut(&pos) else{return false};
         if !inscriber_setting_click(m,slot,reverse){return false}

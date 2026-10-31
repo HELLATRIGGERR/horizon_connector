@@ -99,7 +99,7 @@ export class WorldFixture {
         this.assertHidden(status);
         if (status.player && status.screen === 'advancements') await this.raw('close');
         return status;
-      }, status => !!status.player && status.player.health > 0 && status.chunks >= 30 && status.server?.loaded !== false, 'hidden world startup', 180000);
+      }, status => !!status.player && status.player.health > 0 && status.chunks >= 30 && status.server?.loaded !== false, 'hidden world startup', Number(process.env.AE2_TEST_STARTUP_MS ?? 180000));
     } catch (error) { await this.close(); throw error; }
   }
 
@@ -120,6 +120,24 @@ export class WorldFixture {
     assert(Number.isInteger(ticks) && ticks > 0);
     const before = await this.raw('simulation'); await this.command(`tick step ${ticks}`);
     await until(() => this.raw('simulation'), state => state.game_time >= before.game_time + ticks, `authoritative ${ticks} simulation ticks`, Math.max(15000, ticks * 100));
+  }
+  /** Whether menu entry `entry`'s setting of the open AE2 machine is `value`:
+   * its toolbar button on the server thread's AE2 screen, its entry's label in frame. */
+  settingIs(view: any, entry: number, value: string): boolean {
+    const button = view.ae2_screen?.toolbar?.find((b: any) => b.entry === entry);
+    if (view.ae2_screen) return button?.value === value;
+    const label = String(view.slots?.find((s: any) => s.slot === 300 + entry)?.components ?? '');
+    return label.includes(`: ${value};`);
+  }
+  /** Presses menu entry `entry`'s setting: its toolbar button, or the entry in frame. */
+  async pressSetting(entry: number): Promise<void> {
+    const view = await this.raw('screen');
+    const button = view.ae2_screen?.toolbar?.find((b: any) => b.entry === entry);
+    if (view.ae2_screen) {
+      assert(button, `no toolbar button for entry ${entry}`);
+      const [x, y, w, h] = button.rect;
+      await this.raw(`click-at ${x + w / 2} ${y + h / 2}`);
+    } else await this.raw(`click-slot ${300 + entry}`);
   }
   async hold(held = true): Promise<void> { await this.raw(`server-hold ${held ? 'on' : 'off'}`); }
   async stepServer(ticks = 1): Promise<void> {

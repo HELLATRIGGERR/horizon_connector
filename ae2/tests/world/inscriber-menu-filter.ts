@@ -23,7 +23,7 @@ try {
   const open = async (target: string, dx: number) => {
     await fixture.select(8, 'minecraft:stick'); await fixture.command(`tp @s ${x + dx + .5} ${y} ${z + 2.5}`);
     await fixture.raw(`interact ${target} south`);
-    await until(() => fixture.raw('screen'), view => slot(view, 302) && String(slot(view, 326)?.components ?? '').includes('Input capacity'), 'physical Inscriber');
+    await until(() => fixture.raw('screen'), view => slot(view, 302) && fixture.settingIs(view, 26, 'SIXTY_FOUR'), 'physical Inscriber');
   };
   await open(first, 0);
   await fixture.raw('click-slot 0'); await fixture.raw('click-slot 302'); await fixture.command(`data get block ${first}`);

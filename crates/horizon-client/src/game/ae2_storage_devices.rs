@@ -488,6 +488,15 @@ fn condenser_mode(
         _ => Err("invalid condenser output mode".into()),
     }
 }
+/// `CondenserMenu`'s bar: the matter stored, and the most it shows
+/// (`requiredEnergy`: the output's cost, capped by the component's room, or
+/// the room alone when trashing).
+pub(super) fn condenser_progress(machine: &horizon_client::ae2_world::Machine) -> (f64, f64) {
+    let required = condenser_mode(machine).map_or(0.0, |(_, cost)| cost);
+    let capacity = condenser_capacity(machine);
+    let most = if required == 0.0 { capacity } else { required.min(capacity) };
+    (condenser_power(machine).unwrap_or(0.0), most)
+}
 fn condenser_power(machine: &horizon_client::ae2_world::Machine) -> Result<f64, String> {
     let power = match machine.config.get(&"condenser_power".into()) {
         Some(Tag::Double(bits)) => f64::from_bits(*bits),

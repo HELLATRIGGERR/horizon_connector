@@ -114,6 +114,13 @@ impl GuideState {
         let mut search=EditBox::new(0.0,0.0,100.0,18.0); search.max_length=80; search.focused=false;
         Ok(Self { current:root.clone(), history:vec![History{page:root.clone(),scroll:0.0}],history_index:0,root,pages,item_index,categories,scroll:0.0,scroll_max:0.0,side_scroll:0.0,side_max:0.0,search,hits:Vec::new(),doc_clip:[0.0;4],side_clip:[0.0;4],pending_anchor:None,orbits:HashMap::new(),zoom:HashMap::new(),dragging:None,status:None,visible:Vec::new(),recipes:HashMap::new() })
     }
+    /// Shows the page the item index gives item `id` (`OpenGuideButton`);
+    /// false when it has none.
+    pub(super) fn show_item(&mut self, id: &str) -> bool {
+        let Some(page) = self.item_index.get(id).and_then(|p| p.first()).cloned() else { return false };
+        self.navigate(&page, None);
+        true
+    }
     fn navigate(&mut self, page:&str, anchor:Option<String>) {
         if !self.pages.contains_key(page) { self.status=Some(format!("Page unavailable: {page}")); return; }
         if let Some(h)=self.history.get_mut(self.history_index) { h.scroll=self.scroll; }

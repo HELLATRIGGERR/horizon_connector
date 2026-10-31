@@ -416,6 +416,9 @@ pub(super) struct OpenNativeScreen {
     block: String,
     screen: NativeScreen,
     data: Vec<i32>,
+    /// An AE2 machine's screen, drawn from its screen style.
+    #[cfg(feature = "ae2-lab")]
+    ae2: Option<super::ae2_screens::Ae2Screen>,
 }
 
 impl OpenNativeScreen {
@@ -1995,6 +1998,15 @@ impl Game<'_> {
         }
         let mut screen = None;
         self.native_screen(&block, &mut screen);
+        #[cfg(feature = "ae2-lab")]
+        let mut ae2 = None;
+        #[cfg(feature = "ae2-lab")]
+        if screen.is_none()
+            && let Some((laid_out, style)) = self.ae2_native_screen(&block)
+        {
+            screen = Some(laid_out);
+            ae2 = Some(style);
+        }
         if let Some(screen) = screen {
             self.mod_screen = Some(OpenNativeScreen {
                 key,
@@ -2002,8 +2014,20 @@ impl Game<'_> {
                 block,
                 screen,
                 data: Vec::new(),
+                #[cfg(feature = "ae2-lab")]
+                ae2,
             });
         }
+    }
+    /// The AE2 machine screen showing now, if any.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn mod_screen_ae2(&self) -> Option<&super::ae2_screens::Ae2Screen> {
+        self.shown_native_screen().and_then(|s| s.ae2.as_ref())
+    }
+    /// The data slots of the mod screen showing now.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn mod_screen_data(&self) -> Vec<i32> {
+        self.shown_native_screen().map(|s| s.data.clone()).unwrap_or_default()
     }
     /// The mod screen showing now, if any.
     fn shown_native_screen(&self) -> Option<&OpenNativeScreen> {
@@ -2065,6 +2089,11 @@ impl Game<'_> {
         let Some(s) = self.shown_native_screen() else {
             return false;
         };
+        #[cfg(feature = "ae2-lab")]
+        if let Some(ae2) = s.ae2.as_ref() {
+            self.ae2_draw_screen(batch, ox, oy, ae2, &s.data);
+            return true;
+        }
         let atlas = &self.gui.atlas;
         let (w, h) = (s.screen.width, s.screen.height);
         batch.fill(atlas, ox, oy, w, h, rgba(0, 0, 0, 255));
@@ -2204,8 +2233,19 @@ impl Game<'_> {
         let Some((block, data, at)) = self.native_screen_at() else {
             return false;
         };
+        #[cfg(feature = "ae2-lab")]
+        if !right && self.ae2_screen_help(at) {
+            self.audio.play_button_click();
+            return true;
+        }
         let mut button = None;
         self.native_screen_click(&block, &data, at, right, &mut button);
+        #[cfg(feature = "ae2-lab")]
+        if button.is_none()
+            && let Some(ae2) = self.shown_native_screen().and_then(|s| s.ae2.as_ref())
+        {
+            button = self.ae2_screen_button(ae2, &data, at, right);
+        }
         let Some(button) = button else {
             return false;
         };
@@ -2234,6 +2274,10 @@ impl Game<'_> {
         };
         let mut lines = Vec::new();
         self.native_screen_tooltip(&block, &data, at, &mut lines);
+        #[cfg(feature = "ae2-lab")]
+        if let Some(ae2) = self.shown_native_screen().and_then(|s| s.ae2.as_ref()) {
+            self.ae2_screen_tooltip(ae2, &data, at, &mut lines);
+        }
         let lines: Vec<(horizon_client::text::Text, u32)> = lines
             .into_iter()
             .map(|l| (horizon_client::text::Text::literal(l), u32::MAX))
