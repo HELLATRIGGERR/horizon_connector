@@ -19,6 +19,38 @@ fn native_sided_slot_limit(kind: Kind, slot: usize, item: &str, occupied: bool, 
     if kind == Kind::Furnace && slot == 1 && item == "minecraft:bucket" && !occupied { return max.min(1); }
     max
 }
+/// `BlockOrientation.getSide(TOP)` of a block with `facing` and `spin`
+/// (`OrientationStrategies.full`).
+pub(super) fn orientation_up(facing: &str, spin: usize) -> Option<Direction> {
+    match facing {
+        "down"=>[Direction::North,Direction::West,Direction::South,Direction::East],
+        "up"=>[Direction::North,Direction::East,Direction::South,Direction::West],
+        "north"=>[Direction::Up,Direction::West,Direction::Down,Direction::East],
+        "south"=>[Direction::Up,Direction::East,Direction::Down,Direction::West],
+        "west"=>[Direction::Up,Direction::South,Direction::Down,Direction::North],
+        "east"=>[Direction::Up,Direction::North,Direction::Down,Direction::South],_=>return None,
+    }.get(spin).copied()
+}
+/// The AE2 inventory filter a hopper, dropper or crafter meets on a
+/// machine's own slot `index`: whether `stack` may go in, and how many the
+/// slot holds. `None` leaves the plain container rules.
+pub(super) fn ae2_slot_insert(kind: MachineKind, index: usize, stack: &ItemStack) -> Option<(bool, u32)> {
+    let cell = crate::game::ae2_storage_devices::is_valid_storage_cell;
+    match kind {
+        MachineKind::QuantumLink => Some((index == 0 && crate::game::ae2_quantum::frequency(stack).is_some(), 1)),
+        // DriveBlockEntity.CellValidInventoryFilter; AppEngCellInventory holds one cell a bay.
+        MachineKind::Drive => Some((cell(stack), 1)),
+        // IOPortBlockEntity: inputCellsExt is INSERT_ONLY, outputCellsExt EXTRACT_ONLY.
+        MachineKind::IoPort => Some((index < 6 && cell(stack), 1)),
+        _ => None,
+    }
+}
+/// Whether automation may take from a machine's own slot `index`; `None`
+/// leaves the plain container rules.
+pub(super) fn ae2_slot_extract(kind: MachineKind, index: usize) -> Option<bool> {
+    // IOPortBlockEntity: only the output cells come out.
+    (kind == MachineKind::IoPort).then_some(index >= 6)
+}
 
 #[derive(Clone)]
 struct NativeSlotChange {
@@ -904,6 +936,8 @@ impl Game<'_> {
                     super::super::ae2_wireless::energy(stack)
                 } else if horizon_client::ae2_powered_items::profile(stack).is_some() {
                     horizon_client::ae2_powered_items::energy(stack)
+                } else if super::super::ae2_processing::is_energy_cell_item(stack) {
+                    super::super::ae2_processing::energy_cell_energy(stack)
                 } else { super::super::ae2_interactions::portable_energy(stack) };
                 Some(energy.is_ok_and(|(current,max)|current>=max) || !recipe)
             }
@@ -952,14 +986,7 @@ impl Game<'_> {
         if !separate{return Some(vec![0,1,2,3])}
         let state=self.ae2_grid_block(address).and_then(|id|self.pack.assets.registry.state(id))?;
         let front=state.properties.get("facing")?.as_str();let spin:usize=state.properties.get("spin")?.parse().ok()?;
-        let up=match front {
-            "down"=>[Direction::North,Direction::West,Direction::South,Direction::East],
-            "up"=>[Direction::North,Direction::East,Direction::South,Direction::West],
-            "north"=>[Direction::Up,Direction::West,Direction::Down,Direction::East],
-            "south"=>[Direction::Up,Direction::East,Direction::Down,Direction::West],
-            "west"=>[Direction::Up,Direction::South,Direction::Down,Direction::North],
-            "east"=>[Direction::Up,Direction::North,Direction::Down,Direction::South],_=>return None,
-        }.get(spin).copied()?;
+        let up=orientation_up(front,spin)?;
         Some(if face==up {vec![0]} else if face==up.opposite(){vec![1]} else{vec![2,3]})
     }
     pub(in crate::game) fn ae2_inscriber_accepts(&self,m:&horizon_client::ae2_world::Machine,slot:usize,stack:&ItemStack)->bool {
@@ -1071,5 +1098,34 @@ mod native_sided_slot_tests {
         assert_eq!(native_sided_slot_limit(Kind::Furnace,1,"minecraft:bucket",true,16),16);
         assert_eq!(native_sided_slot_limit(Kind::Furnace,1,"minecraft:coal",false,64),64);
         assert_eq!(native_sided_slot_limit(Kind::Generic,0,"minecraft:stone",false,99),99);
+    }
+    #[test]
+    fn io_port_top_and_bottom_take_cells_in_and_only_sides_give_them_out() {
+        // IOPortBlockEntity.getExposedInventoryForSide, relative to getTop.
+        let port=|up|View{parts:vec![((0,0,0),12)],kind:Kind::IoPort(up),container:None};
+        let (inputs,outputs):(Vec<usize>,Vec<usize>)=((0..6).collect(),(6..12).collect());
+        let standing=port(orientation_up("north",0).unwrap());
+        for face in [Direction::Up,Direction::Down] {assert_eq!(standing.slots_for_face(Some(face)),inputs);}
+        for face in [Direction::North,Direction::South,Direction::West,Direction::East] {assert_eq!(standing.slots_for_face(Some(face)),outputs);}
+        // UP_NORTH: the top looks north.
+        let lying=port(orientation_up("up",0).unwrap());
+        for face in [Direction::North,Direction::South] {assert_eq!(lying.slots_for_face(Some(face)),inputs);}
+        for face in [Direction::Up,Direction::Down,Direction::West,Direction::East] {assert_eq!(lying.slots_for_face(Some(face)),outputs);}
+        // inputCellsExt is INSERT_ONLY, outputCellsExt EXTRACT_ONLY.
+        let cell=ItemStack::new("ae2:item_storage_cell_1k",1);
+        assert_eq!(ae2_slot_insert(MachineKind::IoPort,0,&cell),Some((true,1)));
+        assert_eq!(ae2_slot_insert(MachineKind::IoPort,6,&cell),Some((false,1)));
+        assert_eq!(ae2_slot_extract(MachineKind::IoPort,5),Some(false));
+        assert_eq!(ae2_slot_extract(MachineKind::IoPort,6),Some(true));
+    }
+    #[test]
+    fn drive_bays_take_only_storage_cells_one_to_a_bay() {
+        // DriveBlockEntity.CellValidInventoryFilter over AppEngCellInventory (max 1).
+        let cobblestone=ItemStack::new("minecraft:cobblestone",1);
+        let cell=ItemStack::new("ae2:item_storage_cell_1k",1);
+        assert_eq!(ae2_slot_insert(MachineKind::Drive,0,&cobblestone),Some((false,1)));
+        assert_eq!(ae2_slot_insert(MachineKind::Drive,9,&cell),Some((true,1)));
+        // allowExtract is always true.
+        assert_eq!(ae2_slot_extract(MachineKind::Drive,0),None);
     }
 }

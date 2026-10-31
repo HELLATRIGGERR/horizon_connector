@@ -51,6 +51,10 @@ enum Kind {
     /// `ComposterBlock.getContainer` at this level (a `WorldlyContainerHolder`
     /// without a block entity): input below 7, empty at 7, bone meal at 8.
     Composter(i32),
+    /// AE2's ME IO Port, with the side its orientation puts on top
+    /// (`AEBaseBlockEntity.getTop`).
+    #[cfg(feature = "ae2-lab")]
+    IoPort(Direction),
 }
 
 /// A container: one block entity, or a double chest (`CompoundContainer`).
@@ -90,6 +94,14 @@ impl View {
                 .container
                 .as_ref()
                 .map_or_else(Vec::new, |c| c.faces[face as usize].clone()),
+            // IOPortBlockEntity.getExposedInventoryForSide: the top and the
+            // bottom reach the input cells, the four sides the output cells.
+            #[cfg(feature = "ae2-lab")]
+            (Kind::IoPort(up), Some(face)) if face == up || face == up.opposite() => {
+                (0..6).collect()
+            }
+            #[cfg(feature = "ae2-lab")]
+            (Kind::IoPort(_), Some(_)) => (6..12).collect(),
             _ => (0..self.len()).collect(),
         }
     }
@@ -194,6 +206,17 @@ impl Containers<'_> {
             (BlockEntity::Brewing(_), _) => Kind::Brewing,
             (BlockEntity::ChiseledBookshelf(_), _) => Kind::Bookshelf,
             (_, "minecraft:hopper") => Kind::Hopper,
+            #[cfg(feature = "ae2-lab")]
+            (BlockEntity::Ae2(machine), _)
+                if machine.kind == horizon_client::ae2_world::MachineKind::IoPort =>
+            {
+                let spin = self.prop(state, "spin").and_then(|s| s.parse().ok());
+                let up = self.prop(state, "facing").zip(spin);
+                Kind::IoPort(
+                    up.and_then(|(facing, spin)| ae2_capabilities::orientation_up(facing, spin))
+                        .unwrap_or(Direction::Up),
+                )
+            }
             _ => Kind::Generic,
         };
         let size = entity.slots().len();
@@ -264,13 +287,27 @@ impl Containers<'_> {
     fn is_empty(&self, view: &View) -> bool {
         (0..view.len()).all(|i| self.get(view, i).is_none())
     }
+    /// The AE2 machine behind a view slot, and the slot's index in it.
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_slot(
+        &self,
+        view: &View,
+        slot: usize,
+    ) -> Option<(horizon_client::ae2_world::MachineKind, usize)> {
+        let (pos, index) = view.locate(slot)?;
+        match self.world.block_entities.get(&pos)? {
+            BlockEntity::Ae2(machine) => Some((machine.kind, index)),
+            _ => None,
+        }
+    }
     /// `Container.canPlaceItem` (+ `canPlaceItemThroughFace` for furnaces).
     fn can_place(&self, view: &View, slot: usize, stack: &ItemStack) -> bool {
         #[cfg(feature = "ae2-lab")]
-        if let Some((pos, index)) = view.locate(slot) {
-            if matches!(self.world.block_entities.get(&pos), Some(BlockEntity::Ae2(machine)) if machine.kind == horizon_client::ae2_world::MachineKind::QuantumLink) {
-                return index == 0 && crate::game::ae2_quantum::frequency(stack).is_some();
-            }
+        if let Some((accepts, _)) = self
+            .ae2_slot(view, slot)
+            .and_then(|(kind, index)| ae2_capabilities::ae2_slot_insert(kind, index, stack))
+        {
+            return accepts;
         }
         if let Some(c) = &view.container {
             return c.inputs.contains(&slot);
@@ -337,6 +374,13 @@ impl Containers<'_> {
         if let Kind::Composter(level) = view.kind {
             // OutputContainer.canTakeItemThroughFace.
             return level == 8 && face == Direction::Down && &*stack.item == "minecraft:bone_meal";
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(takes) = self
+            .ae2_slot(view, slot)
+            .and_then(|(kind, index)| ae2_capabilities::ae2_slot_extract(kind, index))
+        {
+            return takes;
         }
         if view.kind == Kind::Brewing {
             return slot != 3 || &*stack.item == "minecraft:glass_bottle";
@@ -562,8 +606,8 @@ impl Game<'_> {
         let was_empty = c.is_empty(view);
         let max = {
             #[cfg(feature = "ae2-lab")]
-            if view.locate(slot).is_some_and(|(pos, _)| matches!(c.world.block_entities.get(&pos), Some(BlockEntity::Ae2(machine)) if machine.kind == horizon_client::ae2_world::MachineKind::QuantumLink)) {
-                1
+            if let Some((_, max)) = c.ae2_slot(view, slot).and_then(|(kind, index)| ae2_capabilities::ae2_slot_insert(kind, index, &stack)) {
+                max
             } else { c.max_stack(&stack) }
             #[cfg(not(feature = "ae2-lab"))]
             { c.max_stack(&stack) }
@@ -614,12 +658,14 @@ impl Game<'_> {
             let (x, y, z) = view.parts[0].0;
             return self.composter_container_insert([x, y, z], stack, face == Some(Direction::Up));
         }
-        let slots =
-            if matches!(view.kind, Kind::Furnace | Kind::Brewing | Kind::Mod) && face.is_some() {
-                view.slots_for_face(face)
-            } else {
-                (0..view.len()).collect()
-            };
+        let sided = matches!(view.kind, Kind::Furnace | Kind::Brewing | Kind::Mod);
+        #[cfg(feature = "ae2-lab")]
+        let sided = sided || matches!(view.kind, Kind::IoPort(_));
+        let slots = if sided && face.is_some() {
+            view.slots_for_face(face)
+        } else {
+            (0..view.len()).collect()
+        };
         let mut rest = Some(stack);
         for slot in slots {
             let Some(stack) = rest.take() else { break };

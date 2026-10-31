@@ -300,6 +300,57 @@ pub(super) fn charger_chargeable(stack:&ItemStack)->bool {
     super::ae2_wireless::is_wireless(&single)
         || horizon_client::ae2_powered_items::profile(&single).is_some()
         || super::ae2_interactions::portable_energy(&single).is_ok()
+        || energy_cell_item(&single).is_some()
+}
+/// EnergyCellBlockItem, an IAEItemPowerStorage the Charger fills: its
+/// block's max power and charge rate per tick (AEBlocks.ENERGY_CELL and
+/// DENSE_ENERGY_CELL).
+fn energy_cell_item(stack:&ItemStack)->Option<(f64,f64)> {
+    if stack.count!=1 {return None;}
+    match stack.item.as_ref() {"ae2:energy_cell"=>Some((200_000.0,800.0)),"ae2:dense_energy_cell"=>Some((1_600_000.0,1_600.0)),_=>None}
+}
+pub(super) fn is_energy_cell_item(stack:&ItemStack)->bool {energy_cell_item(stack).is_some()}
+/// EnergyCellBlockItem.getAECurrentPower and getAEMaxPower.
+pub(super) fn energy_cell_energy(stack:&ItemStack)->Result<(f64,f64),String> {
+    let (max,_)=energy_cell_item(stack).ok_or("not an energy cell")?;
+    Ok((horizon_client::ae2_powered_items::component_power_value(stack,"ae2:stored_energy","ae2:stored_energy",0.0)?,max))
+}
+/// EnergyCellBlockItem.getChargeRate.
+fn energy_cell_charge_rate(stack:&ItemStack)->Result<f64,String> {
+    energy_cell_item(stack).map(|(_,rate)|rate).ok_or_else(||"not an energy cell".into())
+}
+/// EnergyCellBlockItem.injectAEPower; returns the accepted AE.
+fn energy_cell_insert(stack:&mut ItemStack,offered:f64)->Result<f64,String> {
+    if !offered.is_finite() || offered<0.0 {return Err("invalid energy amount".into());}
+    let (current,max)=energy_cell_energy(stack)?;
+    let accepted=offered.min((max-current).max(0.0));let stored=current+accepted;
+    // setAECurrentPower drops the component below 0.00001 AE.
+    stack.data_mut().set_other("ae2:stored_energy",(stored>=0.00001).then(||Tag::Double(stored.to_bits())));
+    Ok(accepted)
+}
+/// A standalone Assembler, running the pattern in its own slot, pushes its
+/// output and leftovers out itself (MolecularAssemblerBlockEntity.pushOut
+/// with no pushDirection). A provider's job leaves that slot empty; its CPU
+/// collects output and leftovers, as the provider's return inventory would.
+fn assembler_pushes_out(m:&Machine)->bool {
+    m.slots.get(10).is_some_and(Option::is_some) && !m.config.contains_key(&"ae2_flight_owner".into())
+}
+/// MolecularAssemblerBlockEntity.pushOut: each side in Direction order
+/// (D, U, N, S, W, E) takes what it can (pushTo); the rest stays.
+fn assembler_push_out(mut stack:ItemStack,mut push_to:impl FnMut(horizon_core::geometry::Direction,&ItemStack)->u32)->Option<ItemStack> {
+    for face in horizon_core::geometry::Direction::ALL {
+        if stack.count==0 {break;}
+        stack.count-=push_to(face,&stack).min(stack.count);
+    }
+    (stack.count>0).then_some(stack)
+}
+/// MolecularAssemblerBlockEntity.ejectHeldItems: with the output slot free,
+/// the first grid item the plan does not take in its slot moves there.
+fn assembler_eject_held(m:&mut Machine,valid:impl Fn(&Machine,usize,&ItemStack)->bool)->bool {
+    if m.slots.len()!=11 || m.slots[9].is_some() {return false;}
+    let grid:&Machine=m;
+    let Some(slot)=(0..9).find(|&slot|grid.slots[slot].as_ref().is_some_and(|s|!valid(grid,slot,s))) else{return false};
+    m.slots[9]=m.slots[slot].take();true
 }
 fn consume(slot: &mut Option<ItemStack>) {
     if let Some(s) = slot {
@@ -681,7 +732,7 @@ impl Game<'_> {
                     }
                     m.energy != old
                 }
-                MachineKind::MolecularAssembler => self.ae2_tick_scheduled_assembler(pos, &mut m),
+                MachineKind::MolecularAssembler => self.ae2_tick_scheduled_assembler(pos, &mut m, &original_machine, &mut formation),
                 MachineKind::Charger => {
                     // Source TickRates.Charger is 10 ticks. A chargeable item
                     // takes power from the local buffer first, then the grid.
@@ -692,10 +743,13 @@ impl Game<'_> {
                         if let Some(stack) = m.slots.get_mut(0).and_then(Option::as_mut) {
                             let wireless = super::ae2_wireless::is_wireless(stack);
                             let powered_tool = horizon_client::ae2_powered_items::profile(stack).is_some();
+                            let energy_cell = is_energy_cell_item(stack);
                             let energy = if wireless {
                                 super::ae2_wireless::energy(stack)
                             } else if powered_tool {
                                 horizon_client::ae2_powered_items::energy(stack)
+                            } else if energy_cell {
+                                energy_cell_energy(stack)
                             } else {
                                 super::ae2_interactions::portable_energy(stack)
                             };
@@ -703,6 +757,8 @@ impl Game<'_> {
                                 super::ae2_wireless::charge_rate(stack)
                             } else if powered_tool {
                                 horizon_client::ae2_powered_items::charge_rate(stack)
+                            } else if energy_cell {
+                                energy_cell_charge_rate(stack)
                             } else {
                                 super::ae2_interactions::portable_charge_rate(stack)
                             };
@@ -720,6 +776,8 @@ impl Game<'_> {
                                         )
                                     } else if powered_tool {
                                         horizon_client::ae2_powered_items::transfer(stack, offered, true, false)
+                                    } else if energy_cell {
+                                        energy_cell_insert(stack, offered)
                                     } else {
                                         super::ae2_interactions::portable_insert_energy(
                                             stack, offered, false,
@@ -1024,6 +1082,72 @@ mod tests {
         finish_inscriber(&mut m, r.consume_plates, simple_stack(r.result));
         assert!(m.slots[..3].iter().all(Option::is_none));
         assert_eq!(m.slots[3].as_ref().unwrap().item.as_ref(), r.result);
+    }
+}
+
+#[cfg(test)]
+mod push_out_and_charge_tests {
+    use super::*;
+    use horizon_core::geometry::Direction;
+    fn assembler(pattern:bool)->Machine {
+        let mut m=Machine::new(MachineKind::MolecularAssembler);
+        if pattern {m.slots[10]=Some(simple_stack("ae2:crafting_pattern"));}
+        m
+    }
+    #[test]
+    fn standalone_assembler_pushes_its_output_to_each_side_in_order() {
+        // A CPU's job (no own pattern, or a flight owner) is collected by the CPU.
+        assert!(assembler_pushes_out(&assembler(true)));
+        assert!(!assembler_pushes_out(&assembler(false)));
+        let mut flight=assembler(true);flight.config.insert("ae2_flight_owner".into(),Tag::String("{}".into()));
+        assert!(!assembler_pushes_out(&flight));
+        // MolecularAssemblerBlockEntity.pushOut: D, U, N, S, W, E, each taking what it can.
+        let mut slabs=simple_stack("minecraft:stone_slab");slabs.count=6;
+        let mut offers=Vec::new();
+        let rest=assembler_push_out(slabs.clone(),|face,offered|{offers.push((face,offered.count));match face {Direction::Up=>2,Direction::West=>9,_=>0}});
+        assert_eq!(rest,None);
+        assert_eq!(offers,[(Direction::Down,6),(Direction::Up,6),(Direction::North,4),(Direction::South,4),(Direction::West,4)]);
+        // With no neighbour taking it, the output stays in its slot.
+        assert_eq!(assembler_push_out(slabs.clone(),|_,_|0),Some(slabs));
+    }
+    #[test]
+    fn standalone_assembler_ejects_leftovers_one_at_a_time() {
+        // ejectHeldItems after a cake: the plan takes milk, not the empty buckets.
+        let mut m=assembler(true);
+        for slot in 0..3 {m.slots[slot]=Some(simple_stack("minecraft:bucket"));}
+        m.slots[4]=Some(simple_stack("minecraft:egg"));
+        let valid=|_:&Machine,_:usize,s:&ItemStack|s.item.as_ref()!="minecraft:bucket";
+        m.slots[9]=Some(simple_stack("minecraft:cake"));
+        assert!(!assembler_eject_held(&mut m,valid));
+        for slot in 0..3 {
+            m.slots[9]=None;
+            assert!(assembler_eject_held(&mut m,valid));
+            assert_eq!(m.slots[9],Some(simple_stack("minecraft:bucket")));
+            assert!(m.slots[slot].is_none());
+            assert_eq!(m.slots[..3].iter().flatten().count(),2-slot);
+        }
+        m.slots[9]=None;
+        assert!(!assembler_eject_held(&mut m,valid));
+        assert_eq!(m.slots[4],Some(simple_stack("minecraft:egg")));
+        assert!(m.slots[9].is_none());
+    }
+    #[test]
+    fn charger_fills_energy_cells_at_their_block_rate() {
+        // Platform.isChargeable: EnergyCellBlockItem is an IAEItemPowerStorage with WRITE flow.
+        let mut cell=simple_stack("ae2:energy_cell");let mut dense=simple_stack("ae2:dense_energy_cell");
+        assert!(charger_chargeable(&cell));
+        assert!(charger_chargeable(&dense));
+        // ChargerBlockEntity.doWork: getChargeRate x 10 ticks x chargerChargeRate 1.0.
+        assert_eq!(energy_cell_charge_rate(&cell).unwrap()*10.0,8_000.0);
+        assert_eq!(energy_cell_charge_rate(&dense).unwrap()*10.0,16_000.0);
+        assert_eq!(energy_cell_energy(&cell).unwrap(),(0.0,200_000.0));
+        assert_eq!(energy_cell_insert(&mut cell,8_000.0).unwrap(),8_000.0);
+        assert_eq!(energy_cell_energy(&cell).unwrap(),(8_000.0,200_000.0));
+        assert_eq!(cell.data().unwrap().other("ae2:stored_energy"),Some(&Tag::Double(8_000f64.to_bits())));
+        // injectAEPower keeps only what fits.
+        dense.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(1_590_000f64.to_bits())));
+        assert_eq!(energy_cell_insert(&mut dense,16_000.0).unwrap(),10_000.0);
+        assert_eq!(energy_cell_energy(&dense).unwrap(),(1_600_000.0,1_600_000.0));
     }
 }
 
@@ -1465,7 +1589,7 @@ impl Game<'_> {
             .insert((assembler.0 >> 4, assembler.2 >> 4));
         Ok(())
     }
-    fn ae2_tick_scheduled_assembler(&mut self,pos:(i32,i32,i32),m:&mut Machine)->bool {
+    fn ae2_tick_scheduled_assembler(&mut self,pos:(i32,i32,i32),m:&mut Machine,original:&Machine,plan:&mut super::ae2_buses::FormationPlan)->bool {
         let Some(address)=self.ae2_local_address(pos) else{return false;};let network=self.ae2_network();
         let Some(identity)=network.node_identities.get(&address.network_pos()).copied() else{return false;};
         let services=self.ae2_event_service_ids(&network);let service=services.as_ref().and_then(|s|s.get(&identity)).copied();
@@ -1474,13 +1598,50 @@ impl Game<'_> {
         let Ok(token)=serde_json::to_vec(&fields) else{return false;};if token.len()>1_048_576 {return false;}
         let sleeping=m.slots.iter().take(10).all(Option::is_none) && !m.config.contains_key(&"ae2_assembler_pattern".into());
         let due=self.ae2_device_scheduler.borrow_mut().due_with_token(identity,service,now,1,1,sleeping,&token);
-        if !due{return false;}let changed=self.ae2_tick_assembler(pos,m);
+        if !due{return false;}let changed=self.ae2_tick_assembler(pos,m,original,plan);
         let modulation=if sleeping {super::ae2_tick_tracker::Modulation::Sleep}else{super::ae2_tick_tracker::Modulation::Same};
         self.ae2_device_scheduler.borrow_mut().completed(identity,now,modulation);changed
     }
-    fn ae2_tick_assembler(&mut self, pos: (i32, i32, i32), m: &mut Machine) -> bool {
-        if m.slots.len() != 11 || m.slots[9].is_some() {
+    /// MolecularAssemblerBlockEntity.pushTo: the neighbour on `face` takes
+    /// what it can through its facing side, staged as the Inscriber's export.
+    fn ae2_assembler_push_to(&mut self,pos:(i32,i32,i32),face:horizon_core::geometry::Direction,stack:&ItemStack,original:&Machine,plan:&mut super::ae2_buses::FormationPlan)->u32 {
+        let [dx,dy,dz]=face.normal();
+        let Some(target)=self.ae2_local_address((pos.0+dx,pos.1+dy,pos.2+dz)) else{return 0};
+        let mut offered=stack.clone();let offer=offered.count;
+        horizon_client::ae2_stack_identity::detach_if_tracked(&mut offered);
+        let accepted=match self.ae2_item_p2p_insert(target,face.opposite(),&offered,true) {
+            Some(n)=>n.min(offer),None=>self.ae2_native_item_insert(target,face.opposite(),&offered,offer,true),
+        };
+        if accepted==0{return 0}
+        let before=self.ae2_snapshot_blocks();let previous=plan.len();
+        let moved=match self.ae2_item_p2p_insert_staged(target,face.opposite(),&offered,false,plan) {
+            Some(n)=>n,None=>self.ae2_native_item_insert_staged(target,face.opposite(),&offered,offer,false,plan),
+        };
+        let source_unchanged=matches!(self.world.block_entities.get(&pos),Some(BlockEntity::Ae2(current)) if **current==*original);
+        if moved==0 || moved>offer || !source_unchanged {self.ae2_restore_blocks(before);plan.truncate(previous);return 0}
+        moved
+    }
+    /// MolecularAssemblerBlockEntity.pushOut of the output slot, then
+    /// ejectHeldItems.
+    fn ae2_assembler_push_out(&mut self,pos:(i32,i32,i32),m:&mut Machine,original:&Machine,plan:&mut super::ae2_buses::FormationPlan)->bool {
+        let mut changed=false;
+        if let Some(output)=m.slots[9].clone() {
+            let rest=assembler_push_out(output.clone(),|face,stack|self.ae2_assembler_push_to(pos,face,stack,original,plan));
+            if rest.as_ref()!=Some(&output) {
+                if let Some(rest)=&rest {horizon_client::ae2_stack_identity::synchronize_tracked(rest);}
+                m.slots[9]=rest;changed=true;
+            }
+        }
+        assembler_eject_held(m,|m,slot,stack|self.ae2_assembler_accepts(m,slot,stack)) || changed
+    }
+    fn ae2_tick_assembler(&mut self, pos: (i32, i32, i32), m: &mut Machine, original: &Machine, plan: &mut super::ae2_buses::FormationPlan) -> bool {
+        if m.slots.len() != 11 {
             return false;
+        }
+        if m.slots[9].is_some() {
+            // MolecularAssemblerBlockEntity.tickingRequest: a held output is
+            // pushed out first, then a held item is ejected, and nothing crafts.
+            return assembler_pushes_out(m) && self.ae2_assembler_push_out(pos, m, original, plan);
         }
         let pattern_data = m
             .config
@@ -1527,6 +1688,9 @@ impl Game<'_> {
             m.progress = 0.0;
             m.config.remove(&"ae2_assembler_pattern".into());
             m.config.remove(&"ae2_assembler_fluid_escrow".into());
+            if assembler_pushes_out(m) {
+                self.ae2_assembler_push_out(pos, m, original, plan);
+            }
         }
         true
     }
