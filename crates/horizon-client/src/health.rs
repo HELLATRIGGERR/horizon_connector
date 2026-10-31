@@ -38,6 +38,100 @@ impl Default for HealthRules {
         }
     }
 }
+/// Append mod-owned damage definitions without changing vanilla catalog IDs.
+/// Data-pack tag files are merged into the prepared tag resources.
+fn merge_mod_damage(
+    root: &Path,
+    catalog: &mut serde_json::Value,
+    tags: &mut serde_json::Value,
+) -> Result<()> {
+    fn files(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
+        if !dir.exists() {
+            return Ok(vec![]);
+        }
+        let mut found = Vec::new();
+        let mut pending = vec![dir.to_path_buf()];
+        while let Some(path) = pending.pop() {
+            for entry in fs::read_dir(path)? {
+                let p = entry?.path();
+                if p.is_dir() {
+                    pending.push(p)
+                } else if p.extension().is_some_and(|e| e == "json") {
+                    found.push(p)
+                }
+            }
+        }
+        found.sort();
+        Ok(found)
+    }
+    let namespaces = crate::mod_content::namespaces(root);
+    let types = catalog["types"]
+        .as_array_mut()
+        .ok_or("missing damage definitions")?;
+    let mut known: std::collections::BTreeSet<String> = types
+        .iter()
+        .filter_map(|v| v["id"].as_str().map(str::to_owned))
+        .collect();
+    for ns in &namespaces {
+        let dir = root.join("data").join(ns).join("damage_type");
+        for path in files(&dir)? {
+            let relative = path
+                .strip_prefix(&dir)?
+                .with_extension("")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let id = format!("{ns}:{relative}");
+            if !known.insert(id.clone()) {
+                continue;
+            }
+            let source: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+            let exhaustion = source["exhaustion"]
+                .as_f64()
+                .ok_or("missing damage exhaustion")? as f32;
+            if !exhaustion.is_finite() {
+                return Err("invalid damage exhaustion".into());
+            }
+            types.push(serde_json::json!({"id":id,"message_id":source["message_id"].as_str().ok_or("missing damage message_id")?,"exhaustion":format!("{:08x}",exhaustion.to_bits()),"scaling":source["scaling"].as_str().ok_or("missing damage scaling")?,"effects":source["effects"].as_str().unwrap_or("hurt"),"death_message_type":source["death_message_type"].as_str().unwrap_or("default")}));
+        }
+    }
+    let resources = tags.as_object_mut().ok_or("invalid damage tag resources")?;
+    for ns in crate::mod_content::tag_namespaces(root) {
+        let dir = root.join("data").join(&ns).join("tags/damage_type");
+        for path in files(&dir)? {
+            let relative = path
+                .strip_prefix(&dir)?
+                .with_extension("")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let id = format!("{ns}:{relative}");
+            let incoming: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
+            let mut values = if incoming["replace"].as_bool() == Some(true) {
+                vec![]
+            } else {
+                resources
+                    .get(&id)
+                    .and_then(|v| v.as_str())
+                    .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
+                    .and_then(|v| v["values"].as_array().cloned())
+                    .unwrap_or_default()
+            };
+            values.extend(
+                incoming["values"]
+                    .as_array()
+                    .ok_or("invalid damage tag")?
+                    .iter()
+                    .cloned(),
+            );
+            resources.insert(
+                id,
+                serde_json::Value::String(
+                    serde_json::json!({"replace":false,"values":values}).to_string(),
+                ),
+            );
+        }
+    }
+    Ok(())
+}
 pub struct HealthResources {
     pub damage: Catalog,
     pub ids: PlayerFloatIds,
@@ -53,7 +147,10 @@ impl HealthResources {
                 ids[name].as_u64().ok_or("missing player float ID")?,
             )?)
         };
-        let damage = Catalog::from_json(&read("damage-catalog.json")?, &read("damage-tags.json")?)?;
+        let mut damage_catalog = read("damage-catalog.json")?;
+        let mut damage_tags = read("damage-tags.json")?;
+        merge_mod_damage(root, &mut damage_catalog, &mut damage_tags)?;
+        let damage = Catalog::from_json(&damage_catalog, &damage_tags)?;
         for name in ["minecraft:fall", "minecraft:stalagmite", "minecraft:starve"] {
             if damage.id(name).is_none() {
                 return Err(format!("missing damage type {name}").into());
@@ -817,6 +914,35 @@ impl ServerPlayerHurtWorld for Environment<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mod_damage_definitions_and_tags_preserve_vanilla_ids() {
+        let root = std::env::temp_dir().join(format!("horizon-damage-mod-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("data/ae2/damage_type")).unwrap();
+        std::fs::create_dir_all(root.join("data/minecraft/tags/damage_type")).unwrap();
+        std::fs::write(root.join("horizon-mod-content.json"), r#"["ae2"]"#).unwrap();
+        std::fs::write(root.join("data/ae2/damage_type/matter_cannon.json"),r#"{"exhaustion":0.1,"message_id":"matter_cannon","scaling":"when_caused_by_living_non_player"}"#).unwrap();
+        std::fs::write(
+            root.join("data/minecraft/tags/damage_type/test.json"),
+            r#"{"values":["ae2:matter_cannon"]}"#,
+        )
+        .unwrap();
+        let mut catalog = serde_json::json!({"data_version":horizon_world::DATA_VERSION,"types":[{"id":"minecraft:generic","message_id":"generic","exhaustion":"00000000","scaling":"never","effects":"hurt","death_message_type":"default"}]});
+        let mut tags = serde_json::json!({"minecraft:test":"{\"values\":[\"minecraft:generic\"]}"});
+        super::merge_mod_damage(&root, &mut catalog, &mut tags).unwrap();
+        let c = horizon_world::damage_source::Catalog::from_json(&catalog, &tags).unwrap();
+        let vanilla = c.id("minecraft:generic").unwrap();
+        let ae2 = c.id("ae2:matter_cannon").unwrap();
+        assert_eq!(c.entries().next().unwrap().0, vanilla);
+        let d = c.definition(ae2).unwrap();
+        assert_eq!(d.exhaustion.to_bits(), 0.1f32.to_bits());
+        assert_eq!(
+            d.scaling,
+            horizon_world::damage_source::Scaling::LivingNonPlayer
+        );
+        assert!(c.in_tag(vanilla, "minecraft:test") && c.in_tag(ae2, "minecraft:test"));
+        let _ = std::fs::remove_dir_all(root);
+    }
     #[test]
     fn a_hit_in_the_hurt_cooldown_knocks_nobody_back() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

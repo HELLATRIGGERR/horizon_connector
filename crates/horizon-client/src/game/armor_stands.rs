@@ -486,6 +486,10 @@ impl Game<'_> {
         if !self.before_block(d) || self.mob_hit().is_some_and(|m| m.1 < d) {
             return false;
         }
+        self.hurt_armor_stand_at(i)
+    }
+    /// ArmorStand.hurtServer's player-attack branch, including zero damage.
+    pub(super) fn hurt_armor_stand_at(&mut self, i: usize) -> bool {
         let time = self.world.game_time;
         let at = self.armor_stands[i].position;
         let at = [at.x, at.y, at.z];
@@ -527,6 +531,18 @@ impl Game<'_> {
             .modified
             .insert(((at[0].floor() as i32) >> 4, (at[2].floor() as i32) >> 4));
         true
+    }
+    /// An explosion takes ArmorStand.brokenByAnything, not the two-hit
+    /// player branch: equipment drops, but the stand item itself does not.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn ae2_explode_armor_stand_at(&mut self, i: usize) {
+        if self.armor_stands[i].marker { return; }
+        let stand=self.armor_stands.remove(i);
+        let at=[stand.position.x,stand.position.y,stand.position.z];
+        let (pos,drops)=burnt_armor_stand_equipment(stand);
+        if self.ui.rules.bool("entity_drops") { for stack in drops {self.pop_resource(pos,stack);} }
+        self.audio.play("minecraft:entity.armor_stand.break",Some(at),1.0,1.0);
+        self.world.modified.insert((pos[0] >> 4,pos[2] >> 4));
     }
     pub(super) fn tick_armor_stands(&mut self) {
         let mut scene = horizon_client::collisions::SceneCollisions {

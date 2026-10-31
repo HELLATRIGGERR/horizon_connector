@@ -216,6 +216,29 @@ properties and shapes the new block takes, and overrides what differs:
 }
 ```
 
+A declaration can instead define its own state properties and defaults:
+
+```json
+{
+  "template": "minecraft:iron_block",
+  "state_properties": { "facing": ["north", "south", "west", "east"], "formed": ["false", "true"] },
+  "state_defaults": { "facing": "north", "formed": "false" }
+}
+```
+
+Horizon registers the Cartesian product, up to 4096 states per block. Values and defaults are
+strings; every property needs a valid default. Facts, model-state schemas, render IDs, save and
+network state IDs, and collision table entries include each combination. Cardinal `facing`,
+`forward` and `up` properties participate in structure rotation and mirroring. Each state
+inherits the template's **default** behavior and collision shape unless `collision_boxes` provides
+one normalized cuboid per partial state selector, for example
+`"collision_boxes": { "facing=east": [0, 0.1875, 0.1875, 0.6875, 0.8125, 0.8125] }`.
+`"*"` supplies a fallback; the most specific matching selector wins. These cuboids supply both
+native collision and outline data. `light_emission` uses the same selectors with values from 0
+through 15, for example `"light_emission": {"*": 0, "formed=true": 12}`. The selected
+emission participates in the native block-light engine. Multiple-box unions, dynamically generated multipart models
+and non-cardinal property transformations require native implementations. The content mod must provide matching blockstate/model assets.
+
 Most decoration and resource blocks are vanilla classes with other numbers: Macaw's doors are
 `DoorBlock`s, XTones are full cubes, ore sets are `DropExperienceBlock`s. So templates cover the
 data tier without code. Templates also give mod blocks every behaviour Horizon already

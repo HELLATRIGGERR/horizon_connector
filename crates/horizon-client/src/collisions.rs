@@ -294,6 +294,11 @@ impl<'w> BlockCollisionWorld for SceneCollisions<'w, '_> {
         p: BlockPos,
         context: &CollisionContext<'_>,
     ) -> io::Result<VoxelShape> {
+        if let Some((state, shape, _)) = self.world.dynamic_shapes.get(&(p.x, p.y, p.z))
+            && *state == block.state
+        {
+            return Ok(shape.clone());
+        }
         self.binding
             .collision_shape_with_context(self, block.state, p, context)
             .map_err(io::Error::other)

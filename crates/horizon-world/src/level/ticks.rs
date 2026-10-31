@@ -12,6 +12,7 @@ use horizon_core::{
 /// Owned by the caller next to its chunk storage. Chunks must be registered
 /// with [`Ticks::add_chunk`] before ticks can be scheduled in them, mirroring
 /// vanilla's `LevelTicks.allContainers` (scheduling elsewhere is dropped).
+#[derive(Clone)]
 pub struct Ticks {
     /// Block ticks keyed by `BlockId` (vanilla Block registry ID).
     pub blocks: LevelTicks,

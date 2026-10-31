@@ -23,6 +23,8 @@ fn int_of(t: &Tag) -> Option<i64> {
 }
 /// The codecs of the item components commands commonly set.
 pub fn decode_component(id: &str, t: &Tag) -> Result<(), String> {
+    #[cfg(feature = "ae2-lab")]
+    if crate::ae2_components::is_known(id) { return crate::ae2_components::validate(id, t); }
     match id {
         "minecraft:damage" | "minecraft:repair_cost" => {
             let v = int_of(t).ok_or("Not a number")?;
@@ -212,7 +214,10 @@ impl ItemState<'_, '_> {
                 self.reader.skip_whitespace();
                 let cursor = self.reader.cursor;
                 let tag = super::snbt::parse_tag_argument(self.reader)?;
-                if let Err(m) = decode_component(&ty, &tag) {
+                let decoded=decode_component(&ty,&tag);
+                #[cfg(feature = "ae2-lab")]
+                let decoded=decoded.and_then(|()|if crate::ae2_components::is_known(&ty){crate::ae2_components::validate_registered(&ty,&tag,self.reg)}else{Ok(())});
+                if let Err(m) = decoded {
                     self.reader.cursor = cursor;
                     return Err(CommandError::tr_at(
                         "arguments.item.component.malformed",

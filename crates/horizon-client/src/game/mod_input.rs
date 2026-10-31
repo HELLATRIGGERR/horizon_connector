@@ -20,8 +20,14 @@ impl Game<'_> {
     pub(super) fn mod_use(&mut self, _button: MouseButton, _pressed: bool) -> bool {
         false
     }
-    pub(super) fn mod_key(&mut self, _key: KeyCode, _pressed: bool, _repeat: bool) {}
-    pub(super) fn mod_mouse_key(&mut self, _button: MouseButton, _pressed: bool) {}
+    pub(super) fn mod_key(&mut self, _key: KeyCode, _pressed: bool, _repeat: bool) {
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_hotkey_key(_key, _pressed, _repeat);
+    }
+    pub(super) fn mod_mouse_key(&mut self, _button: MouseButton, _pressed: bool) {
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_hotkey_mouse(_button, _pressed);
+    }
     pub(super) fn mod_wheel(&mut self, _steps: f32) -> bool {
         false
     }
@@ -108,6 +114,8 @@ impl Game<'_> {
     /// screen) is its `key-down` / `key-up`. Vanilla's mapping on the same
     /// key still runs.
     pub(super) fn mod_key(&mut self, key: KeyCode, pressed: bool, repeat: bool) {
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_hotkey_key(key, pressed, repeat);
         if repeat || !self.mods.mods.has_keys() {
             return;
         }
@@ -121,6 +129,8 @@ impl Game<'_> {
     /// A mouse button while playing: a mod's key bound to it
     /// (`key.mouse.4`...), as `mod_key`.
     pub(super) fn mod_mouse_key(&mut self, button: MouseButton, pressed: bool) {
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_hotkey_mouse(button, pressed);
         if self.mods.mods.has_keys() {
             let name = horizon_client::keybinds::mouse_name(button);
             self.mods.mods.key(&name, pressed);

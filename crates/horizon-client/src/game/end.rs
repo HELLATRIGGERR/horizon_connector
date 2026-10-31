@@ -207,6 +207,11 @@ impl Game<'_> {
             Dim::Overworld => self.res.environment(),
             Dim::Nether => self.res.nether_environment(),
             Dim::End => self.res.end_environment(),
+            #[cfg(feature = "ae2-lab")]
+            Dim::Spatial => {
+                static SPATIAL:std::sync::OnceLock<Environment>=std::sync::OnceLock::new();
+                SPATIAL.get_or_init(Environment::ae2_spatial)
+            },
         }
     }
 

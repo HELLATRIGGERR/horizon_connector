@@ -229,6 +229,112 @@ struct NewBlock<'a> {
     rename: Rename,
     /// The template's item, if it has one.
     item: Option<String>,
+    custom_states: Option<Vec<BTreeMap<String, String>>>,
+    custom_default: usize,
+}
+impl NewBlock<'_> {
+    fn state_count(&self) -> usize {
+        self.custom_states
+            .as_ref()
+            .map_or(self.rename.states.len(), Vec::len)
+    }
+    fn collision_box(&self, index: usize) -> Option<[f64; 6]> {
+        self.selected_box(index,&self.decl.collision_boxes)
+    }
+    fn outline_box(&self,index:usize)->Option<[f64;6]> {
+        self.selected_box(index,&self.decl.outline_boxes).or_else(||self.collision_box(index))
+    }
+    fn selected_box(&self,index:usize,boxes:&BTreeMap<String,[f64;6]>)->Option<[f64;6]> {
+        let state = self.custom_states.as_ref().and_then(|s| s.get(index));
+        boxes
+            .iter()
+            .filter_map(|(selector, bounds)| {
+                if selector == "*" {
+                    return Some((0, *bounds));
+                }
+                let state = state?;
+                let pairs = selector
+                    .split(',')
+                    .map(|part| part.split_once('='))
+                    .collect::<Option<Vec<_>>>()?;
+                pairs
+                    .iter()
+                    .all(|(k, v)| state.get(*k).is_some_and(|x| x == v))
+                    .then_some((pairs.len(), *bounds))
+            })
+            .max_by_key(|(specificity, _)| *specificity)
+            .map(|(_, bounds)| bounds)
+    }
+    fn emission(&self, index: usize) -> Option<u8> {
+        self.selected_light(index, &self.decl.light_emission)
+    }
+    fn selected_light(&self, index: usize, values: &BTreeMap<String,u8>) -> Option<u8> {
+        let state = self.custom_states.as_ref().and_then(|s| s.get(index));
+        values.iter()
+            .filter_map(|(selector, light)| {
+                if selector == "*" {
+                    return Some((0, *light));
+                }
+                let pairs = selector
+                    .split(',')
+                    .map(|p| p.split_once('='))
+                    .collect::<Option<Vec<_>>>()?;
+                pairs
+                    .iter()
+                    .all(|(k, v)| state.and_then(|s| s.get(*k)).is_some_and(|x| x == v))
+                    .then_some((pairs.len(), *light))
+            })
+            .max_by_key(|(n, _)| *n)
+            .map(|(_, light)| light)
+    }
+    fn template_id(&self, index: usize) -> u32 {
+        if self.custom_states.is_some() {
+            self.rename.states.start
+        } else {
+            self.rename.states.start + index as u32
+        }
+    }
+}
+fn cartesian_states(properties: &BTreeMap<String, Vec<String>>) -> Vec<BTreeMap<String, String>> {
+    let mut states = vec![BTreeMap::new()];
+    for (name, values) in properties {
+        let mut next = Vec::new();
+        for state in states {
+            for value in values {
+                let mut state = state.clone();
+                state.insert(name.clone(), value.clone());
+                next.push(state);
+            }
+        }
+        states = next;
+    }
+    states
+}
+fn transformed_custom_state(
+    block: &NewBlock<'_>,
+    index: usize,
+    operation: &str,
+    amount: usize,
+) -> u32 {
+    let states = block.custom_states.as_ref().expect("custom states");
+    let mut props = states[index].clone();
+    for key in ["facing", "forward", "up"] {
+        let Some(value) = props.get_mut(key) else {
+            continue;
+        };
+        let dirs = ["north", "east", "south", "west"];
+        let Some(at) = dirs.iter().position(|d| *d == value) else {
+            continue;
+        };
+        let next = match operation {
+            "rotate" => (at + [1, 2, 3][amount]) % 4,
+            "mirror" if amount == 0 => (6 - at) % 4,
+            "mirror" => (4 - at) % 4,
+            _ => at,
+        };
+        *value = dirs[next].into();
+    }
+    block.rename.first + states.iter().position(|s| *s == props).unwrap_or(index) as u32
 }
 /// An item being added (declared, or a block's).
 struct NewItem {
@@ -297,10 +403,24 @@ impl<'a> Plan<'a> {
                 let states = range(&decl.template).ok_or_else(|| {
                     format!("{}: template {} is not a block", decl.id, decl.template)
                 })?;
+                let custom_states = (!decl.state_properties.is_empty())
+                    .then(|| cartesian_states(&decl.state_properties));
+                let custom_default = custom_states
+                    .as_ref()
+                    .and_then(|s| s.iter().position(|v| v == &decl.state_defaults))
+                    .unwrap_or(0);
                 let mut rename = Rename::new(&decl.template, &decl.id);
                 rename.first = next;
-                next += states.len() as u32;
-                rename.states = states;
+                let count = custom_states.as_ref().map_or(states.len(), Vec::len);
+                next = next
+                    .checked_add(count as u32)
+                    .ok_or("block state count overflow")?;
+                rename.states = if custom_states.is_some() {
+                    let id = defaults[&decl.template];
+                    id..id + 1
+                } else {
+                    states
+                };
                 if let Some(s) = &decl.properties.sounds {
                     if !defaults.contains_key(s) {
                         return Err(format!("{}: sounds {s} is not a block", decl.id).into());
@@ -311,6 +431,8 @@ impl<'a> Plan<'a> {
                     decl,
                     rename,
                     item: None,
+                    custom_states,
+                    custom_default,
                 });
             }
         }
@@ -319,7 +441,7 @@ impl<'a> Plan<'a> {
             for b in &blocks {
                 *by_mod
                     .entry(&b.decl.id[..b.decl.id.find(':').unwrap_or(0)])
-                    .or_default() += b.rename.states.len() as u32;
+                    .or_default() += b.state_count() as u32;
             }
             let list: Vec<String> = by_mod.iter().map(|(m, n)| format!("{m} {n}")).collect();
             return Err(format!(
@@ -392,16 +514,79 @@ impl<'a> Plan<'a> {
 
     /// Appends each new block's copies of the template's states to `list`;
     /// `gameplay` rows get their index and the declared overrides.
-    fn states(&self, list: &mut Vec<J>, ids: bool, gameplay: bool) -> Result<()> {
+    fn states(&self, list: &mut Vec<J>, ids: bool, gameplay: bool, table: &str) -> Result<()> {
         if list.len() != self.states {
             return Err(format!("{} states, not {}", list.len(), self.states).into());
         }
         for b in &self.blocks {
             let renames = self.renames(b);
-            for (i, id) in b.rename.states.clone().enumerate() {
-                let mut row = list[id as usize].clone();
+            for i in 0..b.state_count() {
+                let mut row = list[b.template_id(i) as usize].clone();
                 for r in &renames {
                     row.rename(r, ids);
+                }
+                if table == "facts.json"
+                    && let Some(custom) = &b.custom_states
+                {
+                    // facts.json carries the canonical name and properties in
+                    // each row. Other tables copy the chosen template behavior.
+                    if let J::Arr(parts) = &mut row {
+                        if let Some(value) = custom[i].get("waterlogged") {
+                            if let Some(fluid) = parts.get_mut(2) {
+                                *fluid = J::Bool(value == "true");
+                            }
+                        }
+                        if let Some(J::Str(name)) = parts.get_mut(3) {
+                            let values = custom[i]
+                                .iter()
+                                .map(|(k, v)| format!("{k}={v}"))
+                                .collect::<Vec<_>>()
+                                .join(",");
+                            *name = format!("Block{{{}}}[{}]", b.decl.id, values);
+                        }
+                        if let Some(J::Obj(fields)) = parts.get_mut(4) {
+                            fields.retain(|(k, _)| k != "properties");
+                            fields.push((
+                                "properties".into(),
+                                J::Obj(
+                                    custom[i]
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), J::Str(v.clone())))
+                                        .collect(),
+                                ),
+                            ));
+                        }
+                    }
+                }
+                if let Some(waterlogged) = b
+                    .custom_states
+                    .as_ref()
+                    .and_then(|states| states[i].get("waterlogged"))
+                {
+                    let water = waterlogged == "true";
+                    if let J::Arr(parts) = &mut row {
+                        match table {
+                            "block-behaviours.json" if parts.len() > 4 => {
+                                parts[2] = J::Num((if water { 2 } else { 0 }).into());
+                                parts[3] = J::Num((if water { 8 } else { 0 }).into());
+                                parts[4] = J::Bool(false);
+                            }
+                            "worldgen/block_flags.json" if parts.len() > 1 => {
+                                parts[1] = J::Bool(water)
+                            }
+                            _ => {}
+                        }
+                    }
+                    if gameplay && water {
+                        row.set("skylight_down", J::Bool(false));
+                        // A non-occluding, non-colliding waterlogged fixture
+                        // attenuates by one, just like vanilla lanterns.
+                        if b.decl.properties.no_occlusion == Some(true)
+                            && b.decl.properties.no_collision == Some(true)
+                        {
+                            row.set("dampening", J::Num(1u8.into()));
+                        }
+                    }
                 }
                 if gameplay {
                     row.set("id", J::Num((b.rename.first + i as u32).into()));
@@ -409,6 +594,56 @@ impl<'a> Plan<'a> {
                         row.set("item", J::Str("minecraft:air".into()));
                     }
                     self.override_gameplay(b, &mut row);
+                    if let Some(light) = b.emission(i) {
+                        row.set("emission", J::Num(light.into()));
+                    }
+                    if let Some(light) = b.selected_light(i,&b.decl.light_dampening_states) {
+                        row.set("dampening", J::Num(light.into()));
+                    }
+                    if b.decl.properties.outline_empty==Some(true) {
+                        row.set("outline",J::Arr(vec![]));row.set("outline_edges",J::Arr(vec![]));
+                    } else if let Some(bounds) = b.outline_box(i) {
+                        row.set(
+                            "outline",
+                            J::Arr(vec![J::Arr(bounds.iter().map(|v| J::f64(*v)).collect())]),
+                        );
+                        let mut edges = Vec::new();
+                        for axis in 0..3 {
+                            for a in 0..2 {
+                                for c in 0..2 {
+                                    let other: Vec<_> = (0..3).filter(|&v| v != axis).collect();
+                                    let mut from = [0.0; 3];
+                                    let mut to = [0.0; 3];
+                                    from[axis] = bounds[axis];
+                                    to[axis] = bounds[axis + 3];
+                                    from[other[0]] = bounds[other[0] + 3 * a];
+                                    to[other[0]] = from[other[0]];
+                                    from[other[1]] = bounds[other[1] + 3 * c];
+                                    to[other[1]] = from[other[1]];
+                                    edges.push(J::Arr(
+                                        from.into_iter().chain(to).map(J::f64).collect(),
+                                    ));
+                                }
+                            }
+                        }
+                        row.set("outline_edges", J::Arr(edges));
+                    }
+                    if b.decl.properties.no_collision==Some(true) || b.collision_box(i).is_some() {row.set("full_collision",J::Bool(false));}
+                    if b.decl.properties.no_occlusion==Some(true) || b.collision_box(i).is_some() {
+                        row.set("can_occlude",J::Bool(false));row.set("solid_render",J::Bool(false));
+                    }
+                    // Collision geometry and Java's canOcclude property are
+                    // independent (e.g. a certus bud has a partial shape but
+                    // does not call noOcclusion).
+                    if let Some(v)=b.decl.properties.can_occlude { row.set("can_occlude",J::Bool(v)); }
+                }
+                if table=="block-behaviours.json" && let J::Arr(parts)=&mut row && parts.len()>1 && let J::Num(n)=&parts[1] && let Some(mut flags)=n.as_u64() {
+                    if b.decl.properties.no_collision==Some(true){flags|=1<<5;}
+                    if b.decl.properties.no_support==Some(true) {parts[0]=J::Num(0u8.into());}
+                    if let Some(conductor)=b.decl.properties.redstone_conductor {if conductor {flags|=1<<2;}else {flags&=!(1<<2);}}
+                    if let Some(solid)=b.decl.properties.solid {if solid {flags|=1;} else {flags&=!1;}}
+                    if let Some(suffocating)=b.decl.properties.suffocating {if suffocating {flags|=1<<6;} else {flags&=!(1<<6);}}
+                    parts[1]=J::Num(flags.into());
                 }
                 list.push(row);
             }
@@ -418,7 +653,29 @@ impl<'a> Plan<'a> {
 
     /// The declared properties, on a gameplay row.
     fn override_gameplay(&self, b: &NewBlock, row: &mut J) {
+        #[cfg(feature = "ae2-lab")]
+        if b.decl.id.starts_with("ae2:") && b.decl.id.ends_with("_budding_quartz") {
+            row.set("random_ticks", J::Bool(true));
+        }
+        // AE2's native machines are block entities even when their visual
+        // content declaration inherits an iron block template. The world
+        // engine uses this flag to run removal side effects on every path.
+        #[cfg(feature = "ae2-lab")]
+        if crate::ae2_world::MachineKind::from_id(&b.decl.id).is_some() {
+            row.set("block_entity", J::Bool(true));
+        }
+        // These source blocks explicitly return two from getLightBlock.
+        #[cfg(feature = "ae2-lab")]
+        if matches!(b.decl.id.as_str(), "ae2:tiny_tnt" | "ae2:inscriber") {
+            row.set("dampening", J::Num(2u8.into()));
+            row.set("skylight_down", J::Bool(false));
+        }
         let p = &b.decl.properties;
+        if let Some(v)=p.random_ticks {row.set("random_ticks",J::Bool(v));}
+        if let Some(v)=p.replaceable {row.set("replaceable",J::Bool(v));}
+        if let Some(v)=p.skylight_down {row.set("skylight_down",J::Bool(v));}
+        if let Some(v)=p.light_dampening {row.set("dampening",J::Num(v.into()));}
+        if let Some(v)=&p.push_reaction {row.set("push",J::Str(v.clone()));}
         if let Some(v) = p.hardness {
             row.set("hardness", J::f64(v as f64));
         }
@@ -466,6 +723,35 @@ impl<'a> Plan<'a> {
             let mut v = v.clone();
             v.rename(&i.rename, false);
             if components {
+                #[cfg(feature = "ae2-lab")]
+                if matches!(i.rename.to.as_str(), "ae2:certus_quartz_cutting_knife" | "ae2:nether_quartz_cutting_knife") {
+                    v.set("minecraft:max_stack_size", J::Num(1u8.into()));
+                    v.set("minecraft:max_damage", J::Num(50u8.into()));
+                    v.set("minecraft:damage", J::Num(0u8.into()));
+                }
+                // FluixToolType: iron's mining level with 3x durability,
+                // 1.2x speed and +0.4 attack damage. Write actual components
+                // so networked clients observe the same defaults as the host.
+                #[cfg(feature = "ae2-lab")]
+                if matches!(i.rename.to.as_str(), "ae2:fluix_axe" | "ae2:fluix_hoe" | "ae2:fluix_pickaxe" | "ae2:fluix_shovel" | "ae2:fluix_sword") {
+                    v.set("minecraft:max_damage", J::Num(750u32.into()));
+                    if let Some(J::Arr(modifiers)) = v.get_mut("minecraft:attribute_modifiers") {
+                        for modifier in modifiers {
+                            if modifier.get("type") == Some(&J::Str("minecraft:attack_damage".into())) {
+                                if let Some(J::Num(amount)) = modifier.get("amount") {
+                                    if let Some(amount) = amount.as_f64() { modifier.set("amount", J::f64(amount + 0.4)); }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(J::Arr(rules)) = v.at("minecraft:tool/rules") {
+                        for rule in rules {
+                            if let Some(J::Num(speed)) = rule.get("speed") {
+                                if speed.as_f64().is_some_and(|n| (n - 6.0).abs() < 0.001) { rule.set("speed", J::f64(7.2)); }
+                            }
+                        }
+                    }
+                }
                 if let Some(n) = i.max_stack_size {
                     v.set("minecraft:max_stack_size", J::Num(n.into()));
                 }
@@ -487,7 +773,7 @@ impl<'a> Plan<'a> {
     fn json(&self, name: &str, doc: &mut J) -> Result<()> {
         let states = |doc: &mut J, path: &str, ids: bool, gameplay: bool| -> Result<()> {
             match doc.at(path) {
-                Some(J::Arr(a)) => self.states(a, ids, gameplay),
+                Some(J::Arr(a)) => self.states(a, ids, gameplay, name),
                 _ => Err(format!("no list at /{path}").into()),
             }
         };
@@ -497,7 +783,11 @@ impl<'a> Plan<'a> {
                 let defaults = doc.at("defaults").ok_or("no defaults")?;
                 for b in &self.blocks {
                     let default = self.defaults[&b.decl.template];
-                    let id = b.rename.id(default).ok_or("a default outside its block")?;
+                    let id = if b.custom_states.is_some() {
+                        b.rename.first + b.custom_default as u32
+                    } else {
+                        b.rename.id(default).ok_or("a default outside its block")?
+                    };
                     defaults.set(&b.decl.id, J::Num(id.into()));
                 }
             }
@@ -518,6 +808,14 @@ impl<'a> Plan<'a> {
                         if !b.decl.item {
                             v.set("item", J::Str("minecraft:air".into()));
                         }
+                        if b.decl.state_properties.contains_key("waterlogged") {
+                            if let Some(J::Arr(interfaces)) = v.get_mut("interfaces") {
+                                interfaces.push(J::Str("SimpleWaterloggedBlock".into()));
+                            }
+                            if let Some(fields) = v.get_mut("fields") {
+                                fields.set("scheduleFluidTicks", J::Bool(true));
+                            }
+                        }
                         blocks.push(v);
                     }
                 }
@@ -528,10 +826,68 @@ impl<'a> Plan<'a> {
                     }
                 }
             }
-            "model-states.json"
-            | "landing-definitions.json"
-            | "worldgen/blocks/survival-rules.json" => self.names(doc, false),
-            "render-definitions.json" => self.names(doc, true),
+            "model-states.json" => {
+                self.names(doc, false);
+                for b in &self.blocks {
+                    if let Some(states) = &b.custom_states {
+                        let schema = J::Obj(
+                            b.decl
+                                .state_properties
+                                .iter()
+                                .map(|(k, values)| {
+                                    (
+                                        k.clone(),
+                                        J::Obj(vec![(
+                                            "named".into(),
+                                            J::Arr(values.iter().cloned().map(J::Str).collect()),
+                                        )]),
+                                    )
+                                })
+                                .collect(),
+                        );
+                        let states = J::Arr(
+                            states
+                                .iter()
+                                .map(|v| {
+                                    J::Obj(
+                                        v.iter()
+                                            .map(|(k, v)| (k.clone(), J::Str(v.clone())))
+                                            .collect(),
+                                    )
+                                })
+                                .collect(),
+                        );
+                        doc.set(
+                            &b.decl.id,
+                            J::Obj(vec![("schema".into(), schema), ("states".into(), states)]),
+                        );
+                    }
+                }
+            }
+            "landing-definitions.json" | "worldgen/blocks/survival-rules.json" => {
+                self.names(doc, false)
+            }
+            "render-definitions.json" => {
+                self.names(doc, true);
+                for b in &self.blocks {
+                    if b.custom_states.is_some() {
+                        if let Some(v) = doc.get_mut(&b.decl.id) {
+                            v.set(
+                                "states",
+                                J::Arr(
+                                    (0..b.state_count())
+                                        .map(|i| J::Num((b.rename.first + i as u32).into()))
+                                        .collect(),
+                                ),
+                            );
+                            v.set(
+                                "default",
+                                J::Num((b.rename.first + b.custom_default as u32).into()),
+                            );
+                        }
+                    }
+                }
+            }
             "worldgen/blocks/survival-extra-definitions.json" => {
                 if let Some(map) = doc.at("ignition_odds") {
                     self.names(map, false);
@@ -591,7 +947,25 @@ impl<'a> Plan<'a> {
                 for key in ["rotate", "mirror", "full_block"] {
                     states(doc, key, true, false)?;
                 }
-                let added: usize = self.blocks.iter().map(|b| b.rename.states.len()).sum();
+                for (key, count) in [("rotate", 3usize), ("mirror", 2usize)] {
+                    let Some(J::Arr(rows)) = doc.at(key) else {
+                        return Err(format!("no {key} rows").into());
+                    };
+                    for b in &self.blocks {
+                        if b.custom_states.is_some() {
+                            for i in 0..b.state_count() {
+                                rows[(b.rename.first as usize) + i] = J::Arr(
+                                    (0..count)
+                                        .map(|n| {
+                                            J::Num(transformed_custom_state(b, i, key, n).into())
+                                        })
+                                        .collect(),
+                                );
+                            }
+                        }
+                    }
+                }
+                let added: usize = self.blocks.iter().map(|b| b.state_count()).sum();
                 doc.set("states", J::Num(((self.states + added) as u64).into()));
             }
             _ => return Err("no rule for this table".into()),
@@ -601,18 +975,64 @@ impl<'a> Plan<'a> {
 
     /// One NBT table: `states` lists, `cached_shapes` arrays and `blocks`
     /// compounds, wherever they are.
-    fn nbt(&self, tag: &mut Tag) {
+    fn nbt(&self, tag: &mut Tag, collision: bool) {
         let Tag::Compound(c) = tag else {
             return;
         };
+        // Append explicit single-box collision shapes, then refer to their
+        // IDs from each corresponding custom state.
+        let mut explicit = BTreeMap::new();
+        if collision && c.contains_key(&JavaString::from("cached_shapes")) {
+            if let Some(Tag::List(shapes)) = c.get_mut(&JavaString::from("shapes")) {
+                for b in &self.blocks {
+                    for i in 0..b.state_count() {
+                        if let Some(bounds) = b.collision_box(i) {
+                            let id = shapes.len() as i32;
+                            let axis = |i: usize| {
+                                Tag::LongArray(vec![
+                                    bounds[i].to_bits() as i64,
+                                    bounds[i + 3].to_bits() as i64,
+                                ])
+                            };
+                            shapes.push(Tag::compound([
+                                ("canonical", Tag::Byte(0)),
+                                ("x", axis(0)),
+                                ("y", axis(1)),
+                                ("z", axis(2)),
+                                ("occupied", Tag::ByteArray(vec![1])),
+                                ("cube_axes", Tag::Byte(0)),
+                                ("cube", Tag::Byte(0)),
+                                ("discrete_min", Tag::IntArray(vec![0, 0, 0])),
+                                ("discrete_max", Tag::IntArray(vec![1, 1, 1])),
+                            ]));
+                            explicit.insert((b.rename.first, i), id);
+                        }
+                    }
+                }
+            }
+        }
         for (key, value) in c.iter_mut() {
             match (key.to_string_lossy().as_str(), value) {
                 ("states", Tag::List(list)) if list.len() == self.states => {
                     for b in &self.blocks {
-                        for id in b.rename.states.clone() {
-                            let mut state = list[id as usize].clone();
+                        for i in 0..b.state_count() {
+                            let mut state = list[b.template_id(i) as usize].clone();
                             if let Some(slot) = state.get_mut("id") {
                                 *slot = Tag::String(b.decl.id.as_str().into());
+                            }
+                            if let Some(custom) = &b.custom_states {
+                                if let Tag::Compound(fields) = &mut state {
+                                    let props = custom[i]
+                                        .iter()
+                                        .map(|(k, v)| {
+                                            (
+                                                JavaString::from(k.as_str()),
+                                                Tag::String(v.as_str().into()),
+                                            )
+                                        })
+                                        .collect();
+                                    fields.insert("properties".into(), Tag::Compound(props));
+                                }
                             }
                             list.push(state);
                         }
@@ -620,8 +1040,15 @@ impl<'a> Plan<'a> {
                 }
                 ("cached_shapes", Tag::IntArray(a)) if a.len() == self.states => {
                     for b in &self.blocks {
-                        let r = &b.rename.states;
-                        let copy = a[r.start as usize..r.end as usize].to_vec();
+                        let copy = (0..b.state_count())
+                            .map(|i| {
+                                if b.decl.properties.no_collision==Some(true) {return a[self.defaults["minecraft:air"] as usize];}
+                                explicit
+                                    .get(&(b.rename.first, i))
+                                    .copied()
+                                    .unwrap_or(a[b.template_id(i) as usize])
+                            })
+                            .collect::<Vec<_>>();
                         a.extend(copy);
                     }
                 }
@@ -641,7 +1068,7 @@ impl<'a> Plan<'a> {
                         map.insert(b.decl.id.as_str().into(), v);
                     }
                 }
-                (_, inner @ Tag::Compound(_)) => self.nbt(inner),
+                (_, inner @ Tag::Compound(_)) => self.nbt(inner, collision),
                 _ => {}
             }
         }
@@ -1059,7 +1486,7 @@ fn tables(base: &Path, plan: &Plan, overlay: &Overlay<'_>) -> Result<()> {
         } else {
             let (mut named, _) = nbt::read_named(&fs::read(&path)?, Limits::tables())
                 .map_err(|e| format!("{name}: {e}"))?;
-            plan.nbt(&mut named.tag);
+            plan.nbt(&mut named.tag, name.ends_with("cached-collision.nbt"));
             nbt::write_named(&named, Limits::tables()).map_err(|e| format!("{name}: {e}"))?
         };
         overlay.write(name, &bytes)

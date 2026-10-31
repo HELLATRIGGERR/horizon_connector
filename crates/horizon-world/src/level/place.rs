@@ -47,6 +47,15 @@ pub enum PlaceOutcome {
     Failed,
 }
 
+/// A successful primary BlockItem write, before item state/BE components and
+/// Block.setPlacedBy. The host must finish it after importing the physical item.
+#[derive(Clone, Copy, Debug)]
+pub struct PendingPlacement {
+    pub pos: BlockPos,
+    pub state: BlockStateId,
+    expected: BlockStateId,
+}
+
 /// `BlockPlaceContext` after resolving the replaced position.
 #[derive(Clone, Debug)]
 pub(crate) struct Ctx {
@@ -60,6 +69,8 @@ pub(crate) struct Ctx {
     pub sneaking: bool,
     pub item: String,
     pub replace_clicked: bool,
+    /// AE2 PlaneDirectionalPlaceContext override; ordinary players use None.
+    pub plane_look: Option<Direction>,
 }
 
 /// `Direction.orderedByNearest(entity)`.
@@ -132,11 +143,27 @@ fn rotation_segment_of(direction: Direction) -> i32 {
     }
 }
 
+/// The exact pinned PlaneDirectionalPlaceContext order, independent of the
+/// fake player's yaw/pitch. Its nearest direction is always DOWN.
+fn plane_looking_directions(look: Direction) -> [Direction; 6] {
+    use Direction::*;
+    match look {
+        Up => [Down, Up, North, East, South, West],
+        North => [Down, North, East, West, Up, South],
+        South => [Down, South, East, West, Up, North],
+        West => [Down, West, South, Up, North, East],
+        East => [Down, East, South, Up, North, West],
+        Down => [Down, North, East, South, West, Up],
+    }
+}
+
 impl Ctx {
     fn horizontal_direction(&self) -> Direction {
-        from_y_rot(f64::from(self.yaw))
+        self.plane_look.map(|direction| if is_horizontal(direction) { direction } else { Direction::North })
+            .unwrap_or_else(|| from_y_rot(f64::from(self.yaw)))
     }
     fn nearest_looking_directions(&self) -> [Direction; 6] {
+        if let Some(direction) = self.plane_look { return plane_looking_directions(direction); }
         let mut directions = ordered_by_nearest(self.yaw, self.pitch);
         if self.replace_clicked {
             return directions;
@@ -151,7 +178,7 @@ impl Ctx {
         directions
     }
     fn nearest_looking_direction(&self) -> Direction {
-        ordered_by_nearest(self.yaw, self.pitch)[0]
+        if self.plane_look.is_some() { Direction::Down } else { ordered_by_nearest(self.yaw, self.pitch)[0] }
     }
     fn nearest_looking_vertical(&self) -> Direction {
         if self.pitch < 0.0 {
@@ -273,6 +300,26 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         block: BlockId,
         ctx: &Ctx,
     ) -> Option<BlockStateId> {
+        let default = self.b.default_of(block);
+        if let Some(state)=self.level.custom_placement_state(default,ctx.face,ctx.yaw,ctx.pitch,ctx.plane_look,self.fluid_is_water_source(ctx.pos)) {
+            return Some(state);
+        }
+        if self.level.custom_crank(default) {
+            let state = self.b.table.set_dir(default, self.b.props.facing, ctx.face);
+            return self.can_survive(state, ctx.pos).then_some(state);
+        }
+        if self.level.custom_center_fixture(default) {
+            let table = &self.b.table;
+            let mut state = table.set_bool(default, self.b.props.waterlogged, self.is_water_at(ctx.pos));
+            if let Some(odd) = table.key_of("odd") {
+                let parity = ctx.pos.x.wrapping_add(ctx.pos.y).wrapping_add(ctx.pos.z) & 1 != 0;
+                state = table.set_bool(state, odd, parity);
+            }
+            return ctx.nearest_looking_directions().into_iter().find_map(|direction| {
+                let candidate = table.set_dir(state, self.b.props.facing, direction.opposite());
+                self.can_survive(candidate, ctx.pos).then_some(candidate)
+            });
+        }
         self.placement_at(block, 0, ctx)
     }
 
@@ -1494,6 +1541,11 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         &mut self,
         input: &PlaceContext,
     ) -> Option<(Ctx, super::data::ItemBinding, BlockStateId)> {
+        self.placement_with_look(input, None)
+    }
+    fn placement_with_look(
+        &mut self, input: &PlaceContext, plane_look: Option<Direction>,
+    ) -> Option<(Ctx, super::data::ItemBinding, BlockStateId)> {
         let b = self.b;
         let binding = b.item_binding(&input.item).cloned()?;
         let mut ctx = Ctx {
@@ -1507,8 +1559,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             sneaking: input.sneaking,
             item: input.item.clone(),
             replace_clicked: true,
+            plane_look,
         };
         ctx.replace_clicked = self.can_be_replaced(self.state(input.clicked_pos), &ctx);
+        if plane_look.is_some() && !ctx.replace_clicked { return None; }
         if !ctx.replace_clicked {
             ctx.pos = rel(input.clicked_pos, input.face);
         }
@@ -1563,12 +1617,15 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
 
     /// `BlockItem.place` (and its subclasses' overrides).
     pub(crate) fn place(&mut self, input: &PlaceContext) -> PlaceOutcome {
+        self.place_with_look(input, None)
+    }
+    fn begin_place_with_look(&mut self, input: &PlaceContext, look: Option<Direction>) -> Option<PendingPlacement> {
         let b = self.b;
-        let Some((ctx, binding, state)) = self.placement(input) else {
-            return PlaceOutcome::Failed;
+        let Some((ctx, binding, state)) = self.placement_with_look(input, look) else {
+            return None;
         };
         if !self.is_in_valid_bounds(ctx.pos) {
-            return PlaceOutcome::Failed;
+            return None;
         }
 
         if binding.kind == ItemKind::DoubleHigh {
@@ -1581,25 +1638,24 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             self.set_block(above_pos, replacement, 27);
         }
         if !self.set_block(ctx.pos, state, 11) {
-            return PlaceOutcome::Failed;
+            return None;
         }
-        let placed = self.state(ctx.pos);
-        if b.block(placed) == b.block(state) {
-            self.set_placed_by(ctx.pos, placed);
-        }
-        let placed = self.state(ctx.pos);
-        let sounds = b.data(placed).sounds.clone();
-        self.emit(LevelEvent::Sound {
-            pos: ctx.pos,
-            sound: sounds.place.clone(),
-            volume: (sounds.volume + 1.0) / 2.0,
-            pitch: sounds.pitch * 0.8,
-        });
-        self.game_event_state(ctx.pos, "minecraft:block_place", placed);
-        PlaceOutcome::Placed {
-            pos: ctx.pos,
-            state: placed,
-        }
+        Some(PendingPlacement {pos:ctx.pos,state:self.state(ctx.pos),expected:state})
+    }
+    fn finish_place(&mut self, pending: PendingPlacement) -> PlaceOutcome {
+        let b=self.b;
+        let pos=pending.pos;
+        let placed=self.state(pos);
+        if b.block(placed)==b.block(pending.expected) { self.set_placed_by(pos,placed); }
+        let placed=self.state(pos);
+        let sounds=b.data(placed).sounds.clone();
+        self.emit(LevelEvent::Sound {pos,sound:sounds.place.clone(),volume:(sounds.volume+1.0)/2.0,pitch:sounds.pitch*0.8});
+        self.game_event_state(pos,"minecraft:block_place",placed);
+        PlaceOutcome::Placed {pos,state:placed}
+    }
+    fn place_with_look(&mut self, input:&PlaceContext, look:Option<Direction>) -> PlaceOutcome {
+        let Some(pending)=self.begin_place_with_look(input,look) else {return PlaceOutcome::Failed};
+        self.finish_place(pending)
     }
     /// `ScaffoldingBlockItem.updatePlacementContext`.
     fn scaffolding_update_context(&self, ctx: &Ctx, block: BlockId) -> Option<Ctx> {
@@ -1644,6 +1700,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                         ),
                         inside: false,
                         replace_clicked: true,
+            plane_look: None,
                         ..ctx.clone()
                     });
                 }
@@ -1671,6 +1728,38 @@ impl Behaviours {
     ) -> PlaceOutcome {
         self.sim(level, ticks).place(ctx)
     }
+    /// Write a normal BlockItem's primary state; the host imports its item
+    /// components before calling finish_block_placement.
+    pub fn begin_block_placement<L: LevelAccess + ?Sized>(
+        &self,level:&mut L,ticks:&mut Ticks,ctx:&PlaceContext,
+    ) -> Option<PendingPlacement> {
+        self.sim(level,ticks).begin_place_with_look(ctx,None)
+    }
+    pub fn begin_block_placement_from_plane<L: LevelAccess + ?Sized>(
+        &self,level:&mut L,ticks:&mut Ticks,ctx:&PlaceContext,look:Direction,
+    ) -> Option<PendingPlacement> {
+        self.sim(level,ticks).begin_place_with_look(ctx,Some(look))
+    }
+    /// Block.setPlacedBy, sound and placement game event after item imports.
+    pub fn finish_block_placement<L: LevelAccess + ?Sized>(
+        &self,level:&mut L,ticks:&mut Ticks,pending:PendingPlacement,
+    ) -> PlaceOutcome {
+        self.sim(level,ticks).finish_place(pending)
+    }
+    /// AE2's player-backed PlaneDirectionalPlaceContext. This is actual
+    /// BlockItem placement; it is distinct from source SIMULATE's optimistic 1.
+    pub fn place_block_from_plane<L: LevelAccess + ?Sized>(
+        &self, level: &mut L, ticks: &mut Ticks, ctx: &PlaceContext, look: Direction,
+    ) -> PlaceOutcome {
+        self.sim(level, ticks).place_with_look(ctx, Some(look))
+    }
+    /// Checked placement state with the exact plane direction overrides.
+    pub fn plane_placement_state<L: LevelAccess + ?Sized>(
+        &self, level: &mut L, ticks: &mut Ticks, ctx: &PlaceContext, look: Direction,
+    ) -> Option<(BlockPos, BlockStateId)> {
+        self.sim(level, ticks).placement_with_look(ctx, Some(look))
+            .map(|(context, _, state)| (context.pos, state))
+    }
     /// `DirectionalPlaceContext.canPlace`: whether the block at the clicked
     /// position can be replaced by the item (a dispenser places only there).
     pub fn directional_can_place<L: LevelAccess + ?Sized>(
@@ -1691,6 +1780,7 @@ impl Behaviours {
             sneaking: ctx.sneaking,
             item: ctx.item.clone(),
             replace_clicked: true,
+            plane_look: None,
         };
         sim.can_be_replaced(sim.state(ctx.clicked_pos), &inner)
     }
@@ -1728,11 +1818,31 @@ impl Behaviours {
             sneaking: input.sneaking,
             item: input.item.clone(),
             replace_clicked: true,
+            plane_look: None,
         };
         ctx.replace_clicked = sim.can_be_replaced(sim.state(input.clicked_pos), &ctx);
         if !ctx.replace_clicked {
             ctx.pos = rel(input.clicked_pos, input.face);
         }
         sim.state_for_placement(block, &ctx)
+    }
+}
+
+#[cfg(test)]
+mod plane_context_tests {
+    use super::*;
+    #[test]
+    fn source_plane_orders_and_horizontal_direction_are_explicit() {
+        use Direction::*;
+        for look in [Up, Down, North, South, East, West] {
+            let context=Ctx {pos:BlockPos::new(1,2,3),hit_pos:BlockPos::new(1,2,3),face:look.opposite(),
+                hit:Vec3::new(1.5,2.0,3.5),inside:false,yaw:super::super::query::data_2d(look) as f32*90.0,
+                pitch:if is_horizontal(look) {0.0} else {90.0},sneaking:false,item:"minecraft:stone".into(),replace_clicked:true,plane_look:Some(look)};
+            assert_eq!(context.nearest_looking_direction(),Down);
+            assert_eq!(context.nearest_looking_directions(),plane_looking_directions(look));
+            assert_eq!(context.horizontal_direction(),if is_horizontal(look) {look} else {North});
+        }
+        assert_eq!(plane_looking_directions(East),[Down,East,South,Up,North,West]);
+        assert_eq!(plane_looking_directions(Up),[Down,Up,North,East,South,West]);
     }
 }

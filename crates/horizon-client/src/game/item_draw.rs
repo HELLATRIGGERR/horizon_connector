@@ -203,6 +203,8 @@ impl Game<'_> {
             Dim::Overworld => "minecraft:overworld",
             Dim::Nether => "minecraft:the_nether",
             Dim::End => "minecraft:the_end",
+            #[cfg(feature = "ae2-lab")]
+            Dim::Spatial => "ae2:spatial_storage",
         };
         let key = (
             self.frames,
@@ -273,15 +275,59 @@ impl Game<'_> {
         owner: Option<&OwnerState>,
         seed: i32,
     ) -> ItemRenderState {
+        #[cfg(feature="ae2-lab")]
+        if stack.item.as_ref()=="ae2:facade" {
+            if let Some(id)=horizon_client::item_tooltip::ae2_facade_texture(stack).filter(|id|self.res.items().get(id).is_some()) {
+                let texture=ItemStack::new(&id,1);
+                let resolved=self.resolve_item(&texture,display,owner,seed);
+                return self.pack.item_renderer.ae2_facade(&id,resolved);
+            }
+        }
+        #[cfg(feature="ae2-lab")]
+        if stack.item.as_ref()=="ae2:wrapped_generic_stack" {
+            // AEBaseScreen renders the contained key in GUI slots; the
+            // upstream wrapped item itself has an empty ordinary model.
+            if display==DisplayContext::Gui {
+                match item_render::wrapped_key(stack) {
+                    Some(item_render::WrappedKey::Item(item)) if self.res.items().get(item.item.as_ref()).is_some() => return self.resolve_item(&item,display,owner,seed),
+                    Some(item_render::WrappedKey::Fluid(id)) => if let Some(state)=self.pack.item_renderer.ae2_wrapped_fluid(display,&id) {return state;},
+                    _ => {}
+                }
+            }
+            return ItemRenderState{display,layers:Vec::new(),oversized_in_gui:false,animated:false};
+        }
         let level = self.item_level();
-        self.pack.item_renderer.resolve(
-            &item_render::stack_view(stack),
+        let mut view = item_render::stack_view(stack);
+        #[cfg(feature = "ae2-lab")]
+        let applicator_color = if stack.item.as_ref() == "ae2:color_applicator" {
+            let color = horizon_client::ae2_powered_items::applicator_color(self.res.items(), stack).ok().flatten();
+            view.patch.insert("minecraft:custom_model_data".into(), Some(serde_json::json!({"flags":[color.is_some()]})));
+            color
+        } else { None };
+        let mut state = self.pack.item_renderer.resolve(
+            &view,
             display,
             owner,
             Some(&level),
             seed,
             &self.item_env(),
-        )
+        );
+        #[cfg(feature="ae2-lab")]
+        if stack.item.as_ref()=="ae2:memory_card" {
+            state=self.pack.item_renderer.ae2_memory_card(stack,state);
+        }
+        #[cfg(feature = "ae2-lab")]
+        if stack.item.as_ref()=="ae2:meteorite_compass" && state.layers.len()>=2 {
+            let pointer=&mut state.layers[1];
+            let angle=self.ae2_compass_angle(owner,display,pointer.matrix);
+            pointer.matrix=pointer.matrix*glam::Mat4::from_translation(glam::Vec3::splat(0.5))*glam::Mat4::from_rotation_y(angle)*glam::Mat4::from_translation(glam::Vec3::splat(-0.5));
+            state.animated=true;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(tints) = applicator_color.and_then(horizon_client::ae2_powered_items::color_tints) {
+            for layer in &mut state.layers { layer.tints = tints.clone(); }
+        }
+        state
     }
     /// `GuiGraphics.renderItem(player, level, stack, x, y, 0)`.
     pub(super) fn draw_item_model(&self, batch: &mut HudBatch, stack: &ItemStack, x: f32, y: f32) {

@@ -158,6 +158,7 @@ pub(super) struct StructureBundles {
 /// Seed-independent generation resources, loaded once and shared by every
 /// generator. Biome identities are indices into the sorted biome registry.
 pub struct GeneratorData {
+    pub(super) structure_extensions: super::structure::extension::Extensions,
     registry: &'static BlockRegistry,
     states: GenBlockStates,
     integers: BTreeSet<(String, String)>,
@@ -465,6 +466,7 @@ impl GeneratorData {
         };
         let behaviours = joined(behaviours);
         Ok(Arc::new(Self {
+            structure_extensions: Default::default(),
             behaviours,
             structure_resources,
             structures,
@@ -512,11 +514,27 @@ impl GeneratorData {
         cache.push((key, rings.clone()));
         rings
     }
+    /// Install a handler before the data is shared with any generator.
+    pub fn with_structure_extension(mut self: Arc<Self>, id: String, extension: Arc<dyn super::structure::extension::StructureExtension>)->Result<Arc<Self>,GeneratorError> {
+        let data=Arc::get_mut(&mut self).ok_or_else(||resource("structure extensions must be registered before sharing generator data"))?;
+        if data.structure_extensions.insert(id.clone(),extension).is_some(){return Err(resource(format!("duplicate structure extension {id}")));}
+        Ok(self)
+    }
+    pub fn bind_block_property(&self,property:crate::block_properties::BlockProperty)->Option<crate::block_properties::BoundBlockProperty>{
+        Some(self.feature_resources.as_ref()?.blocks.as_ref()?.properties.bind(property))
+    }
     pub fn registry(&self) -> &'static BlockRegistry {
         self.registry
     }
     pub fn block_states(&self) -> &GenBlockStates {
         &self.states
+    }
+    /// Exported block facts for native custom structure placement.
+    pub fn block_property(&self, state: BlockStateId, property: crate::block_properties::BlockProperty) -> Option<bool> {
+        self.feature_resources.as_ref()?.blocks.as_ref()?.properties.property(state, property).ok()
+    }
+    pub fn block_in_tag(&self, state: BlockStateId, tag: &str) -> bool {
+        self.registry.state(state).is_some_and(|s| self.block_tags.get(tag).is_some_and(|values| values.contains(&s.name)))
     }
     /// Biome identifiers in registry (identifier-sorted) order.
     pub fn configured_feature_json(&self, name: &str) -> Option<&str> {
@@ -538,6 +556,14 @@ impl GeneratorData {
     }
     pub fn biome_name(&self, id: BiomeId) -> &str {
         &self.biome_names[id.0 as usize]
+    }
+    /// Whether a resolved biome tag includes this biome.
+    pub fn biome_in_tag(&self, id: BiomeId, tag: &str) -> bool {
+        self.biome_tags.get(tag).is_some_and(|values| values.iter().any(|name| name == self.biome_name(id)))
+    }
+    /// Native climate settings used by temperature and precipitation rules.
+    pub fn biome_temperature_settings(&self, id: BiomeId) -> BiomeTemperatureSettings {
+        self.temperatures[id.0 as usize]
     }
     pub fn biome_id(&self, name: &str) -> Option<BiomeId> {
         self.biome_ids.get(name).copied()
@@ -1122,7 +1148,7 @@ where
                     valid: BTreeSet::new(),
                 },
                 pos,
-            ),
+            ).map_err(resource)?,
             None => Vec::new(),
         };
         if let Some(beard) = self
@@ -1663,6 +1689,7 @@ trait SeededPipeline: Send + Sync {
     ) -> Result<DecorateStats, GeneratorError>;
     fn data(&self) -> &Arc<GeneratorData>;
     fn sea_level(&self) -> i32;
+    fn base_height(&self, x: i32, z: i32, kind: HeightmapType) -> i32;
     fn surface_sample(
         &self,
         worker: &mut WorkerState,
@@ -1691,6 +1718,7 @@ trait SeededPipeline: Send + Sync {
         structure: &str,
         pieces: &[serde_json::Value],
     ) -> Result<(), String>;
+    fn set_saved_start_source(&self, source: Arc<dyn super::structure::extension::SavedStartSource>);
     fn forget_structure_starts(&self);
     fn ring_positions(&self, worker: &mut WorkerState, set: &str) -> Option<Vec<ChunkPos>>;
     fn spawn_position(&self) -> Result<[i32; 2], GeneratorError>;
@@ -1762,6 +1790,7 @@ where
     fn sea_level(&self) -> i32 {
         self.settings.sea_level
     }
+    fn base_height(&self, x: i32, z: i32, kind: HeightmapType) -> i32 { Pipeline::base_height(self, x, z, kind) }
     fn structure_starts(
         &self,
         worker: &mut WorkerState,
@@ -1777,7 +1806,8 @@ where
                     },
                     pos,
                 )
-                .to_vec(),
+                .map(|starts| starts.to_vec())
+                .unwrap_or_else(|error| { eprintln!("Horizon: structure query failed: {error}"); Vec::new() }),
             None => Vec::new(),
         }
     }
@@ -1801,6 +1831,9 @@ where
             valid: BTreeSet::new(),
         };
         structures.use_saved_start(&mut queries, chunk, structure, pieces)
+    }
+    fn set_saved_start_source(&self, source: Arc<dyn super::structure::extension::SavedStartSource>) {
+        if let Some(structures) = &self.structures { structures.set_saved_start_source(source); }
     }
     fn forget_structure_starts(&self) {
         if let Some(structures) = &self.structures {
@@ -2447,6 +2480,11 @@ impl OverworldGenerator {
     pub fn spawn_position(&self) -> Result<[i32; 2], GeneratorError> {
         self.pipeline.spawn_position()
     }
+    /// Install the saved-start reader for this concrete world and dimension
+    /// before creating workers or starting background structure queries.
+    pub fn set_saved_start_source(&self, source: Arc<dyn super::structure::extension::SavedStartSource>) {
+        self.pipeline.set_saved_start_source(source);
+    }
     /// Create per-thread state. Workers are cheap; keep one per thread.
     pub fn worker(&self) -> GeneratorWorker {
         let data = self.pipeline.data();
@@ -2487,6 +2525,15 @@ pub struct GeneratorWorker {
     state: WorkerState,
 }
 impl GeneratorWorker {
+    /// Sea level of this generator's dimension.
+    pub fn sea_level(&self) -> i32 { self.pipeline.sea_level() }
+    /// Native noise-column height, before surface rules/carvers/decoration.
+    pub fn base_height(&mut self, x:i32, z:i32, kind:HeightmapType)->i32 {
+        if let Some(value)=self.state.heights.get(&(x,z,kind as u8)) { return *value; }
+        let value=self.pipeline.base_height(x,z,kind);
+        if self.state.heights.len()>65536 { self.state.heights.clear(); }
+        self.state.heights.insert((x,z,kind as u8),value); value
+    }
     /// Biomes, noise fill and aquifers, material surface and carvers: the
     /// vanilla statuses up to TERRAIN. Independent of neighbor chunks' state.
     pub fn generate_proto(&mut self, pos: ChunkPos) -> Result<ProtoChunk, GeneratorError> {
@@ -2948,6 +2995,40 @@ mod tests {
             crate::level::data::load_registry(&root).expect("registry"),
         ));
         Some(GeneratorData::load(&root.join("worldgen"), registry).expect("worldgen data"))
+    }
+
+    #[test]
+    fn saved_structure_source_is_world_scoped_and_authoritative_before_owner_load() {
+        use crate::nbt::{Compound, Tag};
+        use super::super::structure::extension::SavedStartSource;
+        #[derive(Debug)] struct Source { saved: Option<Compound> }
+        impl SavedStartSource for Source {
+            fn read_starts(&self, chunk: ChunkPos) -> Result<Option<Compound>,String> {
+                if chunk == ChunkPos::new(0,0) { Ok(Some(self.saved.clone().unwrap_or_default())) }
+                else { Ok(Some(Compound::new())) }
+            }
+        }
+        let Some(data) = prepared_data() else { return; };
+        let name = "minecraft:village_plains";
+        let piece = Tag::compound([("id",Tag::String("test:opaque".into())),("BB",Tag::IntArray(vec![0,64,0,31,70,15]))]);
+        let start = Tag::compound([("id",Tag::String(name.into())),("ChunkX",Tag::Int(0)),("ChunkZ",Tag::Int(0)),("references",Tag::Int(7)),("Children",Tag::List(vec![piece]))]);
+        let saved: Compound = [(name.into(), start)].into_iter().collect();
+        let first = OverworldGenerator::new(data.clone(),1234).unwrap();
+        let second = OverworldGenerator::new(data,1234).unwrap();
+        first.set_saved_start_source(Arc::new(Source {saved:Some(saved)}));
+        second.set_saved_start_source(Arc::new(Source {saved:None}));
+        let mut worker = first.worker();
+        // Generate a neighbor before asking for the owner: its structure
+        // references must load the persisted owner through the callback.
+        let neighbor = worker.generate_proto(ChunkPos::new(1,0)).unwrap();
+        assert!(neighbor.structure_starts.iter().any(|start| start.name == name && start.chunk == ChunkPos::new(0,0)));
+        let starts = worker.structure_starts(ChunkPos::new(0,0));
+        assert_eq!(starts.len(),1);
+        assert_eq!(starts[0].name,name);
+        assert_eq!(starts[0].save().unwrap().get("references"),Some(&Tag::Int(7)));
+        assert!(second.worker().structure_starts(ChunkPos::new(0,0)).is_empty());
+        worker.forget_structure_starts();
+        assert_eq!(worker.structure_starts(ChunkPos::new(0,0))[0].save().unwrap().get("references"),Some(&Tag::Int(7)));
     }
 
     /// Seed 1234's strongholds where vanilla 26.3 puts them

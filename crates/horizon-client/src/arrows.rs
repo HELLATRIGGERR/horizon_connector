@@ -767,7 +767,7 @@ impl Ticker<'_, '_, '_, '_> {
             self.scene.registry.id(&definition)
         };
         match name {
-            "minecraft:tnt" if self.may_interact() && self.scene.tnt_explodes => {
+            "minecraft:tnt" | "ae2:tiny_tnt" if self.may_interact() && (name == "ae2:tiny_tnt" || self.scene.tnt_explodes) => {
                 Some(BlockReaction::PrimeTnt)
             }
             "minecraft:campfire" | "minecraft:soul_campfire"

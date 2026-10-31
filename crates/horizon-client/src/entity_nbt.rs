@@ -1027,6 +1027,25 @@ pub fn ominous_item_spawner_from_nbt(tag: &Tag) -> Option<(crate::items::ItemSta
     Some((item, position(tag)?, after))
 }
 
+/// Primed TNT save record; the AE2 tiny variant keeps its own entity id.
+pub fn primed_tnt_to_nbt(kind:&str,position:Vec3,motion:Vec3,uuid:[i32;4],fuse:i32,on_ground:bool)->Tag {
+    let base=Base{id:kind,uuid,position,motion,rotation:[0.,0.],on_ground,fall_distance:0.};
+    let mut tag=base.tag(None);put(&mut tag,"fuse",Tag::Short(fuse.clamp(i16::MIN as i32,i16::MAX as i32) as i16));tag
+}
+#[cfg(test)]
+mod tiny_tnt_nbt_tests {
+    use super::*;
+    #[test]
+    fn primed_tiny_tnt_roundtrips_entity_nbt_with_fuse_and_motion() {
+        let pos=Vec3::new(-13.25,67.5,2.75); let velocity=Vec3::new(0.02,-0.04,0.03);
+        let tag=primed_tnt_to_nbt("ae2:tiny_tnt_primed",pos,velocity,[1,2,3,4],37,true);
+        let bytes=horizon_world::nbt::write_network(&tag,horizon_world::nbt::Limits::default()).unwrap();
+        let (read,used)=horizon_world::nbt::read_network(&bytes,horizon_world::nbt::Limits::default()).unwrap();
+        assert_eq!(used,bytes.len());assert_eq!(kind(&read).as_deref(),Some("ae2:tiny_tnt_primed"));
+        assert_eq!(position(&read),Some(pos));assert_eq!(motion(&read),velocity);assert_eq!(uuid(&read),Some([1,2,3,4]));
+        assert_eq!(read.get("fuse"),Some(&Tag::Short(37)));assert_eq!(read.get("OnGround"),Some(&Tag::Byte(1)));
+    }
+}
 /// `ExperienceOrb`: Health, Age, Value, Count.
 pub fn orb_to_nbt(o: &ExperienceOrb, uuid: [i32; 4]) -> Tag {
     let base = Base {
@@ -1040,7 +1059,8 @@ pub fn orb_to_nbt(o: &ExperienceOrb, uuid: [i32; 4]) -> Tag {
     };
     let mut tag = base.tag(None);
     for (key, value) in [
-        ("Health", Tag::Short(5)),
+        ("Health", Tag::Short(o.health as i16)),
+        ("Invulnerable", Tag::Byte(i8::from(o.invulnerable))),
         ("Age", Tag::Short(o.age.min(i16::MAX as u32) as i16)),
         ("Value", Tag::Short(o.value.min(i16::MAX as u32) as i16)),
         ("Count", Tag::Int(1)),
@@ -1056,6 +1076,8 @@ pub fn orbs_from_nbt(tag: &Tag) -> Vec<ExperienceOrb> {
     };
     let count = number(tag.get("Count")).unwrap_or(1).clamp(1, 64) as usize;
     let orb = ExperienceOrb {
+        health: number(tag.get("Health")).unwrap_or(5) as i32,
+        invulnerable: flag(tag,"Invulnerable"),
         id: 0,
         position,
         previous: position,
@@ -1915,6 +1937,8 @@ mod tests {
     #[test]
     fn orbs_expand_their_count() {
         let o = ExperienceOrb {
+            health: 5,
+            invulnerable: false,
             id: 0,
             position: Vec3::new(1.0, 2.0, 3.0),
             previous: Vec3::ZERO,
@@ -1928,6 +1952,11 @@ mod tests {
         let back = orbs_from_nbt(&tag);
         assert_eq!(back.len(), 3);
         assert_eq!(back[0].value, 7);
+        let mut wounded=back[0].clone();assert!(!wounded.hurt(2.0));assert_eq!(wounded.health,3);
+        let wounded=orbs_from_nbt(&orb_to_nbt(&wounded,[0;4]));assert_eq!(wounded[0].health,3);
+        let mut wounded=wounded[0].clone();assert!(!wounded.hurt(2.0));assert!(wounded.hurt(2.0));
+        wounded.health=5;wounded.invulnerable=true;assert!(!wounded.hurt(100.0));assert_eq!(wounded.health,5);
+        assert!(orbs_from_nbt(&orb_to_nbt(&wounded,[0;4]))[0].invulnerable);
     }
 }
 

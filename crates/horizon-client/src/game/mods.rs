@@ -261,13 +261,27 @@ impl Game<'_> {
     pub(super) fn mods_chat(&mut self, _line: &str) {}
     pub(super) fn draw_mod_panels(&self, _batch: &mut HudBatch, _corners: &mut Corners) {}
     pub(super) fn open_mod_screen(&mut self, _owner: usize, _settings: bool) {}
-    pub(super) fn close_mod_screen(&mut self, _tell: bool) {}
-    pub(super) fn draw_mod_screen(&mut self, _batch: &mut HudBatch) {}
-    pub(super) fn mod_screen_click(&mut self, _button: winit::event::MouseButton) {}
+    pub(super) fn close_mod_screen(&mut self, _tell: bool) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){self.ae2_guide_close();}
+    }
+    pub(super) fn draw_mod_screen(&mut self, _batch: &mut HudBatch) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){self.ae2_guide_draw(_batch);}
+    }
+    pub(super) fn mod_screen_click(&mut self, _button: winit::event::MouseButton) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){self.ae2_guide_click(_button);}
+    }
     pub(super) fn mod_screen_key(&mut self, _key: winit::keyboard::KeyCode) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){return self.ae2_guide_key(_key);}
         false
     }
-    pub(super) fn mod_screen_scroll(&mut self, _delta: f32) {}
+    pub(super) fn mod_screen_scroll(&mut self, _delta: f32) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){self.ae2_guide_scroll(_delta);}
+    }
 }
 
 #[cfg(feature = "mods")]
@@ -824,6 +838,8 @@ impl Game<'_> {
     /// A key while a mod screen is up: true when a key row waited for
     /// it (Key Binds: Escape binds none).
     pub(super) fn mod_screen_key(&mut self, key: KeyCode) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){return self.ae2_guide_key(key);}
         if self
             .mods
             .screen
@@ -889,6 +905,8 @@ impl Game<'_> {
     /// Leaves the mod screen: back to Options for a settings page, to what
     /// it covered for a mod's own. `tell` is Esc/Done, heard as `closed`.
     pub(super) fn close_mod_screen(&mut self, tell: bool) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){self.ae2_guide_close();return;}
         let Some(ms) = self.mods.screen.take() else {
             return;
         };
@@ -908,6 +926,8 @@ impl Game<'_> {
     /// The mod's screen or settings page: its title over widgets stacked
     /// down the middle, a Done button, Esc to leave (vanilla's menus).
     pub(super) fn draw_mod_screen(&mut self, batch: &mut HudBatch) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){self.ae2_guide_draw(batch);return;}
         let Some(ms) = self.mods.screen.as_mut() else {
             // The screen was dropped while it was up: back to the world,
             // mouse held again like any return to Playing.
@@ -1081,6 +1101,8 @@ impl Game<'_> {
     /// A click on the mod screen: Done leaves it, a `list` row is the mod's
     /// `ui-events::select`.
     pub(super) fn mod_screen_click(&mut self, button: MouseButton) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){self.ae2_guide_click(button);return;}
         // Key Binds: a mouse button pressed while waiting binds it.
         if self
             .mods
@@ -1159,6 +1181,8 @@ impl Game<'_> {
     }
     /// The wheel over a `list` scrolls it.
     pub(super) fn mod_screen_scroll(&mut self, delta: f32) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active(){self.ae2_guide_scroll(delta);return;}
         let (w, h) = self.gui_size();
         let cursor = self.cursor;
         let Some(ms) = self.mods.screen.as_mut() else {

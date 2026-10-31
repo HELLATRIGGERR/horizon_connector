@@ -15,6 +15,7 @@ pub struct Tab {
     pub id: String,
     pub title: String,
     pub icon: String,
+    pub icon_stack: Option<ItemStack>,
     pub items: Vec<ItemStack>,
     pub top: bool,
     pub column: u32,
@@ -113,6 +114,11 @@ impl Names {
 /// `CreativeModeTabs`' key for an exported tab id (`itemGroup.*`); the
 /// export's `title` is the English fallback.
 pub fn item_group_key(id: &str) -> Option<&'static str> {
+    match id {
+        "ae2:main" => return Some("gui.ae2.CreativeTab"),
+        "ae2:facades" => return Some("gui.ae2.CreativeTabFacades"),
+        _ => {}
+    }
     Some(match id.trim_start_matches("minecraft:") {
         "building_blocks" => "itemGroup.buildingBlocks",
         "colored_blocks" => "itemGroup.coloredBlocks",
@@ -132,6 +138,77 @@ pub fn item_group_key(id: &str) -> Option<&'static str> {
     })
 }
 impl Creative {
+    #[cfg(feature = "ae2-lab")]
+    fn append_ae2_tabs(&mut self, root: &Path) -> Result<()> {
+        let tags = crate::items::Items::tags_only(root)?;
+        let names = Names::load(root);
+        for extra in crate::ae2_creative::tabs(root)? {
+            for stack in &extra.items {
+                if self
+                    .search_items
+                    .iter()
+                    .any(|s| s.same_item_same_components(stack))
+                {
+                    continue;
+                }
+                let (namespace, path) = split_id(&java_lower(&stack.item));
+                let mut item_tags = tags
+                    .item_tags
+                    .iter()
+                    .filter(|(_, ids)| ids.contains(stack.item.as_ref()))
+                    .map(|(tag, _)| split_id(&java_lower(tag)))
+                    .collect::<Vec<_>>();
+                item_tags.sort();
+                self.search_index.push(SearchEntry {
+                    namespace,
+                    path,
+                    lines: vec![java_lower(&names.display_item(&stack.item))],
+                    tags: item_tags,
+                });
+                self.search_items.push(stack.clone());
+            }
+            if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == extra.id) {
+                for stack in extra.items {
+                    if !tab
+                        .items
+                        .iter()
+                        .any(|s| s.same_item_same_components(&stack))
+                    {
+                        tab.items.push(stack);
+                    }
+                }
+            } else {
+                // The native screen has no Saved Hotbars tab and hides the
+                // operator tab, leaving two normal tab positions for AE2.
+                let (top, column) = [true, false]
+                    .into_iter()
+                    .flat_map(|top| (0..7).map(move |column| (top, column)))
+                    .find(|(top, column)| {
+                        !self
+                            .tabs
+                            .iter()
+                            .any(|t| t.top == *top && t.column == *column)
+                    })
+                    .ok_or("no free native creative tab position")?;
+                self.tabs.push(Tab {
+                    id: extra.id,
+                    title: extra.title,
+                    icon: extra.icon.item.to_string(),
+                    icon_stack: Some(extra.icon),
+                    items: extra.items,
+                    top,
+                    column,
+                    search: false,
+                    inventory: false,
+                });
+            }
+        }
+        if let Some(search) = self.tabs.iter_mut().find(|t| t.search) {
+            search.items = self.search_items.clone();
+        }
+        *self.shown.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        Ok(())
+    }
     pub const WIDTH: f32 = 195.0;
     pub const HEIGHT: f32 = 136.0;
     pub const TRASH_POSITION: (f32, f32) = (173.0, 112.0);
@@ -189,13 +266,21 @@ impl Creative {
     /// prepared before it fall back to `creative-tabs.json`'s item ids.
     pub fn load(root: &Path) -> Result<Self> {
         let path = root.join("creative-inventory.json");
-        if path.exists() {
+        let mut creative = if path.exists() {
             Self::from_json(&serde_json::from_slice(&fs::read(path)?)?)
         } else {
             Self::from_legacy(&serde_json::from_slice(&fs::read(
                 root.join("creative-tabs.json"),
             )?)?)
+        }?;
+        #[cfg(feature = "ae2-lab")]
+        if crate::mod_content::namespaces(root)
+            .iter()
+            .any(|id| id == "ae2")
+        {
+            creative.append_ae2_tabs(root)?;
         }
+        Ok(creative)
     }
     pub fn from_json(raw: &Value) -> Result<Self> {
         let mut tabs = Vec::new();
@@ -238,7 +323,10 @@ impl Creative {
             tabs.push(Tab {
                 id: t["id"].as_str().unwrap_or("").to_owned(),
                 title: t["title"].as_str().unwrap_or("").to_owned(),
-                icon: icon.map_or_else(|| "minecraft:stone".to_owned(), |s| s.item.to_string()),
+                icon: icon
+                    .as_ref()
+                    .map_or_else(|| "minecraft:stone".to_owned(), |s| s.item.to_string()),
+                icon_stack: icon,
                 items,
                 top: t["row"] == "TOP",
                 column: t["column"].as_u64().unwrap_or(0) as u32,
@@ -272,6 +360,7 @@ impl Creative {
                 id: t["id"].as_str().unwrap_or("").to_owned(),
                 title: t["title"].as_str().unwrap_or("").to_owned(),
                 icon: t["icon"].as_str().unwrap_or("minecraft:stone").to_owned(),
+                icon_stack: None,
                 items,
                 top: t["row"] == "TOP",
                 column: t["column"].as_u64().unwrap_or(0) as u32,
@@ -328,6 +417,7 @@ impl Creative {
                 id: t.id.clone(),
                 title: t.title.clone(),
                 icon: t.icon.clone(),
+                icon_stack: t.icon_stack.clone(),
                 items: Vec::new(),
                 top: t.top,
                 column: t.column,

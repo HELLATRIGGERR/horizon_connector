@@ -13,6 +13,14 @@ use horizon_core::{geometry::Direction, position::BlockPos};
 impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     /// `BlockState.canSurvive(level, pos)`.
     pub fn can_survive(&self, state: BlockStateId, pos: BlockPos) -> bool {
+        if self.level.custom_crank(state) {
+            let facing=self.b.facing(state);
+            return self.level.custom_crankable(rel(pos, facing.opposite()), facing);
+        }
+        if self.level.custom_center_fixture(state) {
+            let facing = self.b.facing(state);
+            return self.can_support_center(rel(pos, facing.opposite()), facing);
+        }
         self.can_survive_at(0, state, pos)
     }
     fn can_survive_at(&self, depth: usize, state: BlockStateId, pos: BlockPos) -> bool {

@@ -15,6 +15,11 @@ use horizon_client::{lan::hub::TickCtx, text::Text};
 use horizon_core::{geometry::Vec3, position::BlockPos};
 use horizon_protocol::packets::play::{self, Clientbound as C};
 
+pub(super) fn trace_spatial()->bool {
+    static ENABLED:std::sync::OnceLock<bool>=std::sync::OnceLock::new();
+    *ENABLED.get_or_init(||std::env::var("HORIZON_AE2_SPATIAL_TRACE").is_ok_and(|v|v=="1"))
+}
+
 /// A trip under way: the player is in the destination's level, whose
 /// chunks are loading around `target`.
 pub(super) struct Trip {
@@ -195,6 +200,50 @@ impl Game<'_> {
         None
     }
 
+    /// Remove item-backed and block-backed AE2 menus in the player's real
+    /// source level before a dimension transition, preserving carried items.
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_close_before_travel(&mut self, host: &mut LanHost, conn: u32) -> bool {
+        let open = host.play.get(&conn).is_some_and(|p| {
+            p.ae2_terminal.is_some() || p.ae2_machine.is_some() || p.ae2_portable.is_some()
+        });
+        if !open {
+            return true;
+        }
+        let Some(source) = host
+            .hub
+            .guests
+            .iter()
+            .find(|g| g.conn == conn)
+            .map(|g| Dim::from_id(&g.dimension))
+        else {
+            return false;
+        };
+        let back = self.dim;
+        if let Err(error) = self.enter_level(Some(host), source) {
+            log::error!("AE2 source menu could not close before travel: {error}");
+            return false;
+        }
+        self.lan_ae2_terminal_closed(host, conn, None);
+        self.lan_ae2_machine_closed(host, conn, None);
+        self.lan_ae2_portable_closed(host, conn, None);
+        self.lan_ae2_network_tool_closed(host, conn, None);
+        #[cfg(feature="ae2-lab")]
+        self.lan_ae2_anchor_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_craft_confirm_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_pattern_access_closed(host, conn, None);
+        if let Some(index) = host.hub.guests.iter().position(|g| g.conn == conn) {
+            host.hub.send_inventory(index);
+        }
+        if let Err(error) = self.enter_level(Some(host), back) {
+            log::error!("AE2 could not restore level after menu close: {error}");
+            return false;
+        }
+        true
+    }
+
     /// The player moves to `target`'s level (opened if nobody was there)
     /// and is told it is there, at the approximate exit, while it loads. The
     /// level whose tick is running is put back in place afterwards.
@@ -208,6 +257,10 @@ impl Game<'_> {
         let Some(i) = host.hub.guests.iter().position(|g| g.conn == conn) else {
             return;
         };
+        #[cfg(feature = "ae2-lab")]
+        if !self.ae2_close_before_travel(host, conn) {
+            return;
+        }
         let g = &host.hub.guests[i];
         let from = Vec3::new(g.position[0], g.position[1], g.position[2]);
         let yaw = g.yaw;
@@ -436,12 +489,28 @@ impl Game<'_> {
             let Some(i) = host.hub.guests.iter().position(|g| g.conn == t.conn) else {
                 continue;
             };
+            #[cfg(feature = "ae2-lab")]
+            if !self.ae2_close_before_travel(host, t.conn) {
+                continue;
+            }
             let source = self.dim;
             if let Err(e) = self.enter_level(Some(host), t.dim) {
                 log::error!("could not open {}: {e}", t.dim.id());
                 continue;
             }
+            // A moved vehicle has a new movement-validation baseline. The old
+            // level's lastGood coordinates must not become a cross-world delta.
+            // Keep riding only when this exact vehicle exists in the destination.
+            let vehicle=host.hub.guests[i].vehicle;
+            let vehicle_position=vehicle.and_then(|id|self.boats.iter().find(|b|b.id==id).map(|b|b.position)
+                .or_else(||self.carts.iter().find(|c|c.id==id).map(|c|c.position))
+                .or_else(||self.mobs.iter().find(|m|m.id==id).map(|m|m.position))
+                .or_else(||self.cushions.iter().find(|c|c.id==id).map(|c|c.position)));
             let g = &mut host.hub.guests[i];
+            if trace_spatial(){eprintln!("AE2 passenger travel conn={} from={} to={} vehicle={:?} old_good={:?} destination={:?}",t.conn,source.id(),t.dim.id(),vehicle,g.vehicle_good,vehicle_position);}
+            g.vehicle_good=vehicle_position.map(|p|[p.x,p.y,p.z]);
+            g.vehicle_relocated=vehicle_position.is_some();
+            if vehicle_position.is_none(){g.vehicle=None;}
             let [yaw, pitch] = t.rotation.unwrap_or([g.yaw, g.pitch]);
             // A new body there: no fall distance or motion carried over.
             g.motion = None;

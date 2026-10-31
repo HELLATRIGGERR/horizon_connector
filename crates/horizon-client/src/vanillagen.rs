@@ -23,6 +23,9 @@ use horizon_world::{
     },
 };
 use std::{path::Path, sync::Arc};
+#[cfg(feature = "ae2-lab")]
+#[path = "game/ae2_worldgen.rs"]
+mod ae2_worldgen;
 mod lod;
 use lod::VanillaLodSampler;
 
@@ -235,6 +238,10 @@ impl VanillaTerrain {
         }
         out
     }
+    /// Scope saved structure reads to this world/dimension before workers start.
+    pub fn set_saved_start_source(&self, source: Arc<dyn horizon_world::worldgen::structure::extension::SavedStartSource>) {
+        self.generator.set_saved_start_source(source);
+    }
     /// The structure starts owned by a chunk (cached by the generator).
     pub fn starts_at(
         &self,
@@ -347,6 +354,8 @@ pub fn shared_data(
     }
     let started = std::time::Instant::now();
     let data = GeneratorData::load(dir, registry)?;
+    #[cfg(feature = "ae2-lab")]
+    let data = ae2_worldgen::register(data)?;
     log::info!("Horizon: worldgen data loaded in {:?}", started.elapsed());
     cache.push((dir.to_owned(), data.clone()));
     Ok(data)
@@ -393,6 +402,12 @@ impl ChunkGenerator for VanillaTerrain {
             }
         }
     }
+    fn proto_checked(&self, worker: &mut GeneratorWorker, x: i32, z: i32) -> Result<Proto, String> {
+        self.last_proto.store(self.elapsed_ms().max(1), std::sync::atomic::Ordering::Relaxed);
+        worker.generate_proto(ChunkPos::new(x,z))
+            .map(|chunk| Box::new(VanillaProto::Ready(Box::new(chunk))) as Proto)
+            .map_err(|error| error.to_string())
+    }
     fn decorates(&self) -> bool {
         true
     }
@@ -418,7 +433,8 @@ impl ChunkGenerator for VanillaTerrain {
                 Ok(a) => a,
                 Err(_) => unreachable!(),
             };
-            if let Err(e) = worker.decorate(&mut array) {
+            let decorated = worker.decorate(&mut array);
+            if let Err(e) = &decorated {
                 log::warn!("Horizon: decorating chunk failed: {e}");
             }
             for (slot, chunk) in region.iter_mut().zip(array) {

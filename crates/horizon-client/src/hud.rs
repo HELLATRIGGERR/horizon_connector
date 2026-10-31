@@ -198,6 +198,24 @@ fn atlas_sprites(root: &Path, packed: &[PackedImage]) -> Vec<PackedImage> {
             order += 1;
         }
     }
+    // Multipart renderers use model sprites in `part/`, which are not
+    // included in the vanilla blocks atlas directory source.
+    for id in &textures {
+        let Some((namespace, path)) = id.split_once(':') else {
+            continue;
+        };
+        if namespace == "minecraft"
+            || !(path.starts_with("part/") || path == "particle/matter_cannon")
+            || have.contains(id.as_str())
+            || slots.contains_key(id)
+        {
+            continue;
+        }
+        let slot = names.len();
+        slots.insert(id.clone(), slot);
+        names.push((id.clone(), vec![(order, SpriteOrigin::File(id.clone()))]));
+        order += 1;
+    }
     let load = |texture: &str, directory: &str| {
         decode(&atlas_sources::texture_path(root, texture, directory)).ok()
     };
@@ -205,7 +223,9 @@ fn atlas_sprites(root: &Path, packed: &[PackedImage]) -> Vec<PackedImage> {
         origins.iter().find_map(|(order, origin)| {
             let image = match origin {
                 SpriteOrigin::File(texture) => {
-                    let path = texture.strip_prefix("minecraft:").unwrap_or(texture);
+                    let path = texture
+                        .split_once(':')
+                        .map_or(texture.as_str(), |(_, path)| path);
                     load(texture, "textures").map(|(w, h, p)| {
                         // Animated strips keep their first frame, like the packed files.
                         if h > w && (path.starts_with("block/") || path.starts_with("item/")) {
@@ -434,6 +454,49 @@ impl HudAtlas {
         }
         if full {
             images.extend(atlas_sprites(root, &images));
+            // Guide artwork is outside the normal Minecraft texture tree.
+            // Keep the real pixels and relative paths so document image nodes
+            // resolve to the same atlas on every content-pack reload.
+            #[cfg(feature = "ae2-lab")]
+            {
+                let guide = root.join("assets/ae2/ae2guide");
+                let mut files = Vec::new();
+                walk(&guide, &mut files);
+                files.sort();
+                for path in files {
+                    let Ok(relative) = path.strip_prefix(&guide) else { continue; };
+                    let name = relative.with_extension("").to_string_lossy().replace('\\', "/");
+                    match decode(&path) {
+                        Ok((w,h,pixels)) => images.push((format!("ae2:guide/{name}"),w,h,pixels)),
+                        Err(error) => log::warn!("AE2 Guide image {}: {error}", path.display()),
+                    }
+                }
+            }
+            // Native AE2 crafting terminal uses its source GUI texture.
+            let knife = root.join("assets/ae2/textures/guis/quartzknife.png");
+            if let Ok((w,h,pixels))=decode(&knife) {images.push(("ae2:guis/quartzknife".into(),w,h,pixels));}
+            let path = root.join("assets/ae2/textures/guis/crafting.png");
+            if let Ok((w, h, pixels)) = decode(&path) {
+                images.push(("ae2:guis/crafting".into(), w, h, pixels));
+            }
+            let path = root.join("assets/ae2/textures/guis/toolbox.png");
+            if let Ok((w, h, pixels)) = decode(&path) {
+                images.push(("ae2:guis/toolbox".into(), w, h, pixels));
+            }
+            let path = root.join("assets/ae2/textures/guis/extra_panels.png");
+            if let Ok((w, h, pixels)) = decode(&path) {
+                images.push(("ae2:guis/extra_panels".into(), w, h, pixels));
+            }
+            let path = root.join("assets/ae2/textures/guis/networkstatus.png");
+            if let Ok((w, h, pixels)) = decode(&path) {
+                images.push(("ae2:guis/networkstatus".into(), w, h, pixels));
+            }
+            for name in ["craft_amt", "craftingreport", "craftingcpu", "patternaccessterminal", "spatialanchor"] {
+                let path=root.join(format!("assets/ae2/textures/guis/{name}.png"));
+                if let Ok((w,h,pixels))=decode(&path) {
+                    images.push((format!("ae2:guis/{name}"),w,h,pixels));
+                }
+            }
         }
         // The title screen's "JAVA EDITION" banner reads "RUST EDITION".
         if let Some(edition) = images
@@ -495,34 +558,46 @@ impl HudAtlas {
                 },
             );
         }
-        let mut fire_sprites = crate::sprites::Sprites::default();
+        // GUI and entity rendering share this atlas. Register every real
+        // namespaced animated sprite (not only the four fire overlays) so
+        // animated item textures such as AE2's Charged Staff advance normally.
+        let mut animated_sprites = crate::sprites::Sprites::default();
         let mut fire_animations = Vec::new();
-        for name in [
-            "block/fire_0",
-            "block/fire_1",
-            "block/soul_fire_0",
-            "block/soul_fire_1",
-        ] {
-            if let Some(rect) = sprites.get(name).copied() {
-                let layer = fire_sprites.insert(root, &format!("minecraft:{name}"))?;
-                if let Some(animation) = fire_sprites
-                    .animations
-                    .iter()
-                    .find(|a| a.layer == layer)
-                    .cloned()
-                {
-                    let (tw, th) = rect.texels((width, height));
-                    let image = animation.resized_pixels(animation.frame(0), tw, th);
-                    let x = (rect.u0 * width as f32).round() as usize;
-                    let y = (rect.v0 * height as f32).round() as usize;
-                    let row_bytes = tw as usize * 4;
-                    for row in 0..th as usize {
-                        let dst = ((y + row) * width as usize + x) * 4;
-                        let src = row * row_bytes;
-                        pixels[dst..dst + row_bytes].copy_from_slice(&image[src..src + row_bytes]);
-                    }
-                    fire_animations.push((rect, animation));
+        let mut names: Vec<_> = sprites.keys().cloned().collect();
+        names.sort();
+        for name in names {
+            let identifier = if name.contains(':') {
+                name.clone()
+            } else {
+                format!("minecraft:{name}")
+            };
+            let texture = crate::atlas_sources::texture_path(root, &identifier, "textures");
+            if !texture.with_extension("png.mcmeta").is_file() {
+                continue;
+            }
+            let Some(rect) = sprites.get(&name).copied() else {
+                continue;
+            };
+            let Ok(layer) = animated_sprites.insert(root, &identifier) else {
+                continue;
+            };
+            if let Some(animation) = animated_sprites
+                .animations
+                .iter()
+                .find(|a| a.layer == layer)
+                .cloned()
+            {
+                let (tw, th) = rect.texels((width, height));
+                let image = animation.resized_pixels(animation.frame(0), tw, th);
+                let x = (rect.u0 * width as f32).round() as usize;
+                let y = (rect.v0 * height as f32).round() as usize;
+                let row_bytes = tw as usize * 4;
+                for row in 0..th as usize {
+                    let dst = ((y + row) * width as usize + x) * 4;
+                    let src = row * row_bytes;
+                    pixels[dst..dst + row_bytes].copy_from_slice(&image[src..src + row_bytes]);
                 }
+                fire_animations.push((rect, animation));
             }
         }
         let white = sprites["horizon/white"];
@@ -842,6 +917,15 @@ impl HudBatch {
             self.rect_uv(x, y, w, h, r, u32::MAX);
         }
     }
+    /// Draw a bounded region of a source texture without stretching its UVs.
+    pub fn sprite_subregion(&mut self,atlas:&HudAtlas,name:&str,[x,y,w,h]:[f32;4],[sx,sy]:[f32;2],tw:f32,th:f32) {
+        if let Some(mut r)=atlas.sprites.get(name).copied() {
+            let (du,dv)=(r.u1-r.u0,r.v1-r.v0);let (u,v)=(r.u0,r.v0);
+            r.u0=u+du*sx/tw;r.u1=u+du*(sx+w)/tw;
+            r.v0=v+dv*sy/th;r.v1=v+dv*(sy+h)/th;
+            self.rect_uv(x,y,w,h,r,u32::MAX);
+        }
+    }
     pub fn fill(&mut self, atlas: &HudAtlas, x: f32, y: f32, w: f32, h: f32, color: u32) {
         let mut r = atlas.white;
         let (cu, cv) = ((r.u0 + r.u1) / 2.0, (r.v0 + r.v1) / 2.0);
@@ -1033,7 +1117,11 @@ impl HudUniform {
     }
 }
 pub struct HudRenderer {
-    pub fire_animations: Vec<(Rect, crate::sprites::SpriteAnimation, usize)>,
+    pub fire_animations: Vec<(
+        Rect,
+        crate::sprites::SpriteAnimation,
+        Option<crate::sprites::FrameBlend>,
+    )>,
     /// The shared atlas texture, for run-time glyph uploads.
     pub atlas_texture: Option<wgpu::Texture>,
     pipeline: wgpu::RenderPipeline,
@@ -1258,12 +1346,21 @@ impl HudRenderer {
             return;
         };
         for (rect, animation, previous) in &mut self.fire_animations {
-            let frame = animation.frame(tick);
-            if frame == *previous {
+            let blend = animation.blend(tick);
+            if *previous == Some(blend) {
                 continue;
             }
             let (w, h) = rect.texels((texture.width(), texture.height()));
-            let pixels = animation.resized_pixels(frame, w, h);
+            let mut pixels = animation.resized_pixels(blend.frame, w, h);
+            if blend.millis > 0 {
+                let next = animation.resized_pixels(blend.next, w, h);
+                for (a, b) in pixels.iter_mut().zip(next) {
+                    *a = ((u32::from(*a) * (1000 - blend.millis)
+                        + u32::from(b) * blend.millis
+                        + 500)
+                        / 1000) as u8;
+                }
+            }
             uploads.texture(
                 encoder,
                 wgpu::TexelCopyTextureInfo {
@@ -1280,7 +1377,7 @@ impl HudRenderer {
                 h,
                 &pixels,
             );
-            *previous = frame;
+            *previous = Some(blend);
         }
     }
     /// Stage the batch's atlas patches, vertices and uniform: before the
@@ -1467,6 +1564,59 @@ mod tests {
             .unwrap()
             .write_image_data(&pixels)
             .unwrap();
+    }
+    #[test]
+    fn namespaced_item_strip_packs_one_frame_and_registers_animation() {
+        let root =
+            std::env::temp_dir().join(format!("horizon-mod-item-animation-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("assets/ae2/textures/item");
+        fs::create_dir_all(&dir).unwrap();
+        let mut writer = png::Encoder::new(
+            fs::File::create(dir.join("charged_staff.png")).unwrap(),
+            16,
+            32,
+        );
+        writer.set_color(png::ColorType::Rgba);
+        writer.set_depth(png::BitDepth::Eight);
+        let mut pixels = vec![0u8; 16 * 32 * 4];
+        for i in 0..16 * 16 {
+            pixels[4 * i] = 255;
+            pixels[4 * i + 3] = 255;
+        }
+        for i in 16 * 16..16 * 32 {
+            pixels[4 * i + 2] = 255;
+            pixels[4 * i + 3] = 255;
+        }
+        writer
+            .write_header()
+            .unwrap()
+            .write_image_data(&pixels)
+            .unwrap();
+        fs::write(
+            dir.join("charged_staff.png.mcmeta"),
+            r#"{"animation":{"frametime":1,"frames":[0,1]}}"#,
+        )
+        .unwrap();
+        let atlas_dir = root.join("assets/minecraft/atlases");
+        fs::create_dir_all(&atlas_dir).unwrap();
+        fs::write(
+            atlas_dir.join("blocks.json"),
+            r#"{"sources":[{"type":"minecraft:directory","source":"item","prefix":"item/"}]}"#,
+        )
+        .unwrap();
+        let atlas = HudAtlas::build(&root).unwrap();
+        let rect = atlas.sprites["ae2:item/charged_staff"];
+        assert_eq!(rect.texels((atlas.width, atlas.height)), (16, 16));
+        let animation = atlas
+            .fire_animations
+            .iter()
+            .find(|(r, _)| r.u0 == rect.u0 && r.v0 == rect.v0)
+            .unwrap();
+        assert_eq!(animation.1.frame_count(), 2);
+        assert_ne!(animation.1.pixels(0), animation.1.pixels(1));
+        assert_ne!(animation.1.frame(0), animation.1.frame(1));
+        let _ = fs::remove_dir_all(root);
     }
     #[test]
     fn a_pack_texture_keeps_the_default_textures_gui_size() {

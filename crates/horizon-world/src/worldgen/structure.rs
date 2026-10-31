@@ -396,3 +396,5 @@ impl StructureResources {
         self.jigsaw_states.contains_key(&state)
     }
 }
+
+pub mod extension;

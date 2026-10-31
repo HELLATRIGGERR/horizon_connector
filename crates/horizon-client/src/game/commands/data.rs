@@ -283,6 +283,10 @@ impl Game<'_> {
                     .ok_or_else(|| err("commands.data.block.invalid", &[]))?;
                 // BlockEntity.saveWithFullMetadata: no chunk-only keepPacked.
                 let mut tag = save::encode_block_entity(key, e, &name);
+                #[cfg(feature = "ae2-lab")]
+                if let Some(original)=self.world.block_entities.vanilla_metadata(&key) {
+                    tag=save::live_vanilla_block_entity(key,e,&name,self.world.block_names.get(&key).map(String::as_str),Some(original));
+                }
                 if let Tag::Compound(c) = &mut tag {
                     c.remove(&"keepPacked".into());
                 }
@@ -299,10 +303,58 @@ impl Game<'_> {
                 let key = (p[0], p[1], p[2]);
                 if let Some((_, mut new)) = save::decode_block_entity(&tag) {
                     self.take_loot_table(key, &tag, &mut new);
+                    #[cfg(feature = "ae2-lab")]
+                    {
+                        use horizon_client::{ae2_world::MachineKind, containers::BlockEntity};
+                        let current = self.world.block_entities.get(&key);
+                        let provider = match (current, &new) {
+                            (Some(BlockEntity::Ae2(old)), BlockEntity::Ae2(next))
+                                if old.kind == MachineKind::PatternProvider && next.kind == MachineKind::PatternProvider =>
+                                Some((super::super::ae2_provider_registry::provider_node_data_unchanged(
+                                    old.config.get(&"gn".into()), next.config.get(&"gn".into())), old.slots.clone())),
+                            _ => None,
+                        };
+                        let touches_ae2 = matches!(current, Some(BlockEntity::Ae2(_))) || matches!(&new, BlockEntity::Ae2(_));
+                        if let Some((true, previous_slots)) = provider {
+                            // AE2 loads this block entity in place. The managed
+                            // node remains live when its saved data is equal.
+                            let BlockEntity::Ae2(mut replacement) = new else { unreachable!() };
+                            replacement.slots = super::super::ae2_provider_registry::provider_merge_raw_slots(&previous_slots, tag.get("Items"));
+                            let Some(BlockEntity::Ae2(target)) = self.world.block_entities.get_mut(&key) else { unreachable!() };
+                            **target = *replacement;
+                            self.world.modified.insert((p[0] >> 4, p[2] >> 4));
+                            self.ae2_provider_raw_read_local(key, tag.get("Items").cloned());
+                        } else {
+                            if touches_ae2 {
+                                // This native /data branch replaces the entity.
+                                // Deliver its actual lifecycle rather than
+                                // permanently poisoning unrelated providers.
+                                self.world.block_entities.replace_from_data(key, new, &tag);
+                                let state = self.world.block(p[0], p[1], p[2]);
+                                self.world.block_entities.record_ae2_loaded_state(key, state.0);
+                            } else {
+                                self.world.block_entities.insert(key, new);
+                            }
+                        }
+                    }
+                    #[cfg(not(feature = "ae2-lab"))]
                     self.world.block_entities.insert(key, new);
+                    #[cfg(feature = "ae2-lab")]
+                    {
+                        self.world.block_entities.remember_vanilla_metadata(key,&tag);
+                        if self.world.block_entities.vanilla_metadata(&key).is_some() {
+                            match tag.get("CustomName").map(|raw|horizon_client::entity_nbt::name_text(raw).plain()) {
+                                Some(name)=>{self.world.block_names.insert(key,name);},
+                                None=>{self.world.block_names.remove(&key);},
+                            }
+                        }
+                    }
                     let state = self.world.block(p[0], p[1], p[2]);
                     // Redraw what shows the block entity (signs, banners).
                     let _ = self.world.set(p[0], p[1], p[2], state);
+                    // A same-state redraw does not dirty the chunk. Persist
+                    // changes to the block entity even when its block is unchanged.
+                    self.world.modified.insert((p[0] >> 4, p[2] >> 4));
                 }
                 Ok(())
             }

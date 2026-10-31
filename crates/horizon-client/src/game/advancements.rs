@@ -479,7 +479,7 @@ impl Game<'_> {
         for r in unlocked {
             let list = tree.recipe_criteria(r);
             self.trigger_criteria(&tree, &list, |c, _| {
-                c["recipes"].as_str() == Some(r.as_str())
+                c.get("recipes").or_else(||c.get("recipe")).and_then(Value::as_str) == Some(r.as_str())
             });
         }
     }

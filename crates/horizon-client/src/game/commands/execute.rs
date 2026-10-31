@@ -558,7 +558,7 @@ impl Game<'_> {
                 if !matches!(
                     dim.as_str(),
                     "minecraft:overworld" | "minecraft:the_nether" | "minecraft:the_end"
-                ) {
+                ) && !(cfg!(feature="ae2-lab") && dim == "ae2:spatial_storage") {
                     return Err(err("argument.dimension.invalid", &[dim]));
                 }
                 let dimension = Dim::from_id(dim);

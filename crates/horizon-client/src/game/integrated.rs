@@ -408,6 +408,11 @@ impl Game<'_> {
             s.flags.published.store(0, Ordering::Relaxed);
         }
         if let Some(mut host) = self.lan.take() {
+            // Menu removal returns cursor ownership to the real inventory.
+            // Keep this host attached through save_game below, so store_owner
+            // snapshots that inventory after sync_level's server avatar.
+            #[cfg(feature = "ae2-lab")]
+            self.lan_close_ae2_menus(&mut host);
             for g in &host.hub.guests {
                 self.save_guest(&host, g);
             }

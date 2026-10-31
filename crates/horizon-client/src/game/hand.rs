@@ -68,6 +68,16 @@ impl Game<'_> {
     pub(super) fn tick_local_hand(&mut self) -> Result<()> {
         let attack_clicks = std::mem::take(&mut self.attack_clicks);
         if self.screen == Screen::Playing && self.title.is_none() && self.sleeping.is_none() {
+            #[cfg(feature = "ae2-lab")]
+            if self.remote.is_none() && attack_clicks > 0 && !self.entity_targeted()
+                && let Some(hit) = self.pick()
+                && self.ae2_try_facade_cycle(hit.pos, hit.face, false)
+            {
+                self.stop_mining();
+                self.left = false;
+                self.swing_arm();
+                return Ok(());
+            }
             let mut clicks = std::mem::take(&mut self.clicks);
             // keyAttack.isDown(); playing implies the grabbed mouse here
             // (scripts under --control hold buttons without grabbing it).

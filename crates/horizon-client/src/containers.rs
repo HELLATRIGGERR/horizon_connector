@@ -65,6 +65,8 @@ pub const HOPPER_SLOTS: usize = 5;
 
 #[derive(Clone, Debug)]
 pub enum BlockEntity {
+    #[cfg(feature = "ae2-lab")]
+    Ae2(Box<crate::ae2_world::Machine>),
     Chest(Vec<Option<ItemStack>>),
     Furnace(Furnace),
     Brewing(Box<crate::brewing::BrewingStand>),
@@ -301,6 +303,10 @@ pub struct Jukebox {
 }
 impl BlockEntity {
     pub fn for_block(name: &str) -> Option<Self> {
+        #[cfg(feature = "ae2-lab")]
+        if let Some(machine) = crate::ae2_world::Machine::for_block(name) {
+            return Some(Self::Ae2(Box::new(machine)));
+        }
         if let Some(hanging) = crate::signs::sign_kind(name) {
             return Some(Self::Sign(crate::signs::SignData {
                 hanging,
@@ -387,6 +393,8 @@ impl BlockEntity {
     }
     pub fn id(&self) -> &'static str {
         match self {
+            #[cfg(feature = "ae2-lab")]
+            Self::Ae2(m) => m.kind.id(),
             Self::Chest(items) => match items.len() {
                 HOPPER_SLOTS => "minecraft:hopper",
                 9 => "minecraft:dispenser",
@@ -417,6 +425,8 @@ impl BlockEntity {
     }
     pub fn contents(&self) -> Vec<ItemStack> {
         match self {
+            #[cfg(feature = "ae2-lab")]
+            Self::Ae2(m) => m.physical_contents(),
             Self::Chest(items) => items.iter().flatten().cloned().collect(),
             Self::Furnace(f) => f.items.iter().flatten().cloned().collect(),
             Self::Brewing(b) => b.items.iter().flatten().cloned().collect(),
@@ -439,6 +449,8 @@ impl BlockEntity {
     }
     pub fn slots(&self) -> &[Option<ItemStack>] {
         match self {
+            #[cfg(feature = "ae2-lab")]
+            Self::Ae2(m) => &m.slots,
             Self::Chest(items) => items,
             Self::Furnace(f) => &f.items,
             Self::Brewing(b) => &b.items,
@@ -462,6 +474,8 @@ impl BlockEntity {
     }
     pub fn slots_mut(&mut self) -> &mut [Option<ItemStack>] {
         match self {
+            #[cfg(feature = "ae2-lab")]
+            Self::Ae2(m) => &mut m.slots,
             Self::Chest(items) => items,
             Self::Furnace(f) => &mut f.items,
             Self::Brewing(b) => &mut b.items,

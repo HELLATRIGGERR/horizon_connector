@@ -234,8 +234,13 @@ impl Game<'_> {
         if !self.before_block(d) || self.mob_hit().is_some_and(|m| m.1 < d) {
             return false;
         }
+        self.hurt_frame_at(i);
+        true
+    }
+    /// Shared item-frame hurt path for a player-owned melee or custom source.
+    pub(super) fn hurt_frame_at(&mut self, i: usize) -> bool {
         if self.item_frames[i].fixed {
-            return true;
+            return false;
         }
         let with_frame = self.item_frames[i].item.is_none();
         let at = center(&self.item_frames[i]);
@@ -256,6 +261,16 @@ impl Game<'_> {
         self.drop_frame_items(&f, with_frame, true);
         self.world.modified.insert((f.pos[0] >> 4, f.pos[2] >> 4));
         true
+    }
+    /// Explosions break the whole non-fixed frame, including its held item.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn ae2_explode_frame_at(&mut self, i: usize) {
+        if self.item_frames[i].fixed { return; }
+        let f=self.item_frames.remove(i);
+        let at=center(&f);
+        self.audio.play(&sound(&f,"break"),Some(at),1.0,1.0);
+        self.drop_frame_items(&f,true,false);
+        self.world.modified.insert((f.pos[0] >> 4,f.pos[2] >> 4));
     }
     /// `ItemFrame.dropItem`: the frame (when breaking) and the held item.
     fn drop_frame_items(&mut self, f: &ItemFrame, with_frame: bool, by_player: bool) {

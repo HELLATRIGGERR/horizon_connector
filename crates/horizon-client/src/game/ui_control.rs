@@ -89,15 +89,13 @@ impl Game<'_> {
             Kind::Tab(selected) => v["selected"] = json!(selected),
             Kind::Slot => {
                 if let Some(slot) = node.id.strip_prefix("slot-").and_then(|s| s.parse().ok()) {
-                    let stack = if slot == 200 {
-                        self.craft_result()
-                    } else if slot >= Creative::DISPLAY {
+                    let stack = if slot >= Creative::DISPLAY {
                         // An item tab's display slot shows the tab's list.
                         let first = self.creative_screen.first_row(&self.pack.names);
                         let items = self.creative_screen.items(&self.pack.names);
                         items.get(first * 9 + slot - Creative::DISPLAY).cloned()
                     } else {
-                        self.slot_mut(slot).clone()
+                        self.slot_view(slot)
                     };
                     v["stack"] = stack.map_or(Value::Null, |s| self.stack_value(&s));
                 }

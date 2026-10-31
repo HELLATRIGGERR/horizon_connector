@@ -106,6 +106,18 @@ pub trait Clipboard {
     fn set(&mut self, text: &str);
 }
 
+static AUTOMATED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Isolate desktop input/output for a background automation process. Set before
+/// constructing the startup menu or starting other workers.
+pub fn set_automated(automated: bool) {
+    AUTOMATED.store(automated, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn automated() -> bool {
+    AUTOMATED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// The system clipboard (`ClipboardManager`). On Wayland, arboard uses the
 /// data-control protocol and falls back to X11 (XWayland) on compositors
 /// without it. When no system clipboard can be reached, text copied in the
@@ -123,6 +135,9 @@ impl SystemClipboard {
         self.copied.as_deref()
     }
     fn system(&mut self) -> Option<&mut arboard::Clipboard> {
+        if automated() {
+            return None;
+        }
         if self.system.is_none() {
             self.system = arboard::Clipboard::new().ok();
         }

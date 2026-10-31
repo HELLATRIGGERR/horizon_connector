@@ -144,6 +144,62 @@ impl Game<'_> {
             return;
         }
         let range = self.reach() + 4.0;
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() {
+            let pos = self.container.unwrap();
+            if !self.ae2_local_provider_valid()
+                || !horizon_client::lan::guest::within_block_range(eye, range, [pos.0, pos.1, pos.2])
+            {
+                self.close_container();
+                self.screen = super::Screen::Playing;
+                self.capture(true);
+            }
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() {
+            let pos=self.container.unwrap();
+            if !self.ae2_local_machine_valid() || !horizon_client::lan::guest::within_block_range(eye,range,[pos.0,pos.1,pos.2]) {
+                self.close_container();self.screen=super::Screen::Playing;self.capture(true);
+            }
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() {
+            if !self.ae2_local_bus_valid(){self.close_container();self.screen=super::Screen::Playing;self.capture(true);}
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_pattern_access_open() {
+            if !self.ae2_local_pattern_access_valid(){self.close_container();self.screen=super::Screen::Playing;self.capture(true);}
+            else{self.ae2_local_pattern_access_tick();}
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_terminal_open() {
+            let pos=self.container.unwrap();
+            if !self.ae2_local_terminal_valid()
+                || !horizon_client::lan::guest::within_block_range(eye,range,[pos.0,pos.1,pos.2]) {
+                self.close_container();self.screen=super::Screen::Playing;self.capture(true);
+            }
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if matches!(self.container_kind(), Some(BlockEntity::Ae2(_))) {
+            let pos = self.container.unwrap();
+            if !self.ae2_has_terminal(pos)
+                || !horizon_client::lan::guest::within_block_range(
+                    eye,
+                    range,
+                    [pos.0, pos.1, pos.2],
+                )
+            {
+                self.close_container();
+                self.screen = super::Screen::Playing;
+                self.capture(true);
+            }
+            return;
+        }
         let near = self.container_parts().iter().all(|&((x, y, z), _)| {
             horizon_client::lan::guest::within_block_range(eye, range, [x, y, z])
         });
@@ -215,6 +271,20 @@ impl Game<'_> {
     /// Rows of the open generic 9-wide container (`ChestMenu`), or None for
     /// the other menus (hoppers, dispensers, shulker boxes, furnaces...).
     pub(super) fn chest_rows(&self) -> Option<usize> {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() { return Some(3); }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() {return Some(3);}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() {return Some(6);}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_pattern_access_open() {return Some(6);}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_portable_open() { return Some(6); }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_terminal_open() {
+            return Some(6);
+        }
         if let Some((rows, _)) = self.remote_chest_menu() {
             return Some(rows);
         }
@@ -234,6 +304,18 @@ impl Game<'_> {
     }
     /// The title of the open chest-like menu.
     fn chest_title(&self, rows: usize) -> Text {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() {
+            return Text::literal(if self.ae2_local_provider_priority_open() { "Priority" } else { "ME Pattern Provider" });
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() {return Text::literal(self.ae2_local_machine_title());}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() {return Text::literal(self.ae2_local_bus_title());}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_terminal_open() {
+            return Text::literal("ME Terminal");
+        }
         if let Some((_, title)) = self.remote_chest_menu() {
             return title;
         }
@@ -259,6 +341,188 @@ impl Game<'_> {
         use horizon_client::hud::rgba;
         let atlas = &self.gui.atlas;
         let grey = rgba(64, 64, 64, 255);
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_pattern_access_screen() {
+            batch.sprite_region(atlas,"ae2:guis/patternaccessterminal",[ox,oy,195.0,224.0],256.0,256.0);
+            batch.text(atlas,"Pattern Access",ox+8.0,oy+6.0,grey,false);
+            batch.text(atlas,"Inventory",ox+8.0,oy+131.0,grey,false);
+            if let Some(rows)=self.ae2_pattern_access_layout().as_ref().and_then(|v|v.get("rows")).and_then(|v|v.as_array()) {
+                for i in 0..6 {
+                    let row=rows.get(i);let provider=row.and_then(|r|r.get("kind")).and_then(|v|v.as_str())==Some("provider");
+                    let src=17.0+(i/2) as f32*36.0+if provider {18.0}else{0.0};
+                    batch.sprite_subregion(atlas,"ae2:guis/patternaccessterminal",[ox,oy+17.0+i as f32*18.0,195.0,18.0],[0.0,src],256.0,256.0);
+                    if !provider {if let Some(name)=row.and_then(|r|r.get("name")).and_then(|v|v.as_str()) {
+                        let count=row.and_then(|r|r.get("count")).and_then(|v|v.as_u64()).unwrap_or(1);
+                        let label=if count>1 {format!("{name} ({count})")} else {name.to_string()};
+                        batch.text(atlas,&label.chars().take(24).collect::<String>(),ox+18.0,oy+22.0+i as f32*18.0,grey,false);
+                    }}
+                }
+            }
+            for (x,y,label) in [(175.0,18.0,"^"),(175.0,107.0,"v"),(-18.0,18.0,"F")] {
+                batch.fill(atlas,ox+x,oy+y,16.0,16.0,rgba(70,70,70,255));
+                batch.fill(atlas,ox+x+1.0,oy+y+1.0,14.0,14.0,rgba(185,185,185,255));
+                batch.text(atlas,label,ox+x+5.0,oy+y+4.0,grey,false);
+            }
+            self.ae2_search_draw(batch,ox,oy);
+            let icons:Vec<_>=self.ae2_pattern_access_layout().as_ref().and_then(|v|v.get("rows")).and_then(|v|v.as_array()).into_iter().flatten().take(6).enumerate().filter_map(|(i,row)|{
+                if row.get("kind")?.as_str()? != "header" {return None;}
+                let icon=row.get("icon")?;let id=icon.get("id")?.as_str()?.to_string();
+                let bytes=icon.get("components")?.as_array()?.iter().map(|v|u8::try_from(v.as_u64()?).ok()).collect::<Option<Vec<_>>>()?;
+                let stack=horizon_client::ae2_cell_codec::prototype(&ae2_cell_core::ItemKey{item_id:id,components:bytes}).ok()?;
+                Some((i,stack))
+            }).collect();
+            for (i,stack) in icons {
+                let (x,y)=(ox+8.0,oy+22.0+i as f32*18.0);let first=batch.vertices.len();
+                self.draw_item_model(batch,&stack,x,y);batch.scale_since(first,x,y,0.5,0.5);
+            }
+            return;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()==3 {
+            batch.sprite_region(atlas,"ae2:guis/craftingcpu",[ox,oy,238.0,185.0],256.0,256.0);
+            batch.text(atlas,"Crafting status",ox+8.0,oy+7.0,grey,false);
+            batch.text(atlas,"Stored / scheduled / crafting",ox+8.0,oy+110.0,grey,false);
+            if let Some(items)=self.ae2_craft_menu_items() {
+                if let Some(label)=items.get(1).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                    batch.text(atlas,&label.chars().take(31).collect::<String>(),ox+8.0,oy+122.0,grey,false);
+                }
+                for i in 0..12 {
+                    if let Some(label)=items.get(5+i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                        let amounts=label.split_once(": stored ").map(|(_,v)|v.replace(", pending ","/").replace(", active ","/")).unwrap_or_else(||label.to_owned());
+                        batch.text(atlas,&amounts.chars().take(9).collect::<String>(),ox+30.0+(i%3) as f32*68.0,oy+29.0+(i/3) as f32*18.0,grey,false);
+                    }
+                }
+            }
+            if let Some(mode)=self.ae2_craft_menu_items().and_then(|items|items.first()).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                batch.fill(atlas,ox-18.0,oy+18.0,16.0,16.0,rgba(70,70,70,255));
+                let initial=if mode.contains("PLAYER_ONLY") {"P"} else if mode.contains("MACHINE_ONLY") {"M"} else {"A"};
+                batch.text(atlas,initial,ox-14.0,oy+22.0,grey,false);
+            }
+            if self.ae2_craft_menu_items().and_then(|items|items.get(20)).is_some_and(Option::is_some) {
+                batch.fill(atlas,ox+8.0,oy+164.0,80.0,20.0,rgba(70,70,70,255));
+                batch.fill(atlas,ox+9.0,oy+165.0,78.0,18.0,rgba(185,185,185,255));
+                batch.text(atlas,"Back",ox+12.0,oy+170.0,grey,false);
+            }
+            let suspended=self.ae2_craft_menu_items().and_then(|items|items.get(1)).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()).is_some_and(|s|s.starts_with("Suspended"));
+            for (x,w,label) in [(8.0,80.0,"Next CPU"),(103.0,50.0,if suspended {"Resume"} else {"Suspend"}),(163.0,50.0,"Cancel")] {
+                batch.fill(atlas,ox+x,oy+140.0,w,20.0,rgba(70,70,70,255));
+                batch.fill(atlas,ox+x+1.0,oy+141.0,w-2.0,18.0,rgba(185,185,185,255));
+                batch.text(atlas,label,ox+x+4.0,oy+146.0,grey,false);
+            }
+            for (y,label) in [(19.0,"^"),(117.0,"v")] {batch.fill(atlas,ox+218.0,oy+y,16.0,16.0,rgba(70,70,70,255));batch.text(atlas,label,ox+222.0,oy+y+4.0,grey,false);}
+            return;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()!=0 {
+            let amount=self.ae2_craft_screen()==1;
+            if amount {
+                batch.sprite_region(atlas,"ae2:guis/craft_amt",[ox,oy,176.0,107.0],256.0,256.0);
+                batch.text(atlas,"Select amount",ox+8.0,oy+6.0,grey,false);
+                self.ae2_search_draw(batch,ox,oy);
+            } else {
+                batch.sprite_region(atlas,"ae2:guis/craftingreport",[ox,oy,238.0,206.0],256.0,256.0);
+                batch.text(atlas,"Crafting confirmation",ox+8.0,oy+7.0,grey,false);
+                if let Some(label)=self.ae2_craft_menu_items().and_then(|items|items.get(1)).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                    batch.text(atlas,label,ox+36.0,oy+24.0,grey,false);
+                }
+                if let Some(items)=self.ae2_craft_menu_items() {
+                    if let Some(label)=items.get(17).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                        batch.text(atlas,label,ox+115.0,oy+119.0,grey,false);
+                    }
+                    if items.iter().skip(5).take(12).flatten().any(|s|s.data().and_then(|d|d.custom_name.as_deref()).is_some_and(|label|label.starts_with("Missing "))) {
+                        batch.text(atlas,"! = missing",ox+12.0,oy+119.0,grey,false);
+                    }
+                    for i in 0..12 {
+                        if let Some(label)=items.get(5+i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                            let text=label.replace("minecraft:","").replace("Missing ","!").replace("Stored ","").replace("Planned ","+").chars().take(12).collect::<String>();
+                            batch.text(atlas,&text,ox+12.0+(i%3) as f32*68.0,oy+43.0+(i/3) as f32*18.0,grey,false);
+                        }
+                    }
+                    let label=items.get(4).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()).unwrap_or("CPU: Automatic");
+                    batch.fill(atlas,ox+19.0,oy+138.0,180.0,20.0,rgba(70,70,70,255));
+                    batch.fill(atlas,ox+20.0,oy+139.0,178.0,18.0,rgba(185,185,185,255));
+                    batch.text(atlas,&label.chars().take(27).collect::<String>(),ox+23.0,oy+144.0,grey,false);
+                }
+                for (y,label) in [(19.0,"^"),(117.0,"v")] {
+                    batch.fill(atlas,ox+218.0,oy+y,16.0,16.0,rgba(70,70,70,255));
+                    batch.fill(atlas,ox+219.0,oy+y+1.0,14.0,14.0,rgba(185,185,185,255));
+                    batch.text(atlas,label,ox+223.0,oy+y+4.0,grey,false);
+                }
+            }
+            let buttons=if amount {[(120.0,51.0,38.0,"Next"),(152.0,0.0,20.0,"X")]} else {[(162.0,181.0,50.0,"Start"),(6.0,181.0,50.0,"Cancel")]};
+            for (x,y,w,label) in buttons {
+                batch.fill(atlas,ox+x,oy+y,w,20.0,rgba(70,70,70,255));
+                batch.fill(atlas,ox+x+1.0,oy+y+1.0,w-2.0,18.0,rgba(185,185,185,255));
+                batch.text(atlas,label,ox+x+4.0,oy+y+6.0,grey,false);
+            }
+            return;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_anchor_screen() {
+            batch.sprite_region(atlas,"ae2:guis/spatialanchor",[ox,oy,195.0,100.0],256.0,256.0);
+            batch.text(atlas,"Spatial Anchor",ox+8.0,oy+6.0,grey,false);
+            batch.text(atlas,"Statistics",ox+8.0,oy+56.0,grey,false);
+            if let Some(entity)=self.container_kind() {
+                for (i,y) in [(1,21.0),(2,31.0),(3,71.0),(4,81.0)] {
+                    if let Some(label)=entity.slots().get(i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {batch.text(atlas,label,ox+13.0,oy+y,grey,false);}
+                }
+                let enabled=entity.slots().first().and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()).is_some_and(|s|s.ends_with("on"));
+                batch.fill(atlas,ox-18.0,oy+18.0,16.0,16.0,rgba(70,70,70,255));
+                batch.text(atlas,if enabled {"Y"} else {"N"},ox-14.0,oy+22.0,grey,false);
+            }
+            return;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_status_screen() {
+            batch.sprite_region(atlas,"ae2:guis/networkstatus",[ox,oy,195.0,157.0],256.0,256.0);
+            if let Some(entity)=self.container_kind() {
+                for (i,slot) in entity.slots().iter().take(14).enumerate() {
+                    if let Some(label)=slot.as_ref().and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                        let (x,y)=match i {
+                            0=>(8.0,6.0),1=>(13.0,16.0),2=>(13.0,26.0),
+                            3..=10=>(13.0+((i-3)%2) as f32*78.0,42.0+((i-3)/2) as f32*18.0),
+                            _=>(13.0,123.0+(i-11) as f32*10.0),
+                        };
+                        let text=if (3..=10).contains(&i) {label.chars().take(14).collect::<String>()} else {label.to_owned()};
+                        batch.text(atlas,&text,ox+x,oy+y,grey,false);
+                    }
+                }
+            }
+            for (y,label) in [(41.0,"^"),(95.0,"v")] {
+                batch.fill(atlas,ox+176.0,oy+y,16.0,16.0,rgba(70,70,70,255));
+                batch.fill(atlas,ox+177.0,oy+y+1.0,14.0,14.0,rgba(185,185,185,255));
+                batch.text(atlas,label,ox+181.0,oy+y+4.0,grey,false);
+            }
+            return;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_tool_screen() {
+            batch.sprite_region(atlas,"ae2:guis/toolbox",[ox,oy,176.0,168.0],256.0,256.0);
+            batch.text(atlas,"Network Tool",ox+8.0,oy+6.0,grey,false);
+            batch.text(atlas,"Inventory",ox+8.0,oy+73.0,grey,false);
+            return;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_crafting_terminal_screen() {
+            batch.sprite_region(atlas,"ae2:guis/crafting",[ox,oy,195.0,251.0],256.0,256.0);
+            batch.text(atlas,"Terminal",ox+8.0,oy+6.0,grey,false);
+            batch.text(atlas,"Crafting Terminal",ox+8.0,oy+74.0,grey,false);
+            batch.text(atlas,"Inventory",ox+8.0,oy+156.0,grey,false);
+            // The server controls are virtual slots, rendered as toolbar
+            // buttons rather than item stacks on top of the screen texture.
+            for (x,y,label) in [
+                (-18.0,18.0,"S"),(-18.0,36.0,"F"),(-18.0,54.0,"J"),
+                (-18.0,72.0,"#"),(-18.0,90.0,"D"),
+                (176.0,18.0,"^"),(176.0,54.0,"v"),
+                (81.0,92.0,"X"),(99.0,92.0,"I"),
+            ] {
+                batch.fill(atlas,ox+x,oy+y,16.0,16.0,rgba(70,70,70,255));
+                batch.fill(atlas,ox+x+1.0,oy+y+1.0,14.0,14.0,rgba(185,185,185,255));
+                batch.text(atlas,label,ox+x+5.0,oy+y+4.0,grey,false);
+            }
+            self.ae2_search_draw(batch,ox,oy);
+            return;
+        }
         if self
             .container_block()
             .as_deref()
@@ -311,6 +575,8 @@ impl Game<'_> {
             grey,
             false,
         );
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_search_draw(batch, ox, oy);
     }
 }
 
@@ -340,5 +606,25 @@ mod tests {
         assert!(is_shulker_box("minecraft:red_shulker_box"));
         assert!(is_shulker_box("minecraft:shulker_box"));
         assert!(!is_shulker_box("minecraft:chest"));
+    }
+}
+
+#[cfg(feature="ae2-lab")]
+impl Game<'_> {
+    pub(super) fn draw_pattern_access_header_tooltip(&mut self,batch:&mut horizon_client::hud::HudBatch,ox:f32,oy:f32) {
+        if !self.ae2_pattern_access_screen() || self.carried.is_some() {return;}
+        let (x,y)=(self.cursor.0-ox,self.cursor.1-oy);
+        if !(8.0..170.0).contains(&x) || !(17.0..125.0).contains(&y) {return;}
+        let line=((y-17.0)/18.0) as usize;
+        let layout=self.ae2_pattern_access_layout();
+        let Some(row)=layout.as_ref().and_then(|v|v.get("rows")).and_then(|v|v.as_array()).and_then(|rows|rows.get(line)) else{return;};
+        if row.get("kind").and_then(|v|v.as_str())!=Some("header") {return;}
+        let mut lines=Vec::new();
+        if let Some(name)=row.get("name").and_then(|v|v.as_str()) {lines.push((name.to_string(),u32::MAX));}
+        if let Some(tooltip)=row.get("tooltip").and_then(|v|v.as_array()) {
+            if !tooltip.is_empty() {lines.push(("Adjacent to different machines".to_string(),u32::MAX));}
+            lines.extend(tooltip.iter().filter_map(|v|v.as_str()).map(|v|(v.to_string(),u32::MAX)));
+        }
+        if !lines.is_empty() {self.draw_tooltip_lines(batch,&lines,self.cursor.0,self.cursor.1);}
     }
 }

@@ -21,13 +21,18 @@ impl Game<'_> {
         title: horizon_client::text::Text,
         pos: [i32; 3],
     ) {
+        #[cfg(feature = "ae2-lab")]
+        let quartz_knife=kind==Kind::Anvil && title.plain()=="Quartz Cutting Knife";
         if let Some(r) = self.remote.as_mut() {
             r.menu = Some((container, menu));
             r.menu_title = Some(title);
         }
         self.craft_size = 2;
         self.container = None;
-        self.station = Some(Station::new_kind(kind, pos));
+        let mut station=Station::new_kind(kind,pos);
+        #[cfg(feature = "ae2-lab")]
+        {station.quartz_knife=quartz_knife;}
+        self.station = Some(station);
         self.screen = Screen::Inventory;
         self.capture(false);
     }
@@ -127,11 +132,17 @@ impl Game<'_> {
         let Some(s) = self
             .station
             .as_ref()
-            .filter(|s| s.kind == Kind::Anvil && s.inputs[0].is_some())
+            .filter(|s| s.kind == Kind::Anvil && (s.inputs[0].is_some() || {
+                #[cfg(feature = "ae2-lab")] {s.quartz_knife}
+                #[cfg(not(feature = "ae2-lab"))] {false}
+            }))
         else {
             return;
         };
-        let name = self.anvil_item_name(s);
+        #[cfg(feature = "ae2-lab")]
+        let name=if s.quartz_knife {s.name.clone()} else {self.anvil_item_name(s)};
+        #[cfg(not(feature = "ae2-lab"))]
+        let name=self.anvil_item_name(s);
         if s.anvil_sent.as_deref() == Some(&name) {
             return;
         }

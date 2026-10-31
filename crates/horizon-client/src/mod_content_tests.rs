@@ -876,3 +876,307 @@ fn a_replacing_mod_tag_reaches_the_root() {
     );
     let _ = fs::remove_dir_all(&scratch);
 }
+
+/// A native AE2 machine must not inherit its visual template's lack of a
+/// block entity: all world destruction paths rely on this generated flag.
+#[cfg(feature = "ae2-lab")]
+#[test]
+fn ae2_machine_overlay_sets_world_block_entity_flag() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+    if !base.join("gameplay-facts.json").exists() {
+        return;
+    }
+    let scratch = std::env::temp_dir().join(format!(
+        "horizon-ae2-machine-overlay-{}",
+        std::process::id()
+    ));
+    let mod_dir = scratch.join("ae2");
+    fs::create_dir_all(mod_dir.join("data/ae2/horizon/block")).unwrap();
+    fs::write(mod_dir.join("horizon-mod.toml"),"id = \"ae2\"\nname = \"AE2\"\nversion = \"0.1.0\"\napi = \"0.2\"\ncapabilities = [\"registries\"]\n").unwrap();
+    fs::write(
+        mod_dir.join("data/ae2/horizon/block/drive.json"),
+        r#"{"template":"minecraft:iron_block"}"#,
+    )
+    .unwrap();
+    let package = horizon_mods::Package::read(&mod_dir).unwrap();
+    let m = ContentMod {
+        id: "ae2".into(),
+        content: Content::read(&mod_dir, &package.manifest).unwrap(),
+    };
+    let root = resource_root(&base, &[m], &scratch.join("cache")).unwrap();
+    let assets = Assets::load(&root).unwrap();
+    let drive = assets.registry.default_state("ae2:drive").unwrap();
+    let iron = assets
+        .registry
+        .default_state("minecraft:iron_block")
+        .unwrap();
+    let behaviours = horizon_world::level::Behaviours::load(assets.registry, &root).unwrap();
+    let flag = horizon_world::level::data::state_flags::BLOCK_ENTITY;
+    assert_ne!(behaviours.facts(drive).flags & flag, 0);
+    assert_eq!(behaviours.facts(iron).flags & flag, 0);
+    fs::remove_dir_all(scratch).unwrap();
+}
+
+#[cfg(feature = "ae2-lab")]
+#[test]
+fn fluix_tool_overlay_components_match_host_stats_without_double_application() {
+    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+    if !base.join("items.json").exists(){return;}
+    let scratch=std::env::temp_dir().join(format!("horizon-fluix-overlay-{}",std::process::id()));
+    let _=fs::remove_dir_all(&scratch);
+    let m=folder_mod(&scratch.join("mod"),&[
+        ("horizon-mod.toml","id = \"ae2\"\nname = \"AE2\"\nversion = \"0.1.0\"\napi = \"0.2\"\ncapabilities = [\"registries\"]\n"),
+        ("data/ae2/horizon/item/fluix_pickaxe.json",r#"{"template":"minecraft:iron_pickaxe"}"#),
+    ]);
+    let root=resource_root(&base,&[m],&scratch.join("cache")).unwrap();
+    let doc:serde_json::Value=serde_json::from_slice(&fs::read(root.join("items.json")).unwrap()).unwrap();
+    let component=&doc["ae2:fluix_pickaxe"];
+    assert_eq!(component["minecraft:max_damage"],750);
+    assert!((component["minecraft:tool"]["rules"][1]["speed"].as_f64().unwrap()-7.2).abs()<0.00001);
+    assert!((component["minecraft:attribute_modifiers"][0]["amount"].as_f64().unwrap()-3.4).abs()<0.00001);
+    let assets=Assets::load(&root).unwrap();let facts=BlockFacts::load(&root,assets.registry).unwrap();
+    let items=Items::load(&root,assets.registry,&facts).unwrap();let pick=items.get("ae2:fluix_pickaxe").unwrap();
+    assert_eq!(pick.max_damage,750);assert!((pick.attack_damage-3.4).abs()<0.00001);
+    assert!(pick.tool.iter().any(|r|r.speed.is_some_and(|s|(s-7.2).abs()<0.00001)));
+    fs::remove_dir_all(scratch).unwrap();
+}
+
+#[test]
+fn declared_custom_states_survive_registry_and_resource_tables() {
+    use horizon_world::chunk::BlockState;
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+    if !base.join("facts.json").exists() {
+        return;
+    }
+    let scratch =
+        std::env::temp_dir().join(format!("horizon-custom-states-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let m = folder_mod(
+        &scratch.join("mod"),
+        &[
+            (
+                "horizon-mod.toml",
+                "id = \"ruby\"\nname = \"Ruby\"\nversion = \"1.0\"\napi = \"0.2\"\ncapabilities = [\"registries\"]\n",
+            ),
+            (
+                "data/ruby/horizon/block/machine.json",
+                r#"{"template":"minecraft:iron_block","state_properties":{"facing":["north","south","west","east"],"formed":["false","true"],"waterlogged":["false","true"]},"state_defaults":{"facing":"north","formed":"false","waterlogged":"false"},"collision_boxes":{"facing=east":[0.125,0.125,0.125,0.875,0.875,0.875]},"light_emission":{"*":0,"formed=true":12}}"#,
+            ),
+            (
+                "data/ruby/horizon/block/fixture.json",
+                r#"{"template":"minecraft:iron_block","properties":{"no_collision":true,"no_occlusion":true,"redstone_conductor":false,"solid":false,"suffocating":false,"push_reaction":"POPPED"},"outline_boxes":{"*":[0.3,0.0,0.3,0.7,0.4,0.7]}}"#,
+            ),
+        ],
+    );
+    let root = resource_root(&base, &[m], &scratch.join("cache")).unwrap();
+    let assets = Assets::load(&root).unwrap();
+    let state = |facing: &str, formed: &str| BlockState {
+        name: "ruby:machine".into(),
+        properties: std::collections::BTreeMap::from([
+            ("facing".into(), facing.into()),
+            ("formed".into(), formed.into()),
+            ("waterlogged".into(), "false".into()),
+        ]),
+    };
+    let default = assets.registry.default_state("ruby:machine").unwrap();
+    assert_eq!(
+        assets.registry.resolve(&state("north", "false")).unwrap(),
+        default
+    );
+    let rotated = assets.registry.resolve(&state("east", "true")).unwrap();
+    assert_ne!(default, rotated);
+    assert_eq!(
+        assets.registry.state(rotated).unwrap(),
+        &state("east", "true")
+    );
+    let model: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("model-states.json")).unwrap()).unwrap();
+    assert_eq!(
+        model["ruby:machine"]["states"].as_array().unwrap().len(),
+        16
+    );
+    let render: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("render-definitions.json")).unwrap()).unwrap();
+    assert_eq!(
+        render["ruby:machine"]["states"].as_array().unwrap().len(),
+        16
+    );
+    let mut wet_state = state("east", "true");
+    wet_state
+        .properties
+        .insert("waterlogged".into(), "true".into());
+    let wet = assets.registry.resolve(&wet_state).unwrap();
+    let behavior: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("block-behaviours.json")).unwrap()).unwrap();
+    assert_eq!(behavior["states"][wet.0 as usize][2], 2);
+    assert_eq!(behavior["states"][wet.0 as usize][3], 8);
+    let flags: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("worldgen/block_flags.json")).unwrap()).unwrap();
+    assert_eq!(flags[wet.0 as usize][1], true);
+    let facts = BlockFacts::load(&root, assets.registry).unwrap();
+    assert_eq!(facts.get(default).hardness, facts.get(rotated).hardness);
+    assert_eq!(facts.get(default).emission, 0);
+    assert_eq!(facts.get(rotated).emission, 12);
+    assert_eq!(facts.get(wet).emission, 12);
+    assert_eq!(facts.get(wet).fluid, crate::blocks::Fluid::Water);
+    assert_eq!(facts.get(wet).fluid_level, 8);
+    assert!(facts.get(wet).waterlogged);
+    assert_eq!(facts.get(rotated).fluid, crate::blocks::Fluid::None);
+    let collision = crate::collisions::load(&root, assets.registry)
+        .expect("custom state collision table matches registry");
+    let fixture=assets.registry.default_state("ruby:fixture").unwrap();
+    let gameplay:serde_json::Value=serde_json::from_slice(&fs::read(root.join("gameplay-facts.json")).unwrap()).unwrap();
+    assert_eq!(gameplay["states"][fixture.0 as usize]["push"],"POPPED");
+    assert_eq!(&*facts.get(fixture).outline,&[[0.3,0.0,0.3,0.7,0.4,0.7]]);
+    assert!(!facts.get(fixture).can_occlude && !facts.get(fixture).full_collision);
+    let fixture_flags=behavior["states"][fixture.0 as usize][1].as_u64().unwrap();
+    assert_ne!(fixture_flags & (1<<5),0);assert_eq!(fixture_flags & (1<<2),0);
+    assert_eq!(fixture_flags & 1,0);assert_eq!(fixture_flags & (1<<6),0);
+    assert!(collision.cached_shapes().cached_shape(fixture).unwrap().is_none_or(|s|s.is_empty()));
+    let bounds = collision
+        .cached_shapes()
+        .cached_shape(rotated)
+        .unwrap()
+        .unwrap()
+        .bounds()
+        .unwrap();
+    assert_eq!(
+        (
+            bounds.min(horizon_core::geometry::Axis::X),
+            bounds.max(horizon_core::geometry::Axis::X)
+        ),
+        (0.125, 0.875)
+    );
+    assert!(
+        collision
+            .cached_shapes()
+            .cached_shape(default)
+            .unwrap()
+            .unwrap()
+            .is_block()
+    );
+    let worldgen_file = horizon_world::registry::BlockTableFile::open(
+        &root.join("worldgen/blocks/cached-collision.nbt"),
+        assets.registry,
+    )
+    .unwrap();
+    let worldgen_collision = horizon_world::collision::CachedCollisionRegistry::from_table(
+        worldgen_file.table("collision").unwrap(),
+    )
+    .unwrap();
+    let wb = worldgen_collision
+        .cached_shape(rotated)
+        .unwrap()
+        .unwrap()
+        .bounds()
+        .unwrap();
+    assert_eq!(
+        (
+            wb.min(horizon_core::geometry::Axis::X),
+            wb.max(horizon_core::geometry::Axis::X)
+        ),
+        (0.125, 0.875)
+    );
+    let structure: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("worldgen/blocks/structure-blocks.json")).unwrap(),
+    )
+    .unwrap();
+    let east = assets.registry.resolve(&state("east", "false")).unwrap();
+    let south = assets.registry.resolve(&state("south", "false")).unwrap();
+    assert_eq!(
+        structure["rotate"][default.0 as usize][0].as_u64(),
+        Some(u64::from(east.0))
+    );
+    assert_eq!(
+        structure["mirror"][default.0 as usize][0].as_u64(),
+        Some(u64::from(south.0))
+    );
+    let _ = fs::remove_dir_all(&scratch);
+}
+
+/// Opt-in integration test for the actual generated AE2 content candidate.
+#[test]
+fn ae2_physical_candidate_loads_real_runtime_facts_and_shapes() {
+    let Some(candidate)=std::env::var_os("AE2_PHYSICAL_CANDIDATE") else{return};
+    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+    assert!(base.join("facts.json").exists());
+    let candidate=PathBuf::from(candidate);
+    let package=horizon_mods::Package::read(&candidate).unwrap();
+    let content=Content::read(&candidate,&package.manifest).unwrap();
+    let m=ContentMod{id:package.manifest.id.clone(),content};
+    let scratch=std::env::temp_dir().join(format!("ae2-physical-facts-{}",std::process::id()));
+    let _=fs::remove_dir_all(&scratch);
+    let root=resource_root(&base,&[m],&scratch).unwrap();
+    let assets=Assets::load(&root).unwrap();let facts=BlockFacts::load(&root,assets.registry).unwrap();
+    let get=|id:&str|facts.get(assets.registry.default_state(id).unwrap());
+    let cube=get("ae2:mysterious_cube");assert_eq!((cube.hardness,cube.explosion_resistance,cube.requires_tool),(10.,1000.,false));
+    let sky=get("ae2:sky_stone_block");assert_eq!((sky.hardness,sky.explosion_resistance,sky.requires_tool),(50.,150.,true));
+    let glass=get("ae2:quartz_vibrant_glass");assert_eq!((glass.hardness,glass.explosion_resistance,glass.emission),(2.2,11.,15));assert!(!glass.can_occlude);
+    let fixture=get("ae2:quartz_fixture");assert_eq!((fixture.emission,fixture.dampening,fixture.skylight_down),(15,0,true));assert!(!fixture.outline.is_empty());assert!(!fixture.full_collision);
+    let detector=get("ae2:light_detector");assert_eq!((detector.emission,detector.dampening,detector.skylight_down),(0,0,true));
+    let inscriber=get("ae2:inscriber");assert_eq!(inscriber.dampening,2);assert!(!inscriber.can_occlude);
+    // These checks use inherited merged runtime facts, not declaration JSON.
+    let charger=get("ae2:charger");assert_eq!((charger.dampening,charger.skylight_down),(2,true));
+    let wap=get("ae2:wireless_access_point");assert_eq!((wap.dampening,wap.skylight_down),(0,true));
+    let tank=get("ae2:sky_stone_tank");assert_eq!((tank.dampening,tank.skylight_down),(1,false));
+    let paint=get("ae2:paint");assert_eq!((paint.hardness,paint.explosion_resistance,paint.replaceable),(2.2,11.,false));assert!(facts.is_air(assets.registry.default_state("ae2:paint").unwrap()));
+    let resonance=get("ae2:crystal_resonance_generator");assert_eq!((resonance.dampening,resonance.skylight_down,resonance.can_occlude),(0,true,false));
+    let sky_chest=get("ae2:sky_stone_chest");assert_eq!((sky_chest.dampening,sky_chest.skylight_down),(0,true));
+    let assembler=get("ae2:molecular_assembler");assert_eq!((assembler.dampening,assembler.skylight_down),(1,false));
+    let debug=get("ae2:debug_energy_gen");assert_eq!((debug.hardness,debug.explosion_resistance,debug.requires_tool),(2.2,11.,false));
+    assert!(get("ae2:small_quartz_bud").can_occlude);
+    let ring=get("ae2:quantum_ring");assert!(ring.can_occlude);assert_eq!((ring.dampening,ring.skylight_down),(0,true));
+    let mut ring_wet=assets.registry.state(assets.registry.default_state("ae2:quantum_ring").unwrap()).unwrap().clone();ring_wet.properties.insert("waterlogged".into(),"true".into());
+    let ring_wet=facts.get(assets.registry.resolve(&ring_wet).unwrap());assert_eq!((ring_wet.dampening,ring_wet.skylight_down),(1,false));
+    for name in ["ae2:quartz_block","ae2:cut_quartz_stairs","ae2:quartz_pillar_wall"] {assert!(get(name).random_ticks,"{name}");}
+    if let Some(path)=std::env::var_os("AE2_FACTS_EXPORT") {
+        let path=PathBuf::from(path);fs::create_dir_all(&path).unwrap();
+        for file in ["facts.json","gameplay-facts.json","block-behaviours.json"] {fs::copy(root.join(file),path.join(file)).unwrap();}
+    }
+    let growth=assets.registry.default_state("ae2:growth_accelerator").unwrap();
+    let mut orient=assets.registry.state(growth).unwrap().clone();orient.properties.insert("facing".into(),"east".into());orient.properties.insert("powered".into(),"true".into());
+    assert!(assets.registry.resolve(&orient).is_ok());
+    let cell=assets.registry.default_state("ae2:energy_cell").unwrap();let mut full=assets.registry.state(cell).unwrap().clone();full.properties.insert("fullness".into(),"4".into());assert!(assets.registry.resolve(&full).is_ok());
+    for (name,flag) in [("ae2:vibration_chamber",Some("active")),("ae2:io_port",Some("powered")),("ae2:spatial_io_port",Some("powered")),("ae2:cell_workbench",None)] {
+        let id=assets.registry.default_state(name).unwrap();let mut s=assets.registry.state(id).unwrap().clone();s.properties.insert("facing".into(),"east".into());s.properties.insert("spin".into(),"2".into());if let Some(flag)=flag{s.properties.insert(flag.into(),"true".into());}assert!(assets.registry.resolve(&s).is_ok(),"{name}");
+    }
+    for (name,changes) in [("ae2:chest",vec![("facing","east"),("spin","1"),("lights_on","true")]),("ae2:spatial_anchor",vec![("facing","up"),("powered","true")]),("ae2:pattern_provider",vec![("push_direction","west")]),("ae2:1k_crafting_storage",vec![("formed","true"),("powered","true")])] {
+        let id=assets.registry.default_state(name).unwrap();let mut s=assets.registry.state(id).unwrap().clone();for (k,v) in changes{s.properties.insert(k.into(),v.into());}assert!(assets.registry.resolve(&s).is_ok(),"{name}");
+    }
+    let mut wet=assets.registry.state(assets.registry.default_state("ae2:quartz_fixture").unwrap()).unwrap().clone();wet.properties.insert("waterlogged".into(),"true".into());
+    let wet=facts.get(assets.registry.resolve(&wet).unwrap());assert_eq!((wet.emission,wet.dampening,wet.skylight_down),(15,1,false));
+    for name in ["ae2:sky_stone_chest","ae2:crystal_resonance_generator"] {
+        let mut wet=assets.registry.state(assets.registry.default_state(name).unwrap()).unwrap().clone();wet.properties.insert("waterlogged".into(),"true".into());
+        let wet=facts.get(assets.registry.resolve(&wet).unwrap());assert_eq!((wet.dampening,wet.skylight_down),(0,true),"{name}");
+    }
+    let collisions=crate::collisions::load(&root,assets.registry).unwrap();
+    if let Some(path)=std::env::var_os("AE2_FACTS_EXPORT") {
+        use horizon_core::geometry::Axis;
+        use horizon_world::registry::BlockStateId;
+        let mut rows=Vec::new();
+        for index in 0..assets.registry.len() {
+            let id=BlockStateId(index as u32); let Some(state)=assets.registry.state(id) else {continue};
+            if !state.name.starts_with("ae2:") {continue;}
+            let boxes=collisions.cached_shapes().cached_shape(id).unwrap().map(|shape|shape.boxes().iter().map(|b|[b.min(Axis::X),b.min(Axis::Y),b.min(Axis::Z),b.max(Axis::X),b.max(Axis::Y),b.max(Axis::Z)]).collect::<Vec<_>>());
+            rows.push(serde_json::json!({"id":state.name,"properties":state.properties,"collision":boxes}));
+        }
+        fs::write(PathBuf::from(path).join("ae2-collision-shapes.json"),serde_json::to_vec(&rows).unwrap()).unwrap();
+    }
+    let state=assets.registry.default_state("ae2:quartz_fixture").unwrap();
+    assert!(collisions.cached_shapes().cached_shape(state).unwrap().is_none_or(|s|s.is_empty()));
+    let slab=assets.registry.default_state("ae2:quartz_slab").unwrap();
+    assert!(!collisions.cached_shapes().cached_shape(slab).unwrap().unwrap().is_block());
+    let pillar=assets.registry.default_state("ae2:quartz_pillar").unwrap();
+    let mut sideways=assets.registry.state(pillar).unwrap().clone();sideways.properties.insert("axis".into(),"x".into());
+    assert!(assets.registry.resolve(&sideways).is_ok());
+    let matrix=assets.registry.default_state("ae2:matrix_frame").unwrap();
+    assert!(facts.get(matrix).outline.is_empty() && !facts.get(matrix).can_occlude);
+    assert!(collisions.cached_shapes().cached_shape(matrix).unwrap().unwrap().is_block());
+    let pylon=assets.registry.default_state("ae2:spatial_pylon").unwrap();
+    let mut on=assets.registry.state(pylon).unwrap().clone();on.properties.insert("powered_on".into(),"true".into());
+    assert_eq!(facts.get(assets.registry.resolve(&on).unwrap()).emission,8);
+    let behaviour:serde_json::Value=serde_json::from_slice(&fs::read(root.join("block-behaviours.json")).unwrap()).unwrap();
+    for name in ["ae2:paint","ae2:quartz_fixture","ae2:sky_stone_chest","ae2:wireless_access_point"] {assert_eq!(behaviour["states"][assets.registry.default_state(name).unwrap().0 as usize][0].as_u64(),Some(0),"{name}");}
+    assert_eq!(behaviour["states"][assets.registry.default_state("ae2:mysterious_cube").unwrap().0 as usize][1].as_u64().unwrap() & (1<<2),0);
+    fs::remove_dir_all(scratch).unwrap();
+}

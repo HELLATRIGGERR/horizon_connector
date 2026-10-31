@@ -59,6 +59,10 @@ pub trait ChunkGenerator: Send + Sync + 'static {
     /// on the worker that loaded it.
     fn prepare_loaded(&self, _worker: &mut Self::Worker, _chunk: &Chunk) {}
     fn proto(&self, worker: &mut Self::Worker, x: i32, z: i32) -> Proto;
+    /// A failed column stays absent and is retried; no synthetic empty chunk is installed.
+    fn proto_checked(&self, worker: &mut Self::Worker, x: i32, z: i32) -> Result<Proto, String> {
+        Ok(self.proto(worker, x, z))
+    }
     fn decorates(&self) -> bool {
         false
     }
@@ -166,6 +170,7 @@ enum Job {
 }
 pub enum Done {
     Generated(Chunk),
+    GenerationFailed(i32, i32, String),
     /// A proto chunk, and whether it was decorated (loaded so from the save).
     Proto(i32, i32, Proto, bool),
     Decorated(i32, i32, Box<[Proto; 9]>),
@@ -211,6 +216,9 @@ pub struct Streaming {
     threads: Vec<thread::JoinHandle<()>>,
     order: u64,
     generating: FxHashSet<(i32, i32)>,
+    /// One outstanding pre-install generation result per replaced flat column.
+    superseded_generation: FxHashSet<(i32, i32)>,
+    retry_at: FxHashMap<(i32, i32), std::time::Instant>,
     generation_scan: GenerationScan,
     /// Proto chunks: `None` while checked out to a decoration or save job.
     protos: FxHashMap<(i32, i32), Option<Proto>>,
@@ -244,6 +252,8 @@ pub struct Streaming {
     pub radius: i32,
     /// `/forceload`ed chunks: kept loaded whatever the distance.
     pub forced: HashSet<(i32, i32)>,
+    /// Effective union of mod-owned tickets, kept separate from manual forceload.
+    pub owned_forced: HashSet<(i32, i32)>,
     /// No work is scheduled while paused (title screen).
     pub paused: bool,
     /// The level loading screen is up: work goes ring by ring (`Ranges::rings`).
@@ -303,7 +313,8 @@ impl GenerationScan {
             && self.center == ranges.center
             && self.radius == ranges.radius
             && self.extra == ranges.extra
-            && self.forced == *ranges.forced
+            && self.forced.len() == ranges.all_forced().count()
+            && ranges.all_forced().all(|key|self.forced.contains(key))
             && self.band.as_ref() == ranges.band
             && self.chunk_revision == world.chunks.membership_revision()
     }
@@ -313,7 +324,8 @@ impl GenerationScan {
         self.radius = ranges.radius;
         self.extra.clear();
         self.extra.extend_from_slice(ranges.extra);
-        self.forced.clone_from(ranges.forced);
+        self.forced.clear();
+        self.forced.extend(ranges.all_forced().copied());
         self.band = ranges.band.copied();
         self.chunk_revision = world.chunks.membership_revision();
     }
@@ -322,6 +334,7 @@ struct GenerationInputs<'a> {
     ranges: Ranges<'a>,
     world: &'a World,
     generating: &'a FxHashSet<(i32, i32)>,
+    retry_at: &'a FxHashMap<(i32, i32), std::time::Instant>,
     protos: &'a FxHashMap<(i32, i32), Option<Proto>>,
     finishing: &'a FxHashSet<(i32, i32)>,
     decorates: bool,
@@ -372,6 +385,7 @@ impl GenerationScan {
                     if !input.ranges.requested(x, z, input.decorates)
                         || input.world.chunks.contains_key(&(x, z))
                         || input.generating.contains(&(x, z))
+                        || input.retry_at.contains_key(&(x, z))
                         || input.protos.contains_key(&(x, z))
                         || input.finishing.contains(&(x, z))
                     {
@@ -381,13 +395,16 @@ impl GenerationScan {
                 }
             }
             // Forced chunks and their generation neighbourhood.
-            let reach = margin - 1;
-            for &(fx, fz) in input.ranges.forced {
+            // Flat forced tickets keep a radius-two finished neighborhood;
+            // finishing its outer ring requires one additional proto ring.
+            let reach = if input.decorates { margin - 1 } else { 3 };
+            for &(fx, fz) in input.ranges.all_forced() {
                 for dz in -reach..=reach {
                     for dx in -reach..=reach {
                         let (x, z) = (fx + dx, fz + dz);
                         if input.world.chunks.contains_key(&(x, z))
                             || input.generating.contains(&(x, z))
+                            || input.retry_at.contains_key(&(x, z))
                             || input.protos.contains_key(&(x, z))
                             || input.finishing.contains(&(x, z))
                         {
@@ -403,6 +420,7 @@ impl GenerationScan {
                     radius: input.ranges.radius,
                     extra: input.ranges.extra,
                     forced: input.ranges.forced,
+                    owned: input.ranges.owned,
                     cover: input.ranges.cover,
                     band: input.ranges.band,
                 };
@@ -477,9 +495,10 @@ impl Streaming {
                                         Done::Generated(chunk)
                                     }
                                     None => {
-                                        let proto = generator.proto(&mut worker, x, z);
-                                        let decorated = generator.is_decorated(&proto);
-                                        Done::Proto(x, z, proto, decorated)
+                                        match generator.proto_checked(&mut worker, x, z) {
+                                            Ok(proto) => { let decorated = generator.is_decorated(&proto); Done::Proto(x, z, proto, decorated) }
+                                            Err(error) => Done::GenerationFailed(x, z, error),
+                                        }
                                     }
                                 },
                                 Job::Decorate(x, z, mut region) => {
@@ -537,6 +556,8 @@ impl Streaming {
             threads,
             order: 0,
             generating: Default::default(),
+            superseded_generation: Default::default(),
+            retry_at: Default::default(),
             generation_scan: GenerationScan::default(),
             protos: Default::default(),
             decorated: Default::default(),
@@ -559,6 +580,7 @@ impl Streaming {
             center: (0, 0),
             radius: 8,
             forced: HashSet::new(),
+            owned_forced: HashSet::new(),
             paused: false,
             loading: false,
             sky_light: true,
@@ -597,6 +619,40 @@ impl Streaming {
                     world.dirty_sections.insert((x, sy, z));
                 }
             }
+        }
+    }
+    /// Install a checked synchronous flat-generator column on the server.
+    /// Unlike insert_remote, this owns normal BE/entity/name registration and
+    /// initializes lighting through the real worker pipeline. Pending old
+    /// generation cannot replace it, including after a later unload.
+    pub fn insert_authoritative_flat(&mut self, world: &mut World, chunk: Chunk) -> Result<(),String> {
+        if self.decorates || self.saving != 0 {
+            return Err("authoritative flat insertion requires a non-decorating generator with no proto save in flight".into());
+        }
+        let key=(chunk.x,chunk.z);
+        if world.chunks.contains_key(&key) {return Err("authoritative column already exists".into())}
+        if self.generating.contains(&key) || self.finishing.contains(&key) {self.superseded_generation.insert(key);}
+        // Keep generating/finishing until that result drains; a new worker for
+        // the same key must not start before its superseded predecessor ends.
+        self.protos.remove(&key);
+        self.retry_at.remove(&key);
+        self.decorated.insert(key);
+        self.lit.remove(&key);
+        self.lighting.remove(&key);
+        self.light_snapshots.remove(&key);
+        self.meshed.remove(&key);
+        for sy in 0..SECTIONS as i32 {self.meshing.remove(&(key.0,sy,key.1));self.waiting.remove(&(key.0,sy,key.1));}
+        self.generation_scan.exhausted=false;
+        self.install_generated(chunk,world);
+        Ok(())
+    }
+    fn receive_proto(&mut self,x:i32,z:i32,proto:Proto,decorated:bool,world:&World) {
+        self.generation_scan.exhausted=false;
+        let key=(x,z);self.generating.remove(&key);
+        if self.superseded_generation.remove(&key) || world.chunks.contains_key(&key) {return;}
+        if self.in_range(x,z,4) || self.near_finished(x,z,2) {
+            self.protos.insert(key,Some(proto));
+            if decorated || !self.decorates {self.decorated.insert(key);}
         }
     }
     /// A column received from a server, with the light it sent
@@ -689,11 +745,16 @@ impl Streaming {
             self.submit(i64::MIN, Job::Save(protos));
         }
     }
-    fn receive_generated(&mut self, mut chunk: Chunk, world: &mut World) {
+    fn receive_generated(&mut self, chunk: Chunk, world: &mut World) {
         self.generation_scan.exhausted = false;
         let key = (chunk.x, chunk.z);
         self.generating.remove(&key);
         self.finishing.remove(&key);
+        if self.superseded_generation.remove(&key) || world.chunks.contains_key(&key) {
+            // A synchronous authoritative install owns this coordinate, even
+            // if it unloaded again before this old worker result arrived.
+            return;
+        }
         self.decorated.insert(key);
         // A column that finished after the player moved away is dropped
         // whole: its block entities and saved entities too, or they would
@@ -707,10 +768,19 @@ impl Streaming {
             }
             return;
         }
+        self.install_generated(chunk,world);
+    }
+    fn install_generated(&mut self, mut chunk: Chunk, world: &mut World) {
+        let key=(chunk.x,chunk.z);
         // Generated columns are saved like edited ones, as vanilla saves
         // every chunk it generates.
         if chunk.fresh {
             world.modified.insert(key);
+        }
+        #[cfg(feature = "ae2-lab")]
+        {
+            world.block_entities.prepare_vanilla_metadata(&chunk);
+            world.block_entities.record_ae2_chunk_states(&chunk);
         }
         world
             .block_entities
@@ -834,16 +904,14 @@ impl Streaming {
         let received = std::iter::from_fn(|| self.results.try_recv().ok());
         for done in deferred.into_iter().chain(received.collect::<Vec<_>>()) {
             match done {
-                Done::Proto(x, z, proto, decorated) => {
-                    self.generation_scan.exhausted = false;
+                Done::GenerationFailed(x, z, error) => {
                     self.generating.remove(&(x, z));
-                    if self.in_range(x, z, 4) || self.near_finished(x, z, 2) {
-                        self.protos.insert((x, z), Some(proto));
-                        if decorated || !self.decorates {
-                            self.decorated.insert((x, z));
-                        }
-                    }
+                    if self.superseded_generation.remove(&(x,z)) || world.chunks.contains_key(&(x,z)) {continue;}
+                    self.retry_at.insert((x, z), std::time::Instant::now() + std::time::Duration::from_secs(2));
+                    self.generation_scan.exhausted = false;
+                    log::warn!("Horizon: chunk {x} {z} generation failed; retrying: {error}");
                 }
+                Done::Proto(x,z,proto,decorated) => self.receive_proto(x,z,proto,decorated,world),
                 Done::Decorated(x, z, region) => self.receive_decorated(x, z, *region),
                 Done::Generated(chunk) => self.receive_generated(chunk, world),
                 Done::Saved(protos) => self.receive_saved(protos),
@@ -937,8 +1005,7 @@ impl Streaming {
                     && !ranges.in_extra(x, z, 4)
                     && !ranges.in_band(x, z, 4)
                     && !ranges
-                        .forced
-                        .iter()
+                        .all_forced()
                         .any(|f| (x - f.0).abs() <= 3 && (z - f.1).abs() <= 3)
             })
             .map(|(k, _)| *k)
@@ -966,7 +1033,7 @@ impl Streaming {
         for (x, z) in candidates {
             if world.chunks.contains_key(&(x, z))
                 || self.finishing.contains(&(x, z))
-                || !self.in_range(x, z, 1)
+                || !(self.in_range(x, z, 1) || (!self.decorates && self.ranges().near_forced(x,z,2)))
             {
                 continue;
             }
@@ -1004,6 +1071,7 @@ impl Streaming {
                 radius: self.radius,
                 extra: &self.extra,
                 forced: &self.forced,
+                owned: &self.owned_forced,
                 cover: ExtraCover::matching(&self.cover, &self.extra),
                 band: self.band.as_ref(),
             };
@@ -1125,7 +1193,7 @@ impl Streaming {
         // vanilla draws). Sections set aside past it come back
         // when the player moves: a column that loads with its light gets no
         // other request (#228).
-        let area = (self.center, self.radius, self.forced.len());
+        let area = (self.center, self.radius, self.forced.union(&self.owned_forced).count());
         if self.waiting_area != area {
             self.waiting_area = area;
             let ranges = Ranges {
@@ -1133,6 +1201,7 @@ impl Streaming {
                 radius: self.radius,
                 extra: &self.extra,
                 forced: &self.forced,
+                owned: &self.owned_forced,
                 cover: ExtraCover::matching(&self.cover, &self.extra),
                 band: self.band.as_ref(),
             };
@@ -1204,17 +1273,23 @@ impl Streaming {
         (uploads, removed)
     }
     fn schedule_generation(&mut self, world: &World, workers: usize) {
+        let now = std::time::Instant::now();
+        let before = self.retry_at.len();
+        self.retry_at.retain(|_, deadline| *deadline > now);
+        if self.retry_at.len() != before { self.generation_scan.exhausted = false; }
         let input = GenerationInputs {
             ranges: Ranges {
                 center: self.center,
                 radius: self.radius,
                 extra: &self.extra,
                 forced: &self.forced,
+                owned: &self.owned_forced,
                 cover: ExtraCover::matching(&self.cover, &self.extra),
                 band: self.band.as_ref(),
             },
             world,
             generating: &self.generating,
+            retry_at: &self.retry_at,
             protos: &self.protos,
             finishing: &self.finishing,
             decorates: self.decorates,
@@ -1301,12 +1376,15 @@ impl Streaming {
             world.dirty_sections.insert(section);
         });
     }
+    pub fn forced_chunks(&self)->impl Iterator<Item=&(i32,i32)> {self.forced.union(&self.owned_forced)}
+    pub fn has_forced_chunks(&self)->bool {!self.forced.is_empty() || !self.owned_forced.is_empty()}
     fn ranges(&self) -> Ranges<'_> {
         Ranges {
             center: self.center,
             radius: self.radius,
             extra: &self.extra,
             forced: &self.forced,
+                owned: &self.owned_forced,
             cover: ExtraCover::matching(&self.cover, &self.extra),
             band: self.band.as_ref(),
         }
@@ -1454,6 +1532,7 @@ struct Ranges<'a> {
     radius: i32,
     extra: &'a [((i32, i32), i32)],
     forced: &'a HashSet<(i32, i32)>,
+    owned: &'a HashSet<(i32, i32)>,
     /// `extra` as a grid, when one was made for it: `in_extra` without a
     /// scan of every area.
     cover: Option<&'a ExtraCover>,
@@ -1597,6 +1676,11 @@ impl ExtraCover {
     }
 }
 impl Ranges<'_> {
+    fn all_forced(&self)->impl Iterator<Item=&(i32,i32)> {self.forced.union(self.owned)}
+    fn near_forced(&self, x:i32, z:i32, reach:i32)->bool {
+        self.all_forced().any(|f| (x-f.0).abs()<=reach && (z-f.1).abs()<=reach)
+    }
+
     /// `distance`, or `rings` while the level loading screen is up.
     fn priority(&self, x: i32, z: i32, loading: bool) -> i64 {
         let own = if loading {
@@ -1652,6 +1736,7 @@ impl Ranges<'_> {
     /// every frame).
     fn chunk_kept(&self, x: i32, z: i32, decorates: bool) -> bool {
         self.in_range(x, z, 2) || self.near_finished(x, z, 1) || self.requested(x, z, decorates)
+            || (!decorates && self.near_forced(x,z,2))
     }
     /// Columns unloaded: past every column kept.
     fn unloaded(&self, x: i32, z: i32, decorates: bool) -> bool {
@@ -1695,7 +1780,7 @@ impl Ranges<'_> {
     /// The columns meshed for drawing: those vanilla draws around the
     /// player (`in_view_distance`), and forced ones.
     fn in_view(&self, x: i32, z: i32) -> bool {
-        in_view_distance(self.center, self.radius, x, z) || self.forced.contains(&(x, z))
+        in_view_distance(self.center, self.radius, x, z) || self.forced.contains(&(x, z)) || self.owned.contains(&(x,z))
     }
     fn in_main_range(&self, x: i32, z: i32, margin: i32) -> bool {
         let r = i64::from(self.radius + margin);
@@ -1704,8 +1789,7 @@ impl Ranges<'_> {
             return true;
         }
         let reach = (margin - 1).max(0);
-        self.forced
-            .iter()
+        self.all_forced()
             .any(|f| (x - f.0).abs() <= reach && (z - f.1).abs() <= reach)
     }
 }
@@ -1739,6 +1823,9 @@ fn section_indexes(mut bits: u32) -> impl Iterator<Item = i32> {
     })
 }
 #[cfg(test)]
+fn empty_forced()->&'static HashSet<(i32,i32)> {static EMPTY:std::sync::OnceLock<HashSet<(i32,i32)>>=std::sync::OnceLock::new();EMPTY.get_or_init(HashSet::new)}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1767,13 +1854,49 @@ mod tests {
         }
     }
 
+    #[test]
+    fn failed_generation_is_excluded_until_retry_without_installing_a_chunk() {
+        let mut fixture = GenerationFixture::new(1, true);
+        fixture.retry_at.insert((0,0), std::time::Instant::now() + std::time::Duration::from_secs(2));
+        let mut scan = GenerationScan::default();
+        let before = scan.candidates(fixture.input(), usize::MAX).unwrap();
+        assert!(!before.iter().any(|(_,x,z)| (*x,*z)==(0,0)));
+        assert!(!fixture.world.chunks.contains_key(&(0,0)));
+        fixture.retry_at.clear();
+        scan.exhausted = false;
+        let after = scan.candidates(fixture.input(), usize::MAX).unwrap();
+        assert!(after.iter().any(|(_,x,z)| (*x,*z)==(0,0)));
+    }
+
+    #[test]
+    fn owned_chunk_tickets_generate_after_cache_exhaustion_and_release_independently() {
+        let mut f=GenerationFixture::new(0,false);
+        let mut scan=GenerationScan::default();
+        let _=scan.candidates(f.input(),usize::MAX);
+        // Both ticket kinds may hold the same chunk; owner removal must not
+        // drop the manual request, and vice versa.
+        f.forced.insert((40,40));f.owned_forced.insert((40,40));f.owned_forced.insert((-40,40));
+        let candidates=scan.candidates(f.input(),usize::MAX).unwrap();
+        assert!(candidates.iter().any(|(_,x,z)|(*x,*z)==(-40,40)));
+        assert!(candidates.iter().any(|(_,x,z)|(*x,*z)==(40,40)));
+        let ranges=f.input().ranges;assert_eq!(ranges.all_forced().count(),2);
+        scan.remember(f.input().ranges,&f.world);
+        assert!(scan.unchanged(&f.input().ranges,&f.world));
+        f.owned_forced.clear();assert!(!scan.unchanged(&f.input().ranges,&f.world));
+        let ranges=f.input().ranges;assert!(ranges.in_main_range(40,40,0));assert!(!ranges.in_main_range(-40,40,0));
+        f.owned_forced.insert((-40,40));f.forced.clear();
+        let ranges=f.input().ranges;assert!(ranges.in_view(-40,40));assert!(!ranges.in_view(40,40));
+    }
+
     struct GenerationFixture {
         world: World,
         center: (i32, i32),
         radius: i32,
         extra: Vec<((i32, i32), i32)>,
         forced: HashSet<(i32, i32)>,
+        owned_forced: HashSet<(i32, i32)>,
         generating: FxHashSet<(i32, i32)>,
+        retry_at: FxHashMap<(i32, i32), std::time::Instant>,
         protos: FxHashMap<(i32, i32), Option<Proto>>,
         finishing: FxHashSet<(i32, i32)>,
         decorates: bool,
@@ -1787,7 +1910,9 @@ mod tests {
                 radius,
                 extra: Vec::new(),
                 forced: HashSet::new(),
+            owned_forced: HashSet::new(),
                 generating: Default::default(),
+                retry_at: Default::default(),
                 protos: Default::default(),
                 finishing: Default::default(),
                 decorates,
@@ -1801,11 +1926,13 @@ mod tests {
                     radius: self.radius,
                     extra: &self.extra,
                     forced: &self.forced,
+                owned: &self.owned_forced,
                     cover: None,
                     band: None,
                 },
                 world: &self.world,
                 generating: &self.generating,
+                retry_at: &self.retry_at,
                 protos: &self.protos,
                 finishing: &self.finishing,
                 decorates: self.decorates,
@@ -1856,6 +1983,7 @@ mod tests {
         let missing = |x, z| {
             !input.world.chunks.contains_key(&(x, z))
                 && !input.generating.contains(&(x, z))
+                && !input.retry_at.contains_key(&(x, z))
                 && !input.protos.contains_key(&(x, z))
                 && !input.finishing.contains(&(x, z))
         };
@@ -1873,9 +2001,10 @@ mod tests {
                 }
             }
         }
-        for &(fx, fz) in input.ranges.forced {
-            for dz in -(margin - 1)..=(margin - 1) {
-                for dx in -(margin - 1)..=(margin - 1) {
+        for &(fx, fz) in input.ranges.all_forced() {
+            let forced_reach = if input.decorates { margin - 1 } else { 3 };
+            for dz in -forced_reach..=forced_reach {
+                for dx in -forced_reach..=forced_reach {
                     let (x, z) = (fx + dx, fz + dz);
                     if missing(x, z) {
                         wanted.push((input.ranges.distance(x, z), x, z));
@@ -2115,6 +2244,7 @@ mod tests {
                     radius,
                     extra: &[],
                     forced: &forced,
+                    owned: empty_forced(),
                     cover: None,
                     band: None,
                 };
@@ -2171,6 +2301,7 @@ mod tests {
             radius: 12,
             extra: &[],
             forced: &forced,
+                    owned: empty_forced(),
             cover: None,
             band: None,
         };
@@ -2198,6 +2329,7 @@ mod tests {
                     radius,
                     extra: &[((radius * 2 + 9, 3), 4)],
                     forced: &forced,
+                    owned: empty_forced(),
                     cover: None,
                     band: None,
                 };
@@ -2239,6 +2371,7 @@ mod tests {
                 radius: 2,
                 extra: &extra,
                 forced: &forced,
+                    owned: empty_forced(),
                 cover: None,
                 band: None,
             };
@@ -2313,6 +2446,7 @@ mod cover_tests {
                 radius: 10,
                 extra: &extra,
                 forced: &forced,
+                    owned: empty_forced(),
                 cover,
                 band: None,
             };
@@ -2372,6 +2506,7 @@ mod cover_tests {
                 radius: 10,
                 extra: &extra,
                 forced: &forced,
+                    owned: empty_forced(),
                 cover,
                 band: None,
             };
@@ -2409,5 +2544,94 @@ mod cover_tests {
                 time(&ranges(Some(&cover))),
             );
         }
+    }
+}
+#[cfg(test)]
+mod authoritative_flat_regression {
+    use super::*;
+    use crate::{assets::Assets, biome::Biomes, flatgen::FlatTerrain, light::LightTables, mesher::MeshTables};
+    use horizon_world::nbt::Tag;
+    use crate::blocks::BlockFacts;
+
+    #[test]
+    #[ignore = "requires prepared models/textures in HORIZON_TEST_RESOURCES"]
+    fn forced_flat_halo_finishes_and_lights_with_real_workers() -> crate::Result<()> {
+        let root = std::path::PathBuf::from(std::env::var_os("HORIZON_TEST_RESOURCES").expect("HORIZON_TEST_RESOURCES"));
+        let assets = Arc::new(Assets::load(&root)?);
+        let render = Arc::new(assets.reload(&root)?);
+        let facts = BlockFacts::load(&root, assets.registry)?;
+        let biomes = Arc::new(Biomes::load(&root)?);
+        let tables = Arc::new(MeshTables::new(&assets, &render, &facts, crate::models::load_visibility(&root, assets.registry)?)?);
+        let context = Arc::new(WorkerContext { light: Arc::new(LightTables::load(&root, assets.registry, &facts)?), tables, assets, render, biomes: biomes.clone() });
+        for force_radius in [1, 0] {
+        let mut streaming = Streaming::new(Arc::new(FlatTerrain::void(biomes.id("minecraft:plains"))), context.clone(), 2);
+        streaming.radius = 0;
+        streaming.mesh = false;
+        for z in 40-force_radius..=40+force_radius { for x in 40-force_radius..=40+force_radius { streaming.forced.insert((x,z)); } }
+        let mut world = World::new(facts.air, 0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(35);
+        while std::time::Instant::now() < deadline {
+            streaming.update(&mut world);
+            if (38..=42).all(|z| (38..=42).all(|x| world.chunks.contains_key(&(x,z))))
+                && (39..=41).all(|z| (39..=41).all(|x| world.chunks.get(&(x,z)).is_some_and(|c| c.lit))) {
+                break;
+            }
+            streaming.wait(std::time::Duration::from_millis(5));
+        }
+        assert!((38..=42).all(|z| (38..=42).all(|x| world.chunks.contains_key(&(x,z)))) && (39..=41).all(|z| (39..=41).all(|x| world.chunks.get(&(x,z)).is_some_and(|c| c.lit))),
+            "forced radius {force_radius} did not finish and light: loaded {:?}, proto {:?}, generating {:?}, finishing {:?}",
+            (39..=41).flat_map(|z| (39..=41).map(move |x| (x,z))).filter(|p| world.chunks.contains_key(p)).collect::<Vec<_>>(),
+            streaming.protos.keys().copied().filter(|(x,z)| (38..=42).contains(x) && (38..=42).contains(z)).collect::<Vec<_>>(),
+            streaming.generating, streaming.finishing);
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires prepared models/textures in HORIZON_TEST_RESOURCES"]
+    fn authoritative_flat_owns_contents_and_rejects_late_worker_results_after_unload() -> crate::Result<()> {
+        let root = std::path::PathBuf::from(std::env::var_os("HORIZON_TEST_RESOURCES").expect("HORIZON_TEST_RESOURCES"));
+        let assets=Arc::new(Assets::load(&root)?);
+        let render=Arc::new(assets.reload(&root)?);
+        let facts=BlockFacts::load(&root,assets.registry)?;
+        let biomes=Arc::new(Biomes::load(&root)?);
+        let tables=Arc::new(MeshTables::new(&assets,&render,&facts,crate::models::load_visibility(&root,assets.registry)?)?);
+        let context=Arc::new(WorkerContext{light:Arc::new(LightTables::load(&root,assets.registry,&facts)?),tables,assets:assets.clone(),render,biomes:biomes.clone()});
+        let mut streaming=Streaming::new(Arc::new(FlatTerrain::void(biomes.id("minecraft:plains"))),context,1);
+        let mut world=World::new(facts.air,0);
+        let stone=assets.registry.default_state("minecraft:stone").unwrap();
+        let mut authoritative=Chunk::empty(0,0);
+        authoritative.set(1,64,1,stone.0);
+        authoritative.block_entities.push(((1,64,1),crate::containers::BlockEntity::Chest(vec![None;27])));
+        authoritative.block_names.push(((1,64,1),"owned".into()));
+        authoritative.entities.push(Tag::compound([("id",Tag::String("minecraft:pig".into()))]));
+        streaming.generating.insert((0,0));
+        streaming.insert_authoritative_flat(&mut world,authoritative).map_err(|e|format!("{e}"))?;
+        assert_eq!(world.block(1,64,1),stone);
+        assert!(matches!(world.block_entities.get(&(1,64,1)),Some(crate::containers::BlockEntity::Chest(_))));
+        assert_eq!(world.block_names.get(&(1,64,1)).map(String::as_str),Some("owned"));
+        assert_eq!(world.loaded_entities.len(),1);
+        assert!(world.dirty_light.contains(&(0,0)));
+        assert!(!world.chunks[&(0,0)].lit);
+        assert!(streaming.insert_authoritative_flat(&mut world,Chunk::empty(0,0)).is_err());
+        // A worker started before the synchronous install finishes after unload.
+        // It must not recreate a stale column, names, BEs or entities.
+        world.chunks.remove(&(0,0));
+        let mut stale=Chunk::empty(0,0);
+        stale.block_names.push(((1,64,1),"stale".into()));
+        stale.entities.push(Tag::compound([("id",Tag::String("minecraft:cow".into()))]));
+        streaming.receive_generated(stale,&mut world);
+        assert!(!world.chunks.contains_key(&(0,0)));
+        assert_eq!(world.block_names.get(&(1,64,1)).map(String::as_str),Some("owned"));
+        assert_eq!(world.loaded_entities.len(),1);
+        // A separate in-flight Generate returns a Proto rather than a Chunk.
+        // It too must be discarded after an authoritative install and unload.
+        streaming.generating.insert((1,0));
+        streaming.insert_authoritative_flat(&mut world,Chunk::empty(1,0)).map_err(|e|format!("{e}"))?;
+        world.chunks.remove(&(1,0));
+        streaming.receive_proto(1,0,Box::new(()),false,&world);
+        assert!(!streaming.protos.contains_key(&(1,0)));
+        assert!(!world.chunks.contains_key(&(1,0)));
+        Ok(())
     }
 }

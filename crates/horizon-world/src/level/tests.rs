@@ -49,6 +49,8 @@ pub(crate) struct TestLevel {
     pub block_light: HashMap<BlockPos, i32>,
     /// `Level.isClientSide`.
     pub client_side: bool,
+    dimension: Dimension,
+    observed_shapes: Option<Vec<(BlockPos, BlockPos)>>,
 }
 impl TestLevel {
     fn new(b: &Behaviours) -> Self {
@@ -61,10 +63,16 @@ impl TestLevel {
             events: Vec::new(),
             block_light: HashMap::new(),
             client_side: false,
+            dimension: Dimension::Overworld,
+            observed_shapes: None,
         }
     }
 }
 impl LevelAccess for TestLevel {
+    fn dimension(&self) -> Dimension { self.dimension }
+    fn custom_shape_event(&mut self, pos: BlockPos, _state: BlockStateId, neighbor: BlockPos) {
+        if let Some(events)=self.observed_shapes.as_mut() { events.push((pos,neighbor)); }
+    }
     fn is_client_side(&self) -> bool {
         self.client_side
     }
@@ -1302,6 +1310,55 @@ fn dispenser_buckets_pick_up_and_empty() {
         "minecraft:item.bucket.empty_powder_snow"
     ));
     assert_eq!(w.name(at), "powder_snow[]");
+}
+
+#[test]
+fn ae2_formation_fluid_uses_source_placement_rules() {
+    use crate::fluid::FluidKind;
+    let mut w = world!();
+    let pos = BlockPos::new(0, 10, 0);
+    let b = w.b();
+    assert!(b.formation_fluid_can_place(&mut w.level, &mut w.ticks, pos, FluidKind::Water));
+    assert_eq!(w.get(pos), b.air(), "preview must leave the world unchanged");
+    assert!(b.formation_fluid_place(&mut w.level, &mut w.ticks, pos, FluidKind::Water));
+    b.formation_fluid_effect(&mut w.level, &mut w.ticks, pos, FluidKind::Water);
+    assert_eq!(w.name(pos), "water[level=0]");
+    assert!(!b.formation_fluid_can_place(&mut w.level, &mut w.ticks, pos, FluidKind::Water));
+    let dry = w.id("oak_slab", &[("waterlogged", "false")]);
+    w.put(pos, dry);
+    assert!(b.formation_fluid_place(&mut w.level, &mut w.ticks, pos, FluidKind::Water));
+    assert_eq!(w.prop(pos, "waterlogged"), "true");
+    assert!(b.formation_fluid_can_place(&mut w.level, &mut w.ticks, pos, FluidKind::Water));
+    assert!(b.formation_fluid_place(&mut w.level, &mut w.ticks, pos, FluidKind::Water));
+    assert_eq!(w.prop(pos, "waterlogged"), "true", "AE2 consumes water even when placeLiquid returns false");
+    let stone = w.id("stone", &[]);
+    w.put(pos, stone);
+    assert!(!b.formation_fluid_can_place(&mut w.level, &mut w.ticks, pos, FluidKind::Lava));
+    w.put(pos, b.air());
+    assert!(b.formation_fluid_place(&mut w.level, &mut w.ticks, pos, FluidKind::FlowingWater));
+    assert_eq!(w.name(pos), "water[level=15]", "the flowing registry fluid's default state is falling at level one");
+    w.put(pos, b.air());
+    w.level.dimension = Dimension::Nether;
+    w.level.events.clear();
+    assert!(b.formation_fluid_place(&mut w.level, &mut w.ticks, pos, FluidKind::Water));
+    b.formation_fluid_effect(&mut w.level, &mut w.ticks, pos, FluidKind::Water);
+    assert_eq!(w.get(pos), b.air(), "ultrawarm water evaporates while consuming the bucket");
+    assert!(w.level.events.iter().any(|event| matches!(event, LevelEvent::Sound {sound,..} if sound.as_ref()=="minecraft:block.fire.extinguish")));
+    assert!(!w.level.events.iter().any(|event| matches!(event, LevelEvent::GameEvent {event:"minecraft:fluid_place",..})));
+}
+
+#[test]
+fn custom_shape_hook_observes_a_same_state_neighbor_update() {
+    let mut w=world!();
+    let pos=BlockPos::new(0,10,0);
+    let neighbor=BlockPos::new(1,10,0);
+    let stone=w.id("stone",&[]);
+    w.put(pos,stone);
+    w.level.observed_shapes=Some(Vec::new());
+    let b=w.b();
+    let result=b.update_shape(&mut w.level,&mut w.ticks,stone,pos,Direction::East,neighbor,b.air());
+    assert_eq!(result,stone);
+    assert_eq!(w.level.observed_shapes.as_deref(),Some(&[(pos,neighbor)][..]));
 }
 
 #[test]

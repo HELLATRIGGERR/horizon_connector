@@ -313,6 +313,9 @@ impl Game<'_> {
     }
 
     pub(super) fn remove_remote_object(&mut self, id: u32) {
+        if super::server_travel::trace_spatial() && self.boats.iter().any(|b|b.id==id) {
+            eprintln!("AE2 passenger client removal dimension={} boat={} riding={:?}",self.dim.id(),id,self.riding);
+        }
         self.text_displays.remove(&(id as i32));
         self.carts.retain(|c| c.id != id);
         self.boats.retain(|b| b.id != id);

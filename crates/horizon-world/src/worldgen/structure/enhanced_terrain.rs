@@ -337,6 +337,8 @@ mod tests {
                 piece(&rigid, 60, [62, 64, 5]),
             ],
             bounding_box: BoundingBox::new([0, 64, 0], [69, 73, 9]),
+            references: std::sync::atomic::AtomicI32::new(0),
+            saved_raw: None,
         };
         let kernel = json!({"kernel_size": 24, "kernel_distance": 24, "top": "carve",
             "bottom": "none", "bottom_offset": -1});

@@ -42,6 +42,7 @@ pub mod component {
     pub const TRIM: i32 = 58;
     pub const FIREWORK_EXPLOSION: i32 = 70;
     pub const FIREWORKS: i32 = 71;
+    pub const CONTAINER: i32 = 77;
 }
 
 /// A written book's content (`WrittenBookContent.STREAM_CODEC`): the
@@ -92,6 +93,8 @@ pub enum Component {
     WrittenBook(WrittenBook),
     /// `ChargedProjectiles`: a loaded crossbow's ammunition, as templates.
     Stacks(Vec<Stack>),
+    /// ItemContainerContents: indexed optional item templates, including holes.
+    Container(Vec<Option<Stack>>),
     /// `Fireworks`: flight duration and its explosions.
     Fireworks {
         flight: i32,
@@ -196,6 +199,12 @@ impl Component {
             CHARGED_PROJECTILES | BUNDLE_CONTENTS => {
                 let n = r.count(1024)?;
                 Self::Stacks((0..n).map(|_| Template::read(r)).collect::<Result<_>>()?)
+            }
+            CONTAINER => {
+                let n = r.count(256)?;
+                Self::Container((0..n).map(|_| {
+                    if r.bool()? { Template::read(r).map(Some) } else { Ok(None) }
+                }).collect::<Result<_>>()?)
             }
             DYED_COLOR => Self::Int(r.i32()?),
             UNBREAKABLE | CREATIVE_SLOT_LOCK => Self::Unit,
@@ -430,6 +439,13 @@ impl Component {
             Self::Stacks(stacks) => {
                 w.varint(stacks.len() as i32);
                 stacks.iter().for_each(|s| Template::write(s, w));
+            }
+            Self::Container(stacks) => {
+                w.varint(stacks.len() as i32);
+                for stack in stacks {
+                    w.bool(stack.is_some());
+                    if let Some(stack) = stack { Template::write(stack, w); }
+                }
             }
             Self::Fireworks { flight, explosions } => {
                 w.varint(*flight);
@@ -798,6 +814,19 @@ mod tests {
         let mut w = Writer::new();
         Slot::write(&Some(stack), &mut w);
         assert_eq!(w.data, bytes);
+    }
+
+    #[test]
+    fn container_contents_keep_optional_template_holes() {
+        let bytes = [1, 7, 1, 0, 77, 3, 0, 1, 9, 32, 0, 0, 0];
+        let mut r = Reader::new(&bytes);
+        let stack = Slot::read(&mut r).unwrap().unwrap();
+        assert_eq!(r.remaining(), 0);
+        assert_eq!(stack.component(component::CONTAINER), Some(&Component::Container(vec![None,Some(Stack::new(9,32)),None])));
+        let mut w = Writer::new(); Slot::write(&Some(stack), &mut w);
+        assert_eq!(w.data, bytes);
+        let mut oversized = Writer::new(); oversized.varint(257);
+        assert!(Component::read(component::CONTAINER, &mut Reader::new(&oversized.data)).is_err());
     }
 
     #[test]

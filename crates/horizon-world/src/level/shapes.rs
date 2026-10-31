@@ -27,6 +27,29 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         neighbour_pos: BlockPos,
         neighbour: BlockStateId,
     ) -> BlockStateId {
+        self.level.custom_shape_event(pos, state, neighbour_pos);
+        if self.level.custom_crank(state) {
+            if direction.opposite() == self.b.facing(state) && !self.can_survive(state, pos) {
+                return self.b.default_of(self.b.named.air);
+            }
+            return state;
+        }
+        if self.level.custom_center_fixture(state) {
+            if self.b.is_waterlogged(state) { self.schedule_water_tick(pos); }
+            if direction.opposite() == self.b.facing(state) && !self.can_survive(state, pos) {
+                return self.b.default_of(self.b.named.air);
+            }
+            return state;
+        }
+        // Data-declared waterlogged blocks opt into vanilla water rescheduling.
+        if self.b.data(state).schedule_fluid_ticks
+            && self
+                .b
+                .implements(state, super::classes::Interface::SimpleWaterlogged)
+            && self.b.is_waterlogged(state)
+        {
+            self.schedule_water_tick(pos);
+        }
         self.update_shape_at(0, state, pos, direction, neighbour_pos, neighbour)
     }
 

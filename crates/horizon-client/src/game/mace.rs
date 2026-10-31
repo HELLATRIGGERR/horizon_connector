@@ -147,10 +147,14 @@ impl Game<'_> {
             .get(&stack.item)
             .and_then(|i| i.weapon_damage.map(|d| (d, i.max_damage)));
         let smash = self.smash_attack();
+        #[cfg(feature="ae2-lab")]
+        let ae2_used=self.ae2_tool_hurt_enemy(index);
+        #[cfg(not(feature="ae2-lab"))]
+        let ae2_used=false;
         if smash {
             self.mace_hurt_enemy(index);
         }
-        if weapon.is_some() {
+        if weapon.is_some() || ae2_used {
             self.stats.add("used", &stack.item, 1);
         }
         self.post_attack(index);

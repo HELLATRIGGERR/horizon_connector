@@ -317,6 +317,7 @@ impl Book {
                 Recipe::Shapeless {
                     ingredients,
                     result,
+                    ..
                 } => (Display::Shapeless(ingredients.clone()), result),
                 // Custom recipes are never learnable; the others show one
                 // display per material count (TransmuteRecipe.display).
@@ -658,27 +659,48 @@ fn crafting_station(kind: &str) -> &'static str {
     }
 }
 impl RecipeIndex {
-    /// Reads `data/minecraft/recipe/*.json` under `root`.
+    /// Reads recipe resource locations, including nested paths in registered
+    /// content namespaces. The recipe-book index must use the same ids as
+    /// the crafting loader and advancement rewards.
     pub fn load(root: &std::path::Path) -> Self {
-        let mut recipes = std::collections::BTreeMap::new();
-        let dir = root.join("data/minecraft/recipe");
-        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.extension().is_none_or(|e| e != "json") {
-                continue;
+        fn collect(dir: &std::path::Path, base: &std::path::Path, namespace: &str,
+                   out: &mut Vec<(String, std::path::PathBuf)>) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                let Ok(kind) = std::fs::symlink_metadata(&path).map(|m| m.file_type()) else { continue; };
+                if kind.is_dir() { collect(&path, base, namespace, out); }
+                else if (kind.is_file() || kind.is_symlink()) && path.extension().is_some_and(|e| e == "json") {
+                    if let Ok(relative) = path.strip_prefix(base) {
+                        let relative = relative.with_extension("");
+                        out.push((format!("{namespace}:{}", relative.to_string_lossy().replace('\\', "/")), path));
+                    }
+                }
             }
-            let (Some(stem), Some(v)) = (
-                path.file_stem().and_then(|s| s.to_str()),
-                std::fs::read(&path)
-                    .ok()
-                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()),
-            ) else {
-                continue;
-            };
+        }
+        let tags = crate::items::load_tags(root, "item").unwrap_or_default();
+        let mut recipes = std::collections::BTreeMap::new();
+        let mut namespaces = vec!["minecraft".to_owned()];
+        namespaces.extend(crate::mod_content::namespaces(root));
+        namespaces.sort(); namespaces.dedup();
+        let mut files = Vec::new();
+        for namespace in namespaces {
+            let dir = root.join("data").join(&namespace).join("recipe");
+            collect(&dir, &dir, &namespace, &mut files);
+        }
+        files.sort();
+        for (id, path) in files {
+            let Some(v) = std::fs::read(&path).ok()
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()) else { continue; };
+            if !crate::recipe_conditions::enabled(&v, &tags) { continue; }
             let kind = v["type"].as_str().unwrap_or_default();
             let special = kind.starts_with("minecraft:crafting_special_")
-                || kind == "minecraft:crafting_decorated_pot";
-            let displays = if special {
+                || kind == "minecraft:crafting_decorated_pot"
+                // Actual pinned AE2 runtime isSpecial flags, including its
+                // machine recipes that opt out of ServerRecipeBook.addRecipes.
+                || matches!(kind,"ae2:storage_cell_upgrade"|"ae2:storage_cell_disassembly"|
+                    "ae2:crafting_unit_transform"|"ae2:transform"|"ae2:charger"|"ae2:inscriber"|
+                    "ae2:add_item_upgrade"|"ae2:remove_item_upgrade"|"ae2:facade");
+            let displays = if special || matches!(kind,"ae2:entropy"|"ae2:matter_cannon") {
                 0
             } else if kind == "minecraft:crafting_transmute" {
                 // TransmuteRecipe.display: one per material count.
@@ -694,7 +716,7 @@ impl RecipeIndex {
                 1
             };
             recipes.insert(
-                format!("minecraft:{stem}"),
+                id,
                 Known {
                     special,
                     displays,
@@ -875,6 +897,23 @@ impl Settings {
 mod tests {
     use super::*;
 
+    /// Compare all actual AE2 ids and isSpecial flags, not static file counts.
+    #[test]
+    #[ignore = "needs the pinned Java AE2 runtime export and merged native resources"]
+    fn ae2_recipe_registry_matches_actual_java_ids_and_flags() {
+        let root=std::env::var_os("AE2_NATIVE_RESOURCES").expect("AE2_NATIVE_RESOURCES");
+        let oracle=std::env::var_os("AE2_RECIPE_ORACLE").expect("AE2_RECIPE_ORACLE");
+        let rows:serde_json::Value=serde_json::from_slice(&std::fs::read(oracle).unwrap()).unwrap();
+        let index=RecipeIndex::load(std::path::Path::new(&root));
+        let expected:std::collections::BTreeSet<_>=rows.as_array().unwrap().iter().map(|r|r["id"].as_str().unwrap().to_owned()).collect();
+        let actual:std::collections::BTreeSet<_>=index.ids().filter(|id|id.starts_with("ae2:")).cloned().collect();
+        assert_eq!(actual,expected);
+        assert_eq!(actual.len(),491);
+        for row in rows.as_array().unwrap() {
+            let id=row["id"].as_str().unwrap();
+            assert_eq!(index.special(id),row["special"].as_bool().unwrap(),"{id}");
+        }
+    }
     fn ing(items: &[&str]) -> Ingredient {
         Ingredient::of(items.iter().map(|s| (*s).to_owned()).collect())
     }
@@ -907,7 +946,26 @@ mod tests {
         ] {
             std::fs::write(dir.join(format!("{name}.json")), json).unwrap();
         }
+        let mod_dir = root.join("data/ae2/recipe/network/crafting");
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        std::fs::write(root.join("horizon-mod-content.json"), r#"["ae2"]"#).unwrap();
+        std::fs::write(mod_dir.join("stick.json"), r#"{"type":"minecraft:crafting_shaped","result":{"id":"ae2:crafting_unit"}}"#).unwrap();
+        std::fs::write(mod_dir.join("inscriber.json"), r#"{"type":"ae2:inscriber"}"#).unwrap();
+        std::fs::write(mod_dir.join("quartz_cutting.json"), r#"{"type":"ae2:quartz_cutting","result":{"id":"ae2:cable_anchor"}}"#).unwrap();
+        std::fs::write(mod_dir.join("optional_ammo.json"), r#"{"type":"ae2:matter_cannon","neoforge:conditions":[{"type":"neoforge:not","value":{"type":"neoforge:tag_empty","tag":"c:nuggets/zinc"}}]}"#).unwrap();
         let index = RecipeIndex::load(&root);
+        assert!(index.special("ae2:network/crafting/inscriber"));
+        assert_eq!(index.displays("ae2:network/crafting/inscriber"),0);
+        assert!(!index.special("ae2:network/crafting/quartz_cutting"));
+        assert_eq!(index.displays("ae2:network/crafting/quartz_cutting"),1);
+        assert!(!index.contains("ae2:network/crafting/optional_ammo"));
+        let mut known=Settings::default();
+        let (_,added)=known.add_recipes(&index,&["ae2:network/crafting/inscriber".into(),"ae2:network/crafting/quartz_cutting".into()]);
+        assert_eq!(added,["ae2:network/crafting/quartz_cutting"]);
+        assert!(index.contains("ae2:network/crafting/stick"));
+        assert!(!index.contains("minecraft:network/crafting/stick"));
+        assert_eq!(index.result("ae2:network/crafting/stick"), Some("ae2:crafting_unit"));
+        assert_ne!(index.first_display("minecraft:stick"), index.first_display("ae2:network/crafting/stick"));
         std::fs::remove_dir_all(&root).unwrap();
         let toast = |id: &str| (index.toast_station(id), index.result(id));
         assert_eq!(

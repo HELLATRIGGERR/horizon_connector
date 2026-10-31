@@ -12,9 +12,12 @@ use winit::{event::MouseButton, event_loop::ActiveEventLoop, keyboard::KeyCode};
 const HELP: &[&str] = &[
     "status                         game, player, streaming and renderer state",
     "simulation                     authoritative projectiles in the owner's level",
+    "ae2-job-ui                    this client's bounded crafting events, pins and notices",
     "server-hold on|off             hold simulation and player packets at a control-fixture barrier",
+    "server-step TICKS              run 1..1000 normal server iterations inside a held fixture barrier",
     "stall MILLISECONDS             stall the window thread (0..5000), leaving transport alive",
     "key KEY down|up|tap|repeat     press, release or auto-repeat a key (w a s d space shift ctrl e q esc f3 1-9 arrows ...)",
+    "ui-key KEY                    AE2 lab: press a focused field navigation/confirm key without OS input",
     "release                        release every key and mouse button",
     "mouse left|right|middle down|up|click",
     "look YAW PITCH                 set the view direction in degrees",
@@ -66,6 +69,25 @@ pub struct Flight {
 }
 
 impl Game<'_> {
+    /// Execute the normal host path synchronously, retaining the fixture barrier
+    /// even on a simulation error. Vanilla tick freezing is independent: grid
+    /// callbacks can advance while block/entity ticks remain frozen.
+    fn agent_step_held_server(&mut self, ticks: u32) -> std::result::Result<Value, String> {
+        if !self.agent.hold_server { return Err("server-step requires server-hold on".into()); }
+        self.agent.hold_server = false;
+        let result: Result<()> = (|| {
+            for _ in 0..ticks {
+                if self.serving.is_some() { self.tick_server(false)?; } else { self.tick()?; }
+            }
+            Ok(())
+        })();
+        self.agent.hold_server = true;
+        result.map_err(|error| error.to_string())?;
+        let mut reply = json!({ "steps": ticks, "held": true, "game_time": self.world.game_time });
+        #[cfg(feature = "ae2-lab")]
+        { reply["ae2_server_tick"] = json!(self.ae2_server_tick()); }
+        Ok(reply)
+    }
     /// Move the camera along the running flight; reply when it ends.
     pub(super) fn advance_flight(&mut self) {
         let tick_ms = self
@@ -181,6 +203,8 @@ impl Game<'_> {
         if let Some(value) = self.options_control(&words, line)? {
             return Ok(Some(value));
         }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(value)=self.ae2_guide_control(&words)?{return Ok(Some(value));}
         if let Some(value) = self.lan_control(&words)? {
             return Ok(Some(value));
         }
@@ -240,6 +264,8 @@ impl Game<'_> {
                 Ok(Some(json!({ "ok": true, "sides": r.section_sides() })))
             }
             "sculk" => Ok(Some(self.sculk_command(&words)?)),
+            #[cfg(feature = "ae2-lab")]
+            "ae2-job-ui" => Ok(Some(self.ae2_job_ui.snapshot())),
             "status" => Ok(Some(self.control_status())),
             "stall" => {
                 let millis: u64 = arg(1)?.parse()?;
@@ -282,7 +308,30 @@ impl Game<'_> {
                 }
                 ok()
             }
+            "server-step" => {
+                self.require_world()?;
+                let ticks: u32 = arg(1)?.parse()?;
+                if !(1..=1000).contains(&ticks) { return Err("server-step needs 1..1000 ticks".into()); }
+                let result = if let Some(server) = &self.integrated {
+                    server.call(move |g| g.agent_step_held_server(ticks)).ok_or("the integrated server stopped")?
+                } else if self.remote.is_some() {
+                    return Err("server-step requires the world's host".into());
+                } else { self.agent_step_held_server(ticks) };
+                Ok(Some(result.map_err(|message| -> Box<dyn std::error::Error> { message.into() })?))
+            }
             "pad" => Ok(Some(self.pad_command(&words)?)),
+            #[cfg(feature = "ae2-lab")]
+            "ui-key" => {
+                self.require_world()?;
+                let key=key_code(arg(1)?).ok_or_else(||format!("unknown key {}",words[1]))?;
+                if !self.ae2_search_focused() || key==KeyCode::Escape {
+                    return Err("ui-key requires a focused AE2 field; Escape uses the ordinary key route".into());
+                }
+                // The same focused-field handler used by WindowEvent::KeyboardInput.
+                // Text insertion remains the separate `type` control command.
+                self.ae2_search_input(None,Some(key));
+                ok()
+            }
             "key" => {
                 let key = key_code(arg(1)?).ok_or_else(|| format!("unknown key {}", words[1]))?;
                 // A server's dialog takes the keys, in configuration too.
@@ -601,6 +650,26 @@ impl Game<'_> {
                     json!({ "ok": true, "chat": self.ui.chat.recent_lines(5) }),
                 ))
             }
+            #[cfg(feature = "ae2-lab")]
+            "ae2-pattern-control" => {
+                let action=match arg(1)? {"previous"=>-10,"next"=>-11,"filter"=>-12,_=>return Err("expected previous, next or filter".into())};
+                if !self.remote_pattern_access_control(action) {return Err("Pattern Access is unavailable".into());}
+                ok()
+            }
+            #[cfg(feature = "ae2-lab")]
+            "ae2-search-focus" => {
+                let r = self.renderer.as_ref().ok_or("renderer unavailable")?;
+                let batch = self.screen_batch([r.config.width, r.config.height]);
+                let (ox, oy) = self.inventory_origin(&batch);
+                let old = self.cursor;
+                self.cursor = (ox + 85.0, oy + 8.0);
+                let focused = self.ae2_search_click(ox, oy, false);
+                self.cursor = old;
+                if !focused {
+                    return Err("AE2 terminal search is unavailable".into());
+                }
+                ok()
+            }
             "type" => {
                 let text = line
                     .trim_start()
@@ -622,6 +691,10 @@ impl Game<'_> {
                     return ok();
                 }
                 match self.screen {
+                    #[cfg(feature = "ae2-lab")]
+                    Screen::Mod if self.ae2_guide_active()=>{
+                        if text=="\\b"{self.ae2_guide_key(KeyCode::Backspace);}else{self.ae2_guide_text(text);}
+                    },
                     Screen::Chat => self.chat_type(text),
                     Screen::CommandBlock => self.command_block_type(text),
                     Screen::Options => self.ui.options.type_text(&self.gui.atlas, text),
@@ -630,6 +703,14 @@ impl Game<'_> {
                     Screen::WorldOptions => self.world_options_text(Some(text)),
                     Screen::Inventory if self.recipe_search_focused() => {
                         self.recipe_text(Some(text), false)
+                    }
+                    #[cfg(feature = "ae2-lab")]
+                    Screen::Inventory if self.ae2_search_focused() => {
+                        if text == "\\b" {
+                            self.ae2_search_input(None, Some(KeyCode::Backspace));
+                        } else {
+                            self.ae2_search_input(Some(text), None);
+                        }
                     }
                     // The anvil's rename box.
                     Screen::Inventory
@@ -1064,6 +1145,13 @@ impl Game<'_> {
             "name_tags": self
                 .eye_position()
                 .map(|e| self.shown_name_tags(glam::DVec3::from_array(e))),
+        });
+        status["window"] = json!({
+                "offscreen": self.options.offscreen,
+                "visible": self.window.as_ref().and_then(|w| w.is_visible()),
+                "focused": self.window.as_ref().is_some_and(|w| w.has_focus()),
+                "fullscreen": self.window.as_ref().is_some_and(|w| w.fullscreen().is_some()),
+                "system_pointer_captured": self.captured,
         });
         status["lod"] = lod;
         let (target, sampled) = self.lod.as_ref().map_or((0, 0), |lod| lod.progress());

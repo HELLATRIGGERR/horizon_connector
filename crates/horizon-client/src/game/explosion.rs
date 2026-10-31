@@ -413,8 +413,12 @@ impl Game<'_> {
         }
         self.mobs = mobs;
         // Dropped items: 5 health, destroyed by the explosion damage (nether stars resist).
+        #[cfg(feature = "ae2-lab")]
+        let ae2_protected = self.ae2_explosion_singularities(center, radius);
         let mut items = std::mem::take(&mut self.dropped);
         items.retain_mut(|item| {
+            #[cfg(feature = "ae2-lab")]
+            if ae2_protected.contains(&item.id) { return true; }
             let feet = [item.position.x, item.position.y, item.position.z];
             let dist = distance(feet) / diameter;
             if dist > 1.0 {
@@ -542,7 +546,7 @@ impl Game<'_> {
             }
             let mut stacks: Vec<([i32; 3], ItemStack)> = Vec::new();
             for &pos in &targets {
-                self.explosion_hit_block(pos, radius, interaction, &mut stacks)?;
+                self.explosion_hit_block(pos, radius, interaction, &mut stacks,None)?;
             }
             for (pos, stack) in stacks {
                 self.pop_resource(pos, stack);
@@ -585,6 +589,102 @@ impl Game<'_> {
         self.lan_explode(center, radius, block_count);
         Ok(())
     }
+    /// AE2 TinyTNTPrimedEntity.explode: a compact, resistance-weighted blast.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn ae2_explode_tiny_tnt(&mut self, center: [f64; 3],owner:Option<super::tnt::TinyTntOwner>) -> Result<()> {
+        let overlaps = |p: [f64;3], width:f64, height:f64| {
+            let h=width/2.0;
+            p[0]+h > center[0]-1.5 && p[0]-h < center[0]+1.5 &&
+            p[1]+height > center[1]-1.5 && p[1] < center[1]+1.5 &&
+            p[2]+h > center[2]-1.5 && p[2]-h < center[2]+1.5
+        };
+        for mob in &mut self.mobs {
+            if mob.alive() && overlaps([mob.position.x,mob.position.y,mob.position.z],mob.kind.width,mob.kind.height) {
+                let source=horizon_client::mobs::Damage{kind:horizon_client::mobs::DamageKind::Explosion,attacker:owner.map(|_|horizon_client::mobs::Who::Player),from:Some(center)};
+                if mob.damage(6.0,source) && let Some(super::tnt::TinyTntOwner::Player(conn))=owner {self.last_hurt_by_player.insert(mob.id,conn);}
+            }
+        }
+        let affected:Vec<u32>=self.dropped.iter().filter_map(|item|{
+            let p=item.position;overlaps([p.x,p.y,p.z],0.25,0.25).then_some(item.id)
+        }).collect();
+        let protected=self.ae2_explosion_transform_items(&affected);
+        self.dropped.retain_mut(|item| {
+            let p=item.position;
+            if !protected.contains(&item.id) && overlaps([p.x,p.y,p.z],0.25,0.25) && &*item.stack.item != "minecraft:nether_star" {
+                item.health-=6;
+            }
+            item.health>0
+        });
+        let cart_ids:Vec<u32>=self.carts.iter().filter_map(|cart| {
+            let b=cart.bounds();let lo=b.min_position();let hi=b.max_position();
+            (hi.x>center[0]-1.5 && lo.x<center[0]+1.5 && hi.y>center[1]-1.5 && lo.y<center[1]+1.5 && hi.z>center[2]-1.5 && lo.z<center[2]+1.5).then_some(cart.id)
+        }).collect();
+        for id in cart_ids {if let Some(i)=self.carts.iter().position(|cart|cart.id==id){self.hurt_cart(i,6.0,false,true);}}
+        let intersects=|lo:[f64;3],hi:[f64;3]|(0..3).all(|axis|hi[axis]>center[axis]-1.5 && lo[axis]<center[axis]+1.5);
+        let boats:Vec<usize>=self.boats.iter().enumerate().filter_map(|(i,b)|{
+            let bounds=b.bounds();let lo=bounds.min_position();let hi=bounds.max_position();
+            intersects([lo.x,lo.y,lo.z],[hi.x,hi.y,hi.z]).then_some(i)
+        }).collect();
+        for i in boats.into_iter().rev(){self.hurt_boat(i,6.0,false);}
+        let stands:Vec<usize>=self.armor_stands.iter().enumerate().filter_map(|(i,a)|{
+            let bounds=a.bounds();let lo=bounds.min_position();let hi=bounds.max_position();
+            intersects([lo.x,lo.y,lo.z],[hi.x,hi.y,hi.z]).then_some(i)
+        }).collect();
+        for i in stands.into_iter().rev(){self.ae2_explode_armor_stand_at(i);}
+        let frames:Vec<usize>=self.item_frames.iter().enumerate().filter_map(|(i,f)|{
+            let (lo,hi)=f.bounds();intersects(lo,hi).then_some(i)
+        }).collect();
+        for i in frames.into_iter().rev(){self.ae2_explode_frame_at(i);}
+        let paintings:Vec<usize>=self.paintings.iter().enumerate().filter_map(|(i,p)|{
+            let (lo,hi)=p.bounds();intersects(lo,hi).then_some(i)
+        }).collect();
+        for i in paintings.into_iter().rev(){self.break_painting(i,false);}
+        self.ae2_tiny_tnt_hurt_player(center,owner);
+        if let Some(mut host)=self.lan.take() {
+            let guests:Vec<u32>=host.hub.guests.iter().filter(|g|host.hub.here(g)&&g.loaded&&!g.dead).map(|g|g.conn).collect();
+            for conn in guests { self.guest_hit_by(&mut host,conn,|g|g.ae2_tiny_tnt_hurt_player(center,owner)); }
+            self.lan=Some(host);
+        }
+        if horizon_client::ae2_common_config::damage().tiny_tnt {
+        let y=center[1]-0.25;
+        let mut drops=Vec::new();
+        for x in (center[0]-2.0) as i32..=(center[0]+2.0).floor() as i32 {
+          for yy in (y-2.0) as i32..=(y+2.0).floor() as i32 {
+            for z in (center[2]-2.0) as i32..=(center[2]+2.0).floor() as i32 {
+              let pos=[x,yy,z]; let state=self.world.block(x,yy,z); let f=self.res.facts().get(state);
+              if self.res.facts().is_air(state) {continue;}
+              let d=(x as f64+0.5-center[0]).powi(2)+(yy as f64+0.5-y).powi(2)+(z as f64+0.5-center[2]).powi(2);
+              let fluid=if f.fluid != Fluid::None {100.0} else {0.0};
+              let strength=2.3_f32-d as f32-(f.explosion_resistance.max(fluid)+0.3)*0.11;
+              if strength>0.01 {self.explosion_hit_block(pos,0.2,BlockInteraction::Destroy,&mut drops,owner)?;}
+            }
+          }
+        }
+        for (pos,stack) in drops {self.pop_resource(pos,stack);}
+        }
+        let pitch=(1.0+(self.world.random.next_float()-self.world.random.next_float())*0.2)*32.9;
+        self.audio.play("minecraft:entity.generic.explode",Some(center),4.0,pitch);
+        self.lan_explode(center,0.2,0);
+        Ok(())
+    }
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_tiny_tnt_hurt_player(&mut self,center:[f64;3],owner:Option<super::tnt::TinyTntOwner>) {
+        let Some(p)=self.player.as_ref() else {return};
+        let w=f64::from(p.dimensions.width)/2.0; let h=f64::from(p.dimensions.height);
+        let pos=p.position;
+        if pos.x+w<=center[0]-1.5 || pos.x-w>=center[0]+1.5 || pos.y+h<=center[1]-1.5 || pos.y>=center[1]+1.5 || pos.z+w<=center[2]-1.5 || pos.z-w>=center[2]+1.5 || self.creative || self.spectator() {return;}
+        let damage_type=if owner.is_some() {"minecraft:player_explosion"} else {"minecraft:explosion"};
+        let blocking=self.player_blocking(Some(center),damage_type,false);
+        let raised=blocking.is_some();
+        if let Some(id)=self.motion.health.damage.id(damage_type) {
+            if let Some(player)=self.player.as_mut() {
+                if let Ok(outcome)=player.hurt_caused_by(&self.motion.health,self.world.health_rules,id,6.0,blocking,owner.is_some()) {
+                    if outcome.hurt {self.hurt_armor(6.0);}
+                    if raised {self.after_block(outcome,6.0,None,false);}
+                }
+            }
+        }
+    }
     /// `BlockBehaviour.onExplosionHit` (TNT: `wasExploded` primes a short fuse).
     fn explosion_hit_block(
         &mut self,
@@ -592,13 +692,15 @@ impl Game<'_> {
         radius: f32,
         interaction: BlockInteraction,
         stacks: &mut Vec<([i32; 3], ItemStack)>,
+        owner: Option<super::tnt::TinyTntOwner>,
     ) -> Result<()> {
         let state = self.world.block(pos[0], pos[1], pos[2]);
         if self.res.facts().is_air(state) {
             return Ok(());
         }
         let name = self.res.facts().get(state).name.clone();
-        let is_tnt = &*name == "minecraft:tnt";
+        let is_tiny = cfg!(feature = "ae2-lab") && &*name == "ae2:tiny_tnt";
+        let is_tnt = &*name == "minecraft:tnt" || is_tiny;
         // Block.onExplosionHit: the drops copy from the block entity, which
         // then spills its contents as the block turns to air.
         let key = (pos[0], pos[1], pos[2]);
@@ -635,11 +737,12 @@ impl Game<'_> {
         self.level_set(pos, self.world.air)?;
         // TntBlock.wasExploded: new PrimedTnt (its push drawn first), then
         // getRandomShortFuse(80); no game event.
-        if is_tnt && self.ui.rules.bool("tnt_explodes") {
+        if is_tnt && (is_tiny || self.ui.rules.bool("tnt_explodes")) {
             let r = &mut self.world.random;
             let rot = r.next_double() * f64::from(std::f32::consts::TAU);
             let fuse = r.next_int_bound(20).unwrap_or(0) + 10;
             self.add_primed_tnt(BlockPos::new(pos[0], pos[1], pos[2]), rot, fuse);
+            if is_tiny { if let Some(t) = self.tnts.last_mut() { t.tiny = true;t.tiny_owner=owner; } }
         }
         Ok(())
     }

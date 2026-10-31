@@ -21,6 +21,8 @@ impl Game<'_> {
             Hand::Off => self.offhand.as_ref(),
         };
         let item = stack.map_or("", |s| &*s.item);
+        #[cfg(feature="ae2-lab")]
+        if stack.is_some_and(|stack|self.ae2_applicator_takes_mob(stack,i)) {return true;}
         let baby = m.is_baby();
         // Mob.checkAndHandleImportantInteractions: a lead, a named name tag,
         // a spawn egg of the mob's own kind.

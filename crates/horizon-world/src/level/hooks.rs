@@ -17,9 +17,14 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         pos: BlockPos,
         changed: BlockId,
         moved: bool,
+        source: Option<BlockPos>,
     ) {
         let b = self.b;
         let block = b.block(state);
+        self.level.custom_neighbor_event(pos,state,source);
+        if self.level.custom_sensor_neighbor_changed(pos,state) {
+            self.update_neighbors_at(pos,block);
+        }
         let chain = &b.data(state).chain;
         for &class in chain.iter() {
             match class {

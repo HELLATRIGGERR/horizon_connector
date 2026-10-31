@@ -137,6 +137,8 @@ pub(super) struct Station {
     pub(super) anvil: AnvilResult,
     /// Anvil rename box text (`AnvilMenu.itemName`).
     pub(super) name: String,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) quartz_knife: bool,
     /// The box itself (`AnvilScreen`'s `EditBox` of 50, unbordered).
     pub(super) rename: horizon_client::ui::EditBox,
     /// Stonecutter: the menu's recipe list (horizon_client::menu), its
@@ -169,6 +171,8 @@ impl Station {
             bookcases: 0,
             anvil: AnvilResult::default(),
             name: String::new(),
+            #[cfg(feature = "ae2-lab")]
+            quartz_knife: false,
             rename: anvil_box(),
             stone: Default::default(),
             selected: None,
@@ -352,6 +356,8 @@ impl Game<'_> {
             return Some(v);
         }
         let s = self.station.as_ref()?;
+        #[cfg(feature = "ae2-lab")]
+        if s.quartz_knife {v.push(INPUT);v.push(RESULT);return Some(v);}
         v.extend((0..s.inputs.len()).map(|i| INPUT + i));
         if s.kind.result_pos().is_some() {
             v.push(RESULT);
@@ -371,6 +377,8 @@ impl Game<'_> {
             );
         }
         let s = self.station.as_ref()?;
+        #[cfg(feature = "ae2-lab")]
+        if s.quartz_knife {return match i {0..=8=>Some((8.0+i as f32*18.0,160.0)),9..=35=>Some((8.0+((i-9)%9) as f32*18.0,102.0+((i-9)/9) as f32*18.0)),INPUT=>Some((94.0,44.0)),RESULT=>Some((134.0,44.0)),_=>None};}
         if s.kind == Kind::Merchant && i < 36 {
             return Some(super::trading::inventory_slot(i));
         }
@@ -431,6 +439,10 @@ impl Game<'_> {
         let Some(mut s) = self.station.take() else {
             return;
         };
+        // Quartz knife output is exclusively server-authoritative; do not
+        // run the generic anvil rename/repair prediction over its input.
+        #[cfg(feature = "ae2-lab")]
+        if s.quartz_knife {self.station=Some(s);return;}
         let creative = self.creative;
         let data = self.res.stations();
         let items = self.res.items();
@@ -498,10 +510,7 @@ impl Game<'_> {
         self.station = Some(s);
     }
     pub(super) fn max_stack(&self, stack: &ItemStack) -> u32 {
-        self.res
-            .items()
-            .get(&stack.item)
-            .map_or(64, |i| i.max_stack)
+        self.res.items().stack_max(stack)
     }
     /// `Slot.mayPlace` and `getMaxStackSize` for station slots.
     fn slot_rules(&self, slot: usize, stack: &ItemStack) -> (bool, u32) {
@@ -731,6 +740,8 @@ impl Game<'_> {
         let Some(s) = self.station.as_ref() else {
             return false;
         };
+        #[cfg(feature = "ae2-lab")]
+        if s.quartz_knife {return s.result.is_some();}
         match s.kind {
             Kind::Anvil => {
                 (self.creative || self.experience.level >= s.anvil.cost) && s.anvil.cost > 0
@@ -890,7 +901,10 @@ impl Game<'_> {
         let Some(s) = self.station.as_mut() else {
             return;
         };
-        if s.kind == Kind::Anvil && s.inputs[0] != s.anvil_last {
+        let mut sync_anvil_name=s.kind == Kind::Anvil && s.inputs[0] != s.anvil_last;
+        #[cfg(feature = "ae2-lab")]
+        {sync_anvil_name &= !s.quartz_knife;}
+        if sync_anvil_name {
             // AnvilScreen.slotChanged: the box shows the new input's name.
             s.anvil_last = s.inputs[0].clone();
             s.name = s.inputs[0]
@@ -954,7 +968,10 @@ impl Game<'_> {
             && self
                 .station
                 .as_ref()
-                .is_some_and(|s| s.kind == Kind::Anvil && s.inputs[0].is_some())
+                .is_some_and(|s| s.kind == Kind::Anvil && (s.inputs[0].is_some() || {
+                    #[cfg(feature = "ae2-lab")] {s.quartz_knife}
+                    #[cfg(not(feature = "ae2-lab"))] {false}
+                }))
     }
     pub(super) fn station_text(&mut self, text: Option<&str>, backspace: bool) {
         // The recipe book's search box takes scripted typing too.
@@ -1009,11 +1026,18 @@ impl Game<'_> {
         let open = self
             .station
             .as_ref()
-            .is_some_and(|s| s.kind == Kind::Anvil && s.inputs[0].is_some());
+            .is_some_and(|s| s.kind == Kind::Anvil && (s.inputs[0].is_some() || {
+                #[cfg(feature = "ae2-lab")] {s.quartz_knife}
+                #[cfg(not(feature = "ae2-lab"))] {false}
+            }));
         if !open {
             return false;
         }
-        let (x, y, w, h) = (ox + 62.0, oy + 24.0, 103.0, 12.0);
+        #[cfg(feature = "ae2-lab")]
+        let knife=self.station.as_ref().is_some_and(|s|s.quartz_knife);
+        #[cfg(not(feature = "ae2-lab"))]
+        let knife=false;
+        let (x,y,w,h)=if knife {(ox+21.0,oy+25.0,90.0,12.0)}else{(ox+62.0,oy+24.0,103.0,12.0)};
         let (mx, my) = self.cursor;
         if mx < x || my < y || mx >= x + w || my >= y + h {
             return false;
@@ -1034,14 +1058,18 @@ impl Game<'_> {
             return;
         };
         let edit = &mut s.rename;
-        edit.x = ox + 62.0;
-        edit.y = oy + 24.0;
-        edit.width = 103.0;
+        #[cfg(feature = "ae2-lab")]
+        let knife=s.quartz_knife;
+        #[cfg(not(feature = "ae2-lab"))]
+        let knife=false;
+        edit.x = ox + if knife {21.0}else{62.0};
+        edit.y = oy + if knife {25.0}else{24.0};
+        edit.width = if knife {90.0}else{103.0};
         edit.height = 12.0;
         edit.bordered = false;
         edit.focused = true;
         edit.text_color = u32::MAX;
-        edit.max_length = ANVIL_NAME_CHARS;
+        edit.max_length = if knife {32}else{ANVIL_NAME_CHARS};
         edit.draw(batch, &self.gui.atlas, None);
     }
 
@@ -1253,17 +1281,14 @@ impl Game<'_> {
                 .unwrap_or_else(|| Text::literal(self.translate(kind.title_key(), "")));
             {
                 let atlas = &self.gui.atlas;
-                Self::part(
-                    batch,
-                    atlas,
-                    kind.texture(),
-                    (0.0, 0.0),
-                    (176.0, 166.0),
-                    (ox, oy),
-                );
-                let (tx, ty) = kind.title_pos();
-                batch.text_styled(atlas, &title, ox + tx, oy + ty, GREY, false);
-                batch.text(atlas, &inventory_label, ox + 8.0, oy + 72.0, GREY, false);
+                #[cfg(feature = "ae2-lab")]
+                let knife=self.station.as_ref().is_some_and(|s|s.quartz_knife);
+                #[cfg(not(feature = "ae2-lab"))]
+                let knife=false;
+                Self::part(batch,atlas,if knife {"ae2:guis/quartzknife"} else {kind.texture()},(0.0,0.0),(176.0,if knife {186.0}else{166.0}),(ox,oy));
+                let (tx,ty)=if knife {(8.0,6.0)}else{kind.title_pos()};
+                batch.text_styled(atlas,&title,ox+tx,oy+ty,GREY,false);
+                batch.text(atlas,&inventory_label,ox+8.0,oy+if knife {91.0}else{72.0},GREY,false);
             }
             if kind == Kind::Cartography {
                 self.draw_cartography(batch, ox, oy);
@@ -1456,6 +1481,11 @@ impl Game<'_> {
                     }
                 }
                 Kind::Anvil => {
+                    #[cfg(feature = "ae2-lab")]
+                    let knife=s.quartz_knife;
+                    #[cfg(not(feature = "ae2-lab"))]
+                    let knife=false;
+                    if knife {anvil_name=true;} else {
                     let field = if s.inputs[0].is_some() {
                         "text_field"
                     } else {
@@ -1483,7 +1513,11 @@ impl Game<'_> {
                         anvil_name = true;
                     }
                     let cost = s.anvil.cost;
-                    if cost > 0 {
+                    #[cfg(feature = "ae2-lab")]
+                    let show_cost=!s.quartz_knife;
+                    #[cfg(not(feature = "ae2-lab"))]
+                    let show_cost=true;
+                    if show_cost && cost > 0 {
                         let mut color = argb(-8323296);
                         let line = if cost >= 40 && !self.creative {
                             color = argb(-40864);
@@ -1513,6 +1547,7 @@ impl Game<'_> {
                             );
                             batch.text(atlas, &line, ox + tx, oy + 69.0, color, true);
                         }
+                    }
                     }
                 }
                 Kind::Grindstone => {
@@ -1719,10 +1754,35 @@ impl Game<'_> {
         } else {
             self.pack.names.display_item(&stack.item)
         };
+        #[cfg(feature = "ae2-lab")]
+        let name = self.ae2_item_display_name(stack, &name);
         let display = horizon_client::item_tooltip::TooltipDisplay::for_stack(stack);
         let mut lines = Vec::new();
         if display.name_visible(self.screen == Screen::Creative) {
             lines.push((horizon_client::text::Text::legacy(&name), color));
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some((current, maximum)) = self.ae2_item_energy(stack) {
+            lines.push((horizon_client::ae2_powered_items::energy_tooltip(
+                &self.translate("gui.ae2.StoredEnergy", "Stored Energy"), current, maximum,
+            ), rgba(170,170,170,255)));
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(preview)=super::ae2_client_config::cell_preview(stack,super::ae2_client_config::settings()) {
+            for upgrade in preview.upgrades {
+                let name=upgrade.custom_name().map(str::to_owned).unwrap_or_else(||self.pack.names.display_item(&upgrade.item));
+                lines.push((horizon_client::text::Text::literal(format!("Upgrade: {name}")),rgba(170,170,170,255)));
+            }
+            for (key,count,channel) in preview.entries {
+                let fluid=channel==ae2_cell_core::Channel::Fluid;
+                let name=if fluid {self.pack.names.display_item(&key.item_id)} else {
+                    horizon_client::ae2_cell_codec::prototype(&key).ok().and_then(|item|item.custom_name().map(str::to_owned))
+                        .unwrap_or_else(||self.pack.names.display_item(&key.item_id))
+                };
+                let amount=if fluid {format!("{count} mB")}else{count.to_string()};
+                lines.push((horizon_client::text::Text::literal(format!("{name}: {amount}")),rgba(170,170,170,255)));
+            }
+            if preview.has_more {lines.push((horizon_client::text::Text::literal("…"),rgba(170,170,170,255)));}
         }
         let translate = |k: &str| self.pack.names.display_get(k);
         let push = |lines: &mut Vec<(horizon_client::text::Text, u32)>, s: String, c: u32| {

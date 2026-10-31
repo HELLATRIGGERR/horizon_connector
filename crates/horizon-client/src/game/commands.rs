@@ -86,6 +86,18 @@ fn format_double(v: f64) -> String {
 impl Game<'_> {
     /// Commands.performCommand for a line without its slash.
     pub(super) fn run_command(&mut self, command: &str) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if command.split_whitespace().next() == Some("ae2") {
+            let result = self.ae2_lab_command(command);
+            match &result {
+                Ok(value) => self.system_message(Text::literal(format!("AE2 {value}"))),
+                Err(error) => self.command_failure(Text::literal(format!("AE2 {error}"))),
+            }
+            if self.player.is_some() {
+                self.check_inventory_trigger();
+            }
+            return result.is_ok();
+        }
         if self.mod_command(command) {
             return true;
         }
@@ -296,8 +308,7 @@ impl Game<'_> {
         if dimension != self.dim || !self.world.chunks.contains_key(&(p[0] >> 4, p[2] >> 4)) {
             return Err(err("argument.pos.unloaded", &[]));
         }
-        if p[1] < horizon_client::chunk::MIN_Y
-            || p[1] >= horizon_client::chunk::MIN_Y + horizon_client::chunk::HEIGHT
+        if p[1] < dimension.min_y() || p[1] > dimension.max_y()
         {
             return Err(err("argument.pos.outofworld", &[]));
         }
@@ -1029,7 +1040,8 @@ impl Game<'_> {
         };
         let count = Self::int(ctx, "count").unwrap_or(1);
         let targets = self.entities(ctx, "targets", true)?;
-        let max_stack = self.res.items().get(&id).map_or(64, |i| i.max_stack) as i32;
+        let prototype = ItemStack {item:id.as_str().into(),count:1,damage,extra:extra.clone()};
+        let max_stack = self.res.items().stack_max(&prototype) as i32;
         if count > max_stack * 100 {
             return Err(CommandError::new(Text::translate(
                 "commands.give.failed.toomanyitems",
@@ -1690,6 +1702,8 @@ impl Game<'_> {
                 "experience_orb" => {
                     self.next_entity += 1;
                     self.orbs.push(horizon_client::entities::ExperienceOrb {
+                        health: 5,
+                        invulnerable: false,
                         id: self.next_entity,
                         position: Vec3::new(pos[0], pos[1], pos[2]),
                         previous: Vec3::new(pos[0], pos[1], pos[2]),
@@ -1798,7 +1812,11 @@ impl Game<'_> {
         // (UPDATE_SKIP_BLOCK_ENTITY_SIDEEFFECTS); the new block gets a fresh one.
         let key = (pos[0], pos[1], pos[2]);
         if old != new {
+            #[cfg(feature="ae2-lab")]
+            self.ae2_prepare_cpu_removal(key).map_err(|e|CommandError::new(Text::literal(e)))?;
             self.jukebox_removed(pos);
+            #[cfg(feature="ae2-lab")]
+            if matches!(old.as_ref(),"ae2:quantum_ring"|"ae2:quantum_link") {self.ae2_quantum_removed(key);}
             self.world.block_entities.remove(&key);
         }
         if strict {
@@ -1826,6 +1844,10 @@ impl Game<'_> {
             && let Some(entity) = horizon_client::containers::BlockEntity::for_block(&new)
         {
             self.world.block_entities.insert(key, entity);
+            #[cfg(feature="ae2-lab")]
+            if !strict && matches!(new.as_ref(),"ae2:quantum_ring"|"ae2:quantum_link") {
+                self.ae2_quantum_block_added(key);
+            }
         }
         Ok(true)
     }
@@ -1860,6 +1882,8 @@ impl Game<'_> {
     /// destroy event, the block's drops without a tool or breaker, then its
     /// fluid's block, the block entity spilling its contents on the way.
     pub(super) fn destroy_block_dropping(&mut self, pos: [i32; 3]) -> R<()> {
+        #[cfg(feature="ae2-lab")]
+        self.ae2_prepare_cpu_removal((pos[0],pos[1],pos[2])).map_err(|e|CommandError::new(Text::literal(e)))?;
         let at = horizon_core::position::BlockPos::new(pos[0], pos[1], pos[2]);
         self.with_level(|b, level, ticks| b.destroy_block(level, ticks, at, true));
         self.process_level_events()
@@ -1890,12 +1914,28 @@ impl Game<'_> {
         };
         let rolled = self.take_loot_table(key, &tag, &mut new);
         let after = horizon_client::save::encode_block_entity(key, &new, &name);
-        if after == before && !rolled {
+        #[cfg(feature = "ae2-lab")]
+        let metadata_changed=self.world.block_entities.supports_vanilla_metadata(&key)
+            && self.world.block_entities.vanilla_metadata(&key)!=Some(&tag);
+        #[cfg(not(feature = "ae2-lab"))]
+        let metadata_changed=false;
+        if after == before && !rolled && !metadata_changed {
             return false;
         }
         self.world.block_entities.insert(key, new);
+        #[cfg(feature = "ae2-lab")]
+        {
+            self.world.block_entities.remember_vanilla_metadata(key,&tag);
+            if self.world.block_entities.vanilla_metadata(&key).is_some() {
+                match tag.get("CustomName").map(|raw|horizon_client::entity_nbt::name_text(raw).plain()) {
+                    Some(name)=>{self.world.block_names.insert(key,name);},
+                    None=>{self.world.block_names.remove(&key);},
+                }
+            }
+        }
         let state = self.world.block(pos[0], pos[1], pos[2]);
         let _ = self.world.set(pos[0], pos[1], pos[2], state);
+        self.world.modified.insert((pos[0] >> 4, pos[2] >> 4));
         true
     }
     /// RandomizableContainer.tryLoadLootTable for a tag a command gives a
@@ -1968,6 +2008,12 @@ impl Game<'_> {
             .and_then(|c| c.saved.as_ref())
             .and_then(|s| s.rolled_loot.iter().find(|r| r.pos == key));
         if let Some(r) = rolled {
+            #[cfg(feature = "ae2-lab")]
+            if matches!(self.world.block_entities.get(&key),Some(horizon_client::containers::BlockEntity::Chest(_))) {
+                let owned=self.world.block_entities.vanilla_metadata(&key)
+                    .and_then(|raw|horizon_client::save::text(raw.get("LootTable")));
+                if owned.as_deref()!=Some(r.table.as_str()){return}
+            }
             r.restore(map);
         }
     }
@@ -2088,6 +2134,19 @@ impl Game<'_> {
                     {
                         continue;
                     }
+                    let key=(x,y,z);
+                    #[cfg(feature = "ae2-lab")]
+                    let metadata=self.world.block_entities.vanilla_metadata(&key).cloned();
+                    #[cfg(not(feature = "ae2-lab"))]
+                    let metadata:Option<horizon_world::nbt::Tag>=None;
+                    #[cfg(feature = "ae2-lab")]
+                    let rolled={
+                        let table=metadata.as_ref().and_then(|tag|horizon_client::save::text(tag.get("LootTable")));
+                        self.world.chunks.get(&(x>>4,z>>4)).and_then(|chunk|chunk.saved.as_deref())
+                            .and_then(|saved|saved.rolled_loot.iter().find(|roll|roll.pos==key && table.as_deref()==Some(roll.table.as_str()))).cloned()
+                    };
+                    #[cfg(not(feature = "ae2-lab"))]
+                    let rolled:Option<horizon_client::save::RolledLoot>=None;
                     copies.push((
                         [x, y, z],
                         [
@@ -2096,13 +2155,16 @@ impl Game<'_> {
                             dest[2] + z - min[2],
                         ],
                         s,
-                        self.world.block_entities.get(&(x, y, z)).cloned(),
+                        self.world.block_entities.get(&key).cloned(),
+                        self.world.block_names.get(&key).cloned(),
+                        metadata,
+                        rolled,
                     ));
                 }
             }
         }
         if moving {
-            for (from, _, _, _) in &copies {
+            for (from, _, _, _, _, _, _) in &copies {
                 self.place_state(*from, air, true)?;
             }
         }
@@ -2111,14 +2173,33 @@ impl Game<'_> {
         // each copied state but a barrier counts as placed.
         let barrier = self.pack.assets.registry.default_state("minecraft:barrier");
         let mut count = 0;
-        for (_, to, s, entity) in copies {
+        for (_, to, s, entity, name, metadata, rolled) in copies {
             self.place_state(to, s, strict)?;
             if Some(s) != barrier {
                 count += 1;
             }
             if let Some(e) = entity {
-                self.world.block_entities.insert((to[0], to[1], to[2]), e);
+                let key=(to[0],to[1],to[2]);
+                self.world.block_entities.insert(key,e);
+                #[cfg(feature = "ae2-lab")]
+                if let Some(raw)=metadata.as_ref(){self.world.block_entities.remember_vanilla_metadata(key,raw);}
+                if let Some(name)=name {self.world.block_names.insert(key,name);} else {self.world.block_names.remove(&key);}
+                // Copying into the same block state can still replace the
+                // entity's contents and components.
+                self.world.modified.insert((to[0] >> 4, to[2] >> 4));
+                #[cfg(feature = "ae2-lab")]
+                if let Some(chunk)=self.world.chunks.get_mut(&(to[0]>>4,to[2]>>4)) {
+                    let old=chunk.saved.as_ref().is_some_and(|saved|saved.rolled_loot.iter().any(|roll|roll.pos==key));
+                    if old || rolled.is_some() {
+                        let chunk=std::sync::Arc::make_mut(chunk);
+                        let saved=std::sync::Arc::make_mut(chunk.saved.get_or_insert_with(||std::sync::Arc::new(horizon_client::save::ChunkExtras::default())));
+                        saved.rolled_loot.retain(|roll|roll.pos!=key);
+                        if let Some(mut roll)=rolled {roll.pos=key;saved.rolled_loot.push(roll);}
+                    }
+                }
             }
+            #[cfg(not(feature = "ae2-lab"))]
+            let _=(metadata,rolled);
         }
         if count == 0 {
             return Err(err("commands.clone.failed", &[]));

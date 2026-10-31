@@ -2,6 +2,182 @@
 //! block interaction, inventory and HUD.
 mod advancements;
 mod advancements_screen;
+#[cfg(feature = "ae2-lab")]
+mod ae2_autocrafting;
+#[cfg(feature = "ae2-lab")]
+mod ae2_channels;
+#[cfg(feature = "ae2-lab")]
+mod ae2_debug;
+#[cfg(feature = "ae2-lab")]
+mod ae2_cube;
+#[cfg(feature = "ae2-lab")]
+mod ae2_eraser;
+#[cfg(feature = "ae2-lab")]
+mod ae2_meteorite_item;
+#[cfg(feature = "ae2-lab")]
+mod ae2_replicator;
+#[cfg(feature = "ae2-lab")]
+mod ae2_demand;
+#[cfg(feature = "ae2-lab")]
+use horizon_client::ae2_common_config;
+#[cfg(feature = "ae2-lab")]
+mod ae2_buses;
+#[cfg(feature = "ae2-lab")]
+mod ae2_formation;
+#[cfg(feature="ae2-lab")]
+mod ae2_formation_transaction;
+#[cfg(feature="ae2-lab")]
+mod ae2_formation_placement;
+#[cfg(feature = "ae2-lab")]
+mod ae2_fluid_formation;
+#[cfg(feature = "ae2-lab")]
+mod ae2_bus_ui;
+#[cfg(feature = "ae2-lab")]
+mod ae2_interface;
+#[cfg(feature = "ae2-lab")]
+mod ae2_environment;
+#[cfg(feature = "ae2-lab")]
+mod ae2_fluids;
+#[cfg(feature = "ae2-lab")]
+mod ae2_fluid_grid;
+#[cfg(feature = "ae2-lab")]
+mod ae2_storage_devices;
+#[cfg(feature = "ae2-lab")]
+mod ae2_machine_ui;
+#[cfg(feature = "ae2-lab")]
+mod ae2_client_config;
+#[cfg(feature = "ae2-lab")]
+mod ae2_job_ui;
+#[cfg(feature = "ae2-lab")]
+mod ae2_interactions;
+#[cfg(feature = "ae2-lab")]
+mod ae2_cell_disassembly;
+#[cfg(feature = "ae2-lab")]
+mod ae2_crafting_upgrade;
+#[cfg(feature = "ae2-lab")]
+mod ae2_grid;
+#[cfg(feature = "ae2-lab")]
+mod ae2_storage_order;
+#[cfg(feature = "ae2-lab")]
+mod ae2_event_live;
+#[cfg(feature = "ae2-lab")]
+mod ae2_hotkeys;
+#[cfg(feature = "ae2-lab")]
+mod ae2_guide;
+#[cfg(feature = "ae2-lab")]
+mod ae2_guide_host;
+#[cfg(feature = "ae2-lab")]
+mod ae2_guide_scene;
+#[cfg(feature = "ae2-lab")]
+mod ae2_provider_registry;
+#[cfg(feature = "ae2-lab")]
+mod ae2_me_runtime;
+#[cfg(feature="ae2-lab")]
+mod ae2_advancements;
+#[cfg(feature = "ae2-lab")]
+mod ae2_tick_tracker;
+#[cfg(feature = "ae2-lab")]
+mod ae2_device_scheduler;
+#[cfg(feature = "ae2-lab")]
+mod ae2_storage_monitor;
+#[cfg(feature = "ae2-lab")]
+mod ae2_storage_monitor_host;
+#[cfg(feature = "ae2-lab")]
+mod ae2_lab;
+#[cfg(feature = "ae2-lab")]
+mod ae2_processing;
+#[cfg(feature = "ae2-lab")]
+mod ae2_source_patterns;
+#[cfg(feature = "ae2-lab")]
+mod ae2_crank;
+#[cfg(feature = "ae2-lab")]
+mod ae2_light_detector;
+#[cfg(feature = "ae2-lab")]
+mod ae2_terminal;
+#[cfg(feature = "ae2-lab")]
+mod ae2_portable_ui;
+#[cfg(feature = "ae2-lab")]
+mod ae2_network_tool_ui;
+#[cfg(feature = "ae2-lab")]
+mod ae2_craft_confirm;
+#[cfg(feature = "ae2-lab")]
+mod ae2_pattern_access;
+#[cfg(feature = "ae2-lab")]
+mod ae2_encoding;
+#[cfg(feature = "ae2-lab")]
+mod ae2_monitor;
+#[cfg(feature = "ae2-lab")]
+mod ae2_quantum;
+#[cfg(feature = "ae2-lab")]
+mod ae2_parts;
+#[cfg(feature = "ae2-lab")]
+mod ae2_p2p;
+#[cfg(feature = "ae2-lab")]
+mod ae2_emitter;
+#[cfg(feature = "ae2-lab")]
+mod ae2_number_entry;
+#[cfg(feature = "ae2-lab")]
+mod ae2_energy_service;
+#[cfg(feature = "ae2-lab")]
+mod ae2_energy_lifecycle;
+#[cfg(feature = "ae2-lab")]
+mod ae2_energy_observer;
+#[cfg(feature = "ae2-lab")]
+mod ae2_energy_host;
+#[cfg(feature = "ae2-lab")]
+mod ae2_energy_operation;
+#[cfg(feature = "ae2-lab")]
+mod ae2_memory;
+#[cfg(feature = "ae2-lab")]
+mod ae2_memory_host;
+#[cfg(feature = "ae2-lab")]
+mod ae2_memory_provider;
+#[cfg(feature = "ae2-lab")]
+mod ae2_power;
+#[cfg(feature="ae2-lab")]
+mod ae2_tools;
+#[cfg(feature="ae2-lab")]
+mod ae2_cannon;
+#[cfg(feature="ae2-lab")]
+mod ae2_coloring;
+#[cfg(feature = "ae2-lab")]
+mod ae2_global;
+#[cfg(feature = "ae2-lab")]
+mod ae2_placement;
+#[cfg(feature = "ae2-lab")]
+mod ae2_anchor_overlay;
+#[cfg(feature = "ae2-lab")]
+mod ae2_visual_states;
+#[cfg(feature = "ae2-lab")]
+mod ae2_visual_sync;
+#[cfg(feature = "ae2-lab")]
+mod ae2_compass;
+#[cfg(feature = "ae2-lab")]
+mod ae2_geometry;
+#[cfg(feature = "ae2-lab")]
+mod ae2_fx;
+#[cfg(feature = "ae2-lab")]
+mod ae2_job_events;
+#[cfg(feature = "ae2-lab")]
+mod ae2_paint;
+#[cfg(feature = "ae2-lab")]
+mod ae2_part_remove;
+#[cfg(feature = "ae2-lab")]
+mod ae2_render;
+#[cfg(feature = "ae2-lab")]
+mod ae2_wireless;
+#[cfg(feature = "ae2-lab")]
+mod ae2_spatial;
+#[cfg(feature = "ae2-lab")]
+mod ae2_spatial_entities;
+#[cfg(feature = "ae2-lab")]
+mod ae2_spatial_sky;
+#[cfg(feature = "ae2-lab")]
+mod ae2_spatial_anchor;
+#[cfg(feature = "ae2-lab")]
+mod ae2_anchor_observer;
+#[cfg(feature="ae2-lab")]
+mod ae2_anchor_ui;
 mod agent;
 mod agent_settings;
 mod allays;
@@ -284,8 +460,8 @@ struct Options {
     control: Option<PathBuf>,
     /// `HORIZON_SPIKES=MS`: print the timed spans of frames slower than MS.
     spikes: Option<f32>,
-    /// Render into a texture instead of the window (`--offscreen`), so a
-    /// GPU the display cannot present from can still be benchmarked.
+    /// Render into a texture with a hidden, inactive window (`--offscreen`).
+    /// Automated runs must not activate the app or capture the system pointer.
     offscreen: bool,
     /// `--width` and `--height` (vanilla's own arguments): the window's
     /// starting size, 1280x720 by default.
@@ -382,7 +558,7 @@ impl Options {
                 "--creative" => o.creative = true,
                 "--test-terrain" => o.test_terrain = true,
                 "--no-pause" => o.no_pause = true,
-                "--offscreen" => o.offscreen = true,
+                "--offscreen" | "--background" => o.offscreen = true,
                 "--control" => o.control = Some(horizon_client::control::default_path()),
                 "--server-thread" => o.server_thread = true,
                 "--in-frame" | "--no-server-thread" => o.server_thread = false,
@@ -531,6 +707,14 @@ enum GuestUse {
 
 /// The client world as seen by the vanilla block-behaviour library.
 struct GameLevel<'w> {
+    #[cfg(feature="ae2-lab")]
+    formation_fluid: &'w mut ae2_fluid_formation::FluidFormationRuntime,
+    #[cfg(feature="ae2-lab")]
+    quantum: &'w mut ae2_quantum::QuantumRuntime,
+    #[cfg(feature="ae2-lab")]
+    detectors: &'w mut HashMap<(Dim,(i32,i32,i32)),ae2_light_detector::DetectorState>,
+    #[cfg(feature="ae2-lab")]
+    dim: Dim,
     world: &'w mut World,
     facts: &'w BlockFacts,
     collision: &'w BlockCollisionRegistry<'w>,
@@ -663,6 +847,114 @@ impl GameLevel<'_> {
     }
 }
 impl LevelAccess for GameLevel<'_> {
+    fn custom_shape_event(&mut self, pos: BlockPos, state: BlockStateId, neighbor: BlockPos) {
+        #[cfg(feature="ae2-lab")]
+        if !self.client_side && self.facts.get(state).name.as_ref()=="ae2:cable_bus" {
+            ae2_fluid_formation::clear_facing(self.world, self.facts, self.formation_fluid, pos, neighbor);
+        }
+        #[cfg(not(feature="ae2-lab"))]
+        let _ = (pos, state, neighbor);
+    }
+    fn custom_neighbor_event(&mut self, pos: BlockPos, state: BlockStateId, source: Option<BlockPos>) {
+        #[cfg(feature="ae2-lab")]
+        if !self.client_side && self.facts.get(state).name.as_ref()=="ae2:cable_bus" {
+            if let Some(neighbor) = source {
+                ae2_fluid_formation::clear_facing(self.world, self.facts, self.formation_fluid, pos, neighbor);
+            }
+        }
+        #[cfg(feature="ae2-lab")]
+        if !self.client_side && matches!(self.facts.get(state).name.as_ref(),"ae2:quantum_ring"|"ae2:quantum_link") {
+            self.quantum.neighbor_changed(self.world,self.dim,self.facts,(pos.x,pos.y,pos.z),source.map(|p|(p.x,p.y,p.z)));
+            self.quantum.flush_events(self.world,self.dim,(pos.x,pos.y,pos.z));
+        }
+        #[cfg(feature="ae2-lab")]
+        if !self.client_side && matches!(self.facts.get(state).name.as_ref(),
+            "ae2:crafting_unit"|"ae2:crafting_accelerator"|"ae2:crafting_monitor"|
+            "ae2:1k_crafting_storage"|"ae2:4k_crafting_storage"|"ae2:16k_crafting_storage"|
+            "ae2:64k_crafting_storage"|"ae2:256k_crafting_storage") {
+            self.world.block_entities.record_ae2_cpu_neighbor((pos.x,pos.y,pos.z),source.map(|p|(p.x,p.y,p.z)));
+        }
+        #[cfg(not(feature="ae2-lab"))]
+        let _=(pos,state,source);
+    }
+    fn custom_sensor_neighbor_changed(&mut self, pos: BlockPos, state: BlockStateId) -> bool {
+        #[cfg(feature="ae2-lab")]
+        {
+            if self.facts.get(state).name.as_ref()!="ae2:light_detector" {return false}
+            let key=(self.dim,(pos.x,pos.y,pos.z));
+            let value=ae2_light_detector::brightness(self.world.light(pos.x,pos.y,pos.z),self.darken);
+            let sensor=self.detectors.entry(key).or_default();
+            if sensor.last_light==value{return false}sensor.last_light=value;true
+        }
+        #[cfg(not(feature="ae2-lab"))]
+        {let _=(pos,state);false}
+    }
+    fn custom_crank(&self, state: BlockStateId) -> bool {
+        #[cfg(feature="ae2-lab")]
+        { self.facts.get(state).name.as_ref()=="ae2:crank" }
+        #[cfg(not(feature="ae2-lab"))]
+        { let _=state;false }
+    }
+    fn custom_crankable(&self, pos: BlockPos, side: Direction) -> bool {
+        #[cfg(feature="ae2-lab")]
+        {
+            let Some(BlockEntity::Ae2(m))=self.world.block_entities.get(&(pos.x,pos.y,pos.z)) else{return false};
+            let Some(state)=self.registry.state(self.world.block(pos.x,pos.y,pos.z)) else{return false};
+            let facing=state.properties.get("facing").map(String::as_str).unwrap_or("north");
+            ae2_crank::crankable(m.kind,facing,side)
+        }
+        #[cfg(not(feature="ae2-lab"))]
+        { let _=(pos,side);false }
+    }
+    #[cfg(feature="ae2-lab")]
+    fn custom_placement_state(&self,default:BlockStateId,face:Direction,yaw:f32,pitch:f32,plane:Option<Direction>,water:bool)->Option<BlockStateId> {
+        let state=self.registry.state(default)?;
+        let (facing,spin)=match plane {
+            Some(look)=>ae2_placement::plane_placement(&state.name,look.normal()),
+            None=>ae2_placement::placement(&state.name,yaw,pitch,face.normal()),
+        }?;
+        let mut props=state.properties.clone();props.insert("facing".into(),facing.into());
+        if let Some(spin)=spin {props.insert("spin".into(),spin.to_string());}
+        if props.contains_key("waterlogged") {props.insert("waterlogged".into(),water.to_string());}
+        self.registry.resolve(&horizon_world::chunk::BlockState{name:state.name.clone(),properties:props}).ok()
+    }
+    fn custom_center_fixture(&self, state: BlockStateId) -> bool {
+        #[cfg(feature="ae2-lab")]
+        { matches!(self.facts.get(state).name.as_ref(), "ae2:quartz_fixture" | "ae2:light_detector") }
+        #[cfg(not(feature="ae2-lab"))]
+        { let _ = state; false }
+    }
+    fn custom_signal(&self, pos: BlockPos, _state: BlockStateId, direction: Direction, _direct: bool) -> Option<i32> {
+        #[cfg(feature="ae2-lab")]
+        {
+            let BlockEntity::Ae2(m) = self.world.block_entities.get(&(pos.x,pos.y,pos.z))? else { return None; };
+            if m.kind==horizon_client::ae2_world::MachineKind::LightDetector {
+                if _direct{return Some(0)}
+                let last=self.detectors.get(&(self.dim,(pos.x,pos.y,pos.z))).map_or(0,|s|s.last_light);
+                let light=ae2_light_detector::brightness(self.world.light(pos.x,pos.y,pos.z),self.darken);
+                return Some(ae2_light_detector::weak_signal(last,light));
+            }
+            if m.kind != horizon_client::ae2_world::MachineKind::CableBus { return None; }
+            let face = match direction.opposite() { Direction::Down=>"down", Direction::Up=>"up", Direction::North=>"north", Direction::South=>"south", Direction::West=>"west", Direction::East=>"east" };
+            let Some(horizon_world::nbt::Tag::List(parts)) = m.config.get(&"parts".into()) else { return None; };
+            let part = parts.iter().find(|part| part.get("face")==Some(&horizon_world::nbt::Tag::String(face.into())) && matches!(part.get("id"), Some(horizon_world::nbt::Tag::String(id)) if id.to_string().is_ok_and(|id| matches!(id.as_str(),"ae2:level_emitter"|"ae2:energy_level_emitter"|"ae2:redstone_p2p_tunnel"))))?;
+            return Some(if matches!(part.get("id"),Some(horizon_world::nbt::Tag::String(id)) if matches!(id.to_string_lossy().as_str(),"ae2:level_emitter"|"ae2:energy_level_emitter")) {
+                if part.get("emitter_active")==Some(&horizon_world::nbt::Tag::Byte(1)) {15} else {0}
+            } else if part.get("p2p_output")==Some(&horizon_world::nbt::Tag::Byte(1)) {
+                match part.get("p2p_power") { Some(horizon_world::nbt::Tag::Int(power)) => (*power).clamp(0,15), _=>0 }
+            } else {0});
+        }
+        #[cfg(not(feature="ae2-lab"))]
+        { let _=(pos,direction); None }
+    }
+
+    fn custom_random_tick(&mut self,pos:BlockPos,state:BlockStateId)->bool{
+        #[cfg(feature="ae2-lab")]
+        if self.facts.get(state).name.starts_with("ae2:")&&self.facts.get(state).name.ends_with("_budding_quartz"){
+            self.events.push(LevelEvent::BlockEvent{pos,state,kind:"ae2_random_tick"});return true;
+        }
+        false
+    }
     fn is_client_side(&self) -> bool {
         self.client_side
     }
@@ -763,7 +1055,7 @@ impl LevelAccess for GameLevel<'_> {
         self.world.block(pos.x, pos.y, pos.z)
     }
     fn set_raw(&mut self, pos: BlockPos, state: BlockStateId) -> Option<BlockStateId> {
-        if !self.world.loaded(pos.x, pos.z) || pos.y < MIN_Y || pos.y >= MIN_Y + HEIGHT {
+        if !self.world.loaded(pos.x, pos.z) || pos.y < self.min_y() || pos.y >= self.max_y() {
             return None;
         }
         let previous = self.world.block(pos.x, pos.y, pos.z);
@@ -937,9 +1229,20 @@ impl LevelAccess for GameLevel<'_> {
         for (k, v) in [("x", pos.x), ("y", pos.y), ("z", pos.z)] {
             nbt.insert(k.into(), Tag::Int(v));
         }
-        if let Some((key, entity)) = horizon_client::save::decode_block_entity(&Tag::Compound(nbt))
-        {
+        let tag=Tag::Compound(nbt);
+        if let Some((key, entity)) = horizon_client::save::decode_block_entity(&tag) {
             self.world.block_entities.insert(key, entity);
+            self.world.modified.insert((key.0 >> 4, key.2 >> 4));
+            #[cfg(feature = "ae2-lab")]
+            {
+                self.world.block_entities.remember_vanilla_metadata(key,&tag);
+                if self.world.block_entities.vanilla_metadata(&key).is_some() {
+                    match tag.get("CustomName").map(|raw|horizon_client::entity_nbt::name_text(raw).plain()) {
+                        Some(name)=>{self.world.block_names.insert(key,name);},
+                        None=>{self.world.block_names.remove(&key);},
+                    }
+                }
+            }
         }
     }
     fn set_command_block_powered(&mut self, pos: BlockPos, powered: bool) -> Option<(bool, bool)> {
@@ -1243,6 +1546,8 @@ struct Game<'a> {
     craft_table: Option<[i32; 3]>,
     /// A quick craft drag over inventory slots: (button, game slots so far).
     inv_drag: Option<(i32, Vec<usize>)>,
+    #[cfg(feature="ae2-lab")]
+    ae2_fake_drag: Vec<usize>,
     /// `AbstractContainerScreen`'s quick craft and skip-release state.
     inv_clicks: horizon_client::container_screen::Clicks,
     /// The Mouse Tweaks extra's drag and wheel (`tweaks`).
@@ -1400,6 +1705,71 @@ struct Game<'a> {
     armor: [Option<ItemStack>; 4],
     /// The off hand (Inventory slot 40, saved as slot 150; menu slot 504 here).
     offhand: Option<ItemStack>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_terminal_page: usize,
+    #[cfg(feature = "ae2-lab")]
+    ae2_remembered_search: String,
+    #[cfg(feature = "ae2-lab")]
+    ae2_job_ui: ae2_job_ui::JobUi,
+    /// In-frame provider menus retain the original block/part identity.
+    #[cfg(feature = "ae2-lab")]
+    ae2_local_provider: Option<ae2_terminal::LocalProviderSession>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_local_machine: Option<ae2_terminal::LocalMachineSession>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_local_bus: Option<ae2_bus_ui::GuestBus>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_local_pattern_access: Option<ae2_pattern_access::LocalPatternAccess>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_local_energy: Option<horizon_client::ui::EditBox>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_local_terminal: Option<ae2_terminal::LocalTerminalSession>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_local_craft: Option<ae2_craft_confirm::LocalCraftConfirm>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_local_craft_allowance: Option<u64>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_pending_machine_crafts: Vec<ae2_autocrafting::PendingMachineCraft>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_portable_slot: Option<usize>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_portable_page: usize,
+    #[cfg(feature = "ae2-lab")]
+    ae2_portable_idle_buffer: u8,
+    #[cfg(feature = "ae2-lab")]
+    ae2_portable_drag: ae2_portable_ui::PortableDrag,
+    #[cfg(feature = "ae2-lab")]
+    ae2_wireless_power: Option<usize>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_guide: Option<ae2_guide::GuideState>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_guide_left_down: bool,
+    #[cfg(feature = "ae2-lab")]
+    ae2_guide_right_down: bool,
+    #[cfg(feature = "ae2-lab")]
+    ae2_p2p_light_cache: std::collections::BTreeMap<(ae2_global::GridAddress,u8),ae2_p2p::LightCache>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_terminal_view: Vec<Option<ItemStack>>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_visual_cache: HashMap<(i32,i32,i32), ae2_visual_sync::Visual>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_cranks: HashMap<(Dim,(i32,i32,i32)), ae2_crank::CrankState>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_debug_cubes: HashMap<(Dim,(i32,i32,i32)), ae2_debug::CubeState>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_anchors: ae2_spatial_anchor::Service,
+    #[cfg(feature = "ae2-lab")]
+    ae2_detectors: HashMap<(Dim,(i32,i32,i32)), ae2_light_detector::DetectorState>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_compass_index: ae2_compass::CompassIndex,
+    #[cfg(feature = "ae2-lab")]
+    ae2_fx_pending: Vec<ae2_fx::Event>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_job_status_pending: Vec<(u128,horizon_client::ae2_job_status::CraftingJobStatus)>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_lan_active: bool,
+    #[cfg(feature = "ae2-lab")]
+    ae2_fx_active: Vec<ae2_fx::Effect>,
     /// The hand an item use acts with (`InteractionHand`): the off hand only
     /// for its turn in `use_item` and while its item is being used.
     hand: Hand,
@@ -1460,6 +1830,28 @@ struct Game<'a> {
     /// Which pass of a server tick runs (`tick_server`): the first one reads
     /// the network, the last one ends the players' tick.
     level_pass: levels::Pass,
+    #[cfg(feature = "ae2-lab")]
+    ae2_committed_channels: ae2_network_core::CommittedChannels,
+    #[cfg(feature = "ae2-lab")]
+    ae2_live_events: std::cell::RefCell<ae2_event_live::LiveEvents>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_me_runtime: std::cell::RefCell<ae2_me_runtime::MeRuntime>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_quantum_runtime: std::cell::RefCell<ae2_quantum::QuantumRuntime>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_formation_staging: bool,
+    #[cfg(feature="ae2-lab")]
+    ae2_formation_fluid_runtime: ae2_fluid_formation::FluidFormationRuntime,
+    #[cfg(feature = "ae2-lab")]
+    ae2_formation_import_error: Option<String>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_device_scheduler: std::cell::RefCell<ae2_device_scheduler::DeviceScheduler>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_storage_monitors: std::cell::RefCell<ae2_storage_monitor_host::StorageMonitors>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_processor_ticks: ae2_processing::ProcessorTicks,
+    #[cfg(feature="ae2-lab")]
+    ae2_advancement_service: ae2_advancements::Service,
     /// Nether portals: the player's, items' and mobs' (game/nether_portal.rs).
     portals: nether_portal::Portals,
     /// The pending travel goes through an End portal (EndPortalBlock destinations).
@@ -1707,6 +2099,8 @@ enum Dim {
     Overworld,
     Nether,
     End,
+    #[cfg(feature = "ae2-lab")]
+    Spatial,
 }
 impl Dim {
     fn id(self) -> &'static str {
@@ -1714,12 +2108,16 @@ impl Dim {
             Self::Overworld => "minecraft:overworld",
             Self::Nether => "minecraft:the_nether",
             Self::End => "minecraft:the_end",
+            #[cfg(feature = "ae2-lab")]
+            Self::Spatial => "ae2:spatial_storage",
         }
     }
     fn from_id(id: &str) -> Self {
         match id {
             "minecraft:the_nether" => Self::Nether,
             "minecraft:the_end" => Self::End,
+            #[cfg(feature = "ae2-lab")]
+            "ae2:spatial_storage" => Self::Spatial,
             _ => Self::Overworld,
         }
     }
@@ -1728,6 +2126,8 @@ impl Dim {
         match self {
             Self::Overworld => MIN_Y,
             Self::Nether | Self::End => 0,
+            #[cfg(feature = "ae2-lab")]
+            Self::Spatial => 0,
         }
     }
     /// `DimensionType.logicalHeight`.
@@ -1736,6 +2136,8 @@ impl Dim {
             Self::Overworld => HEIGHT,
             Self::Nether => 128,
             Self::End => 256,
+            #[cfg(feature = "ae2-lab")]
+            Self::Spatial => 256,
         }
     }
     /// `Level.getMaxY`: the dimension type's minimum y plus height, less one.
@@ -1743,6 +2145,8 @@ impl Dim {
         match self {
             Self::Overworld => MIN_Y + HEIGHT - 1,
             Self::Nether | Self::End => 255,
+            #[cfg(feature = "ae2-lab")]
+            Self::Spatial => 255,
         }
     }
 }
@@ -1782,6 +2186,11 @@ fn view_vector(yaw: f32, pitch: f32) -> [f64; 3] {
     [-y.sin() * p.cos(), -p.sin(), y.cos() * p.cos()]
 }
 impl Game<'_> {
+    fn native_item_wheel(&mut self,delta:f32)->bool {
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_item_wheel(delta) {return true;}
+        let _=delta;false
+    }
     fn eye_position(&self) -> Option<[f64; 3]> {
         let p = self.player.as_ref()?;
         Some([
@@ -1796,6 +2205,10 @@ impl Game<'_> {
     /// A block's outline boxes in world space (`getShape` plus the random offset).
     fn outline_boxes(&self, pos: [i32; 3]) -> Vec<[f64; 6]> {
         let state = self.world.block(pos[0], pos[1], pos[2]);
+        if let Some((id, _, boxes)) = self.world.dynamic_shapes.get(&(pos[0],pos[1],pos[2]))
+            && *id == state {
+            return boxes.iter().map(|b| std::array::from_fn(|i| f64::from(pos[i % 3]) + b[i])).collect();
+        }
         let f = self.res.facts().get(state);
         let o = if f.outline_offset {
             self.pack
@@ -2024,11 +2437,7 @@ impl Game<'_> {
     }
     /// Inventory.add: returns the stack that did not fit.
     fn give(&mut self, mut stack: ItemStack) -> Option<ItemStack> {
-        let max = self
-            .res
-            .items()
-            .get(&stack.item)
-            .map_or(64, |i| i.max_stack);
+        let max = self.res.items().stack_max(&stack);
         // Prefer the selected slot, then the hotbar, then the main inventory.
         let order: Vec<usize> = std::iter::once(self.selected)
             .chain((0..36).filter(|&i| i != self.selected))
@@ -2041,6 +2450,8 @@ impl Game<'_> {
                 let moved = (max - slot.count).min(stack.count);
                 slot.count += moved;
                 stack.count -= moved;
+                #[cfg(feature = "ae2-lab")]
+                { horizon_client::ae2_stack_identity::synchronize_tracked(slot); horizon_client::ae2_stack_identity::synchronize_tracked(&stack); }
                 if stack.count == 0 {
                     return None;
                 }
@@ -2049,11 +2460,13 @@ impl Game<'_> {
         for i in 0..36 {
             if self.inventory[i].is_none() {
                 let moved = stack.count.min(max);
-                self.inventory[i] = Some(ItemStack {
-                    count: moved,
-                    ..stack.clone()
-                });
+                let mut inserted = ItemStack { count: moved, ..stack.clone() };
+                #[cfg(feature = "ae2-lab")]
+                horizon_client::ae2_stack_identity::detach_if_tracked(&mut inserted);
+                self.inventory[i] = Some(inserted);
                 stack.count -= moved;
+                #[cfg(feature = "ae2-lab")]
+                horizon_client::ae2_stack_identity::synchronize_tracked(&stack);
                 if stack.count == 0 {
                     return None;
                 }
@@ -2235,7 +2648,7 @@ impl Game<'_> {
     ) -> Vec<ItemStack> {
         let registry = self.pack.assets.registry;
         let dynamic = self.pending.dynamic(pos);
-        match self.res.items().block_loot_sequence(registry, state) {
+        let drops = match self.res.items().block_loot_sequence(registry, state) {
             Some(sequence) => {
                 let random = self.rand_sequences.get(&sequence, self.level.seed);
                 self.res
@@ -2249,7 +2662,10 @@ impl Game<'_> {
                 &dynamic,
                 &mut self.world.random,
             ),
-        }
+        };
+        #[cfg(feature = "ae2-lab")]
+        let drops = drops.into_iter().filter(|s| !spill::ae2_synthetic_cable_host_drop(&self.res.facts().get(state).name, s)).collect();
+        drops
     }
     /// Block.popResource
     fn pop_resource(&mut self, pos: [i32; 3], mut stack: ItemStack) {
@@ -2316,8 +2732,7 @@ impl Game<'_> {
         let mut removed = vec![false; items.len()];
         let mut cells = horizon_client::entities::ItemCells::new(&items);
         let catalog = self.res.items();
-        let max_stack =
-            |stack: &ItemStack| catalog.get(&stack.item).map_or(64, |i| i.max_stack).max(1);
+        let max_stack = |stack: &ItemStack| catalog.stack_max(stack);
         // A LAN or server guest only shows the host's items.
         let merging = self.remote.is_none();
         for i in 0..items.len() {
@@ -2516,6 +2931,8 @@ impl Game<'_> {
             Dim::Overworld => LevelDimension::Overworld,
             Dim::Nether => LevelDimension::Nether,
             Dim::End => LevelDimension::End,
+            #[cfg(feature = "ae2-lab")]
+            Dim::Spatial => LevelDimension::End,
         };
         let rules = self.level_rules();
         let fire_players: Vec<[f64; 3]> = self
@@ -2540,6 +2957,14 @@ impl Game<'_> {
             falling: &self.falling,
         };
         let mut level = GameLevel {
+            #[cfg(feature="ae2-lab")]
+            formation_fluid: &mut self.ae2_formation_fluid_runtime,
+            #[cfg(feature="ae2-lab")]
+            quantum: self.ae2_quantum_runtime.get_mut(),
+            #[cfg(feature="ae2-lab")]
+            detectors: &mut self.ae2_detectors,
+            #[cfg(feature="ae2-lab")]
+            dim: self.dim,
             cart_boxes,
             blockers,
             world: &mut self.world,
@@ -2572,11 +2997,26 @@ impl Game<'_> {
             client_side: self.remote.is_some(),
         };
         let result = f(self.res.behaviours(), &mut level, &mut self.block_ticks);
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_formation_staging { return result; }
         self.flush_spill();
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_has_anchor_owners() {
+            if let Err(error) = self.ae2_apply_anchor_callbacks() {
+                log::debug!("AE2 anchor callbacks deferred: {error}");
+            }
+        }
         result
     }
     /// Level.setBlock(pos, state, UPDATE_ALL) with neighbour/shape updates.
     fn level_set(&mut self, pos: [i32; 3], state: BlockStateId) -> Result<()> {
+        #[cfg(feature="ae2-lab")]
+        {
+            let old=self.world.block(pos[0],pos[1],pos[2]);
+            if self.res.facts().get(old).name!=self.res.facts().get(state).name {
+                self.ae2_prepare_cpu_removal((pos[0],pos[1],pos[2])).map_err(|e| -> Box<dyn std::error::Error> {e.into()})?;
+            }
+        }
         self.with_level(|b, level, ticks| {
             b.set_block(
                 level,
@@ -2635,7 +3075,7 @@ impl Game<'_> {
             (!self.options.execution_role.is_client() || !players.is_empty()).then(|| {
                 horizon_client::ticket_levels::Sources {
                     players,
-                    forced: self.streaming.forced.iter().copied().collect(),
+                    forced: self.streaming.forced_chunks().copied().collect(),
                     view_distance: self.settings.render_distance.clamp(2, 32),
                     simulation_distance: self.settings.simulation_distance.max(2),
                 }
@@ -2665,6 +3105,14 @@ impl Game<'_> {
         self.sync_tick_chunks();
         self.start_ticking_chunks();
         let levels = self.tickets.levels();
+        // Spatial anchors force chunks to tick, while AE2's config decides
+        // whether they also bypass the player-proximity gate for random ticks.
+        #[cfg(feature = "ae2-lab")]
+        let anchor_players = (!horizon_client::ae2_common_config::gameplay().spatial_anchor_random_ticks
+            && !self.streaming.owned_forced.is_empty())
+            .then(|| self.level_players());
+        #[cfg(not(feature = "ae2-lab"))]
+        let anchor_players: Option<Vec<natural_spawning::LevelPlayer>> = None;
         // Keep the world map's chunk order, including empty chunks
         // (tick_chunk_random still draws for precipitation in those).
         let ticking: Vec<_> = self
@@ -2672,7 +3120,15 @@ impl Game<'_> {
             .chunks
             .keys()
             .copied()
-            .filter(|&(x, z)| levels.random_ticking(x, z) && ticking_chunk(&self.world, x, z))
+            .filter(|&(x, z)| {
+                levels.random_ticking(x, z)
+                    && ticking_chunk(&self.world, x, z)
+                    && anchor_players.as_ref().is_none_or(|players| {
+                        natural_spawning::anchor_random_tick_allowed(
+                            players, (x, z), self.streaming.owned_forced.contains(&(x, z)), false,
+                        )
+                    })
+            })
             .collect();
         // Entity.checkInsideBlocks for the plates, tripwires and detector rails
         // under the players (the host and the LAN guests) and the minecarts.
@@ -2807,6 +3263,10 @@ impl Game<'_> {
     }
     /// Side effects reported by the behaviour library, in vanilla order.
     fn process_level_events(&mut self) -> Result<()> {
+        // Placement previews retain their queue until the world transaction
+        // commits. No sound, spawn, dispenser or LAN effect may escape it.
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_formation_staging {return Ok(());}
         let events = std::mem::take(&mut self.level_events);
         self.lan_record_events(&events);
         dispense_fixture::record_events(&events);
@@ -3009,7 +3469,12 @@ impl Game<'_> {
                     }
                     PlayerEffect::InteractLoot(_) => {}
                 },
-                LevelEvent::PrimeTnt { pos, rot } => self.add_primed_tnt(pos, rot, 80),
+                LevelEvent::PrimeTnt { pos, rot, state } => {
+                    self.add_primed_tnt(pos, rot, 80);
+                    if cfg!(feature = "ae2-lab") && &*self.res.facts().get(state).name == "ae2:tiny_tnt" {
+                        if let Some(tnt) = self.tnts.last_mut() { tnt.tiny = true; }
+                    }
+                },
                 LevelEvent::BlockEvent {
                     pos,
                     state,
@@ -3073,6 +3538,8 @@ impl Game<'_> {
                 LevelEvent::BlockEntityEvent { pos, a, b, .. } => {
                     self.block_entity_event([pos.x, pos.y, pos.z], a, b)
                 }
+                #[cfg(feature="ae2-lab")]
+                LevelEvent::BlockEvent{pos,kind:"ae2_random_tick",..}=>{self.ae2_random_tick_certus([pos.x,pos.y,pos.z]);}
                 LevelEvent::GrowTree { .. }
                 | LevelEvent::PlaceFeature { .. }
                 | LevelEvent::BlockEvent { .. } => {}
@@ -3089,6 +3556,18 @@ impl Game<'_> {
             .name
             .clone();
         let key = (pos[0], pos[1], pos[2]);
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_open_local_provider(key, None) {
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_has_terminal(key) && self.ae2_open_terminal(key, None) {
+            self.screen = Screen::Inventory;
+            self.capture(false);
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_open_local_machine(key,None) {return;}
         if &*name == "minecraft:lectern" {
             self.open_lectern(pos);
             return;
@@ -3438,6 +3917,8 @@ impl Game<'_> {
         }
         // The block entity as it was, for what the drops copy from it.
         let key = (pos[0], pos[1], pos[2]);
+        #[cfg(feature="ae2-lab")]
+        self.ae2_prepare_cpu_removal(key).map_err(|e| -> Box<dyn std::error::Error> {e.into()})?;
         if let Some(entity) = self.world.block_entities.get(&key).cloned() {
             let name = self.world.block_names.get(&key).cloned();
             self.pending.record(pos, &entity, &facts.name, name);
@@ -3461,6 +3942,15 @@ impl Game<'_> {
                 creative,
             )
         });
+        #[cfg(feature = "ae2-lab")]
+        if removed && horizon_client::ae2_world::MachineKind::from_id(&facts.name).is_some()
+            && (matches!(self.world.block_entities.get(&key), Some(BlockEntity::Ae2(_))) || spill::saved_entity(&self.world, pos).is_some())
+        {
+            // The content block currently inherits iron_block's flags, so the
+            // vanilla engine does not call its block-entity removal hook.
+            // Only run the fallback if the entity remains after destruction.
+            self.with_level(|_, level, _| { level.remove_entity(BlockPos::new(pos[0],pos[1],pos[2]), broken, true); });
+        }
         if removed {
             self.mod_block_event(pos, broken, false);
         }
@@ -3517,10 +4007,13 @@ impl Game<'_> {
     }
     /// The hand whose use ended the click, if any.
     fn use_item(&mut self) -> Result<Option<Hand>> {
-        self.with_player_actor(|game| game.use_item_as_player())
+        self.with_player_actor(|game| game.use_item_as_player(None))
+    }
+    fn use_item_with_host(&mut self,host:&mut lan::LanHost)->Result<Option<Hand>> {
+        self.with_player_actor(|game|game.use_item_as_player(Some(host)))
     }
     /// `Minecraft.startUseItem`: the main hand, then the off hand.
-    fn use_item_as_player(&mut self) -> Result<Option<Hand>> {
+    fn use_item_as_player(&mut self,mut host:Option<&mut lan::LanHost>) -> Result<Option<Hand>> {
         // Spectators only look (MultiPlayerGameMode.useItemOn/useItem pass).
         if self.spectator() {
             return Ok(None);
@@ -3561,7 +4054,7 @@ impl Game<'_> {
             if entity && hand == Hand::Off && self.with_hand(hand, Game::interact_entity)? {
                 return Ok(Some(hand));
             }
-            if self.with_hand(hand, |game| game.use_hand(block_hit.as_ref()))? {
+            if self.with_hand(hand, |game| game.use_hand(block_hit.as_ref(),host.as_deref_mut()))? {
                 return Ok(Some(hand));
             }
         }
@@ -3599,17 +4092,128 @@ impl Game<'_> {
     }
     /// One hand's turn in `startUseItem`: `useItemOn` the block aimed at,
     /// then `useItem`. Whether the click ends here (it acted or failed).
-    fn use_hand(&mut self, block_hit: Option<&Hit>) -> Result<bool> {
+    fn use_hand(&mut self, block_hit: Option<&Hit>,host:Option<&mut lan::LanHost>) -> Result<bool> {
         // isSecondaryUseActive with something in either hand keeps blocks
         // from reacting.
         let sneaking = self.keys.contains(&KeyCode::ShiftLeft);
         let hands_full = self.stack_in(self.selected).is_some() || self.offhand.is_some();
+        #[cfg(feature = "ae2-lab")]
+        if block_hit.is_none() { self.ae2_clear_memory_in_air(); }
+        #[cfg(feature = "ae2-lab")]
+        if block_hit.is_none() && self.ae2_try_meteorite_cycle() { self.swing_arm(); return Ok(true); }
+        #[cfg(feature = "ae2-lab")]
+        if block_hit.is_none() && self.ae2_try_replicator_cycle() { self.swing_arm(); return Ok(true); }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(hit)=block_hit {if self.ae2_try_meteorite_placer(hit.pos).is_some(){self.swing_arm();return Ok(true)}}
+        #[cfg(feature = "ae2-lab")]
+        if let Some(hit)=block_hit {if self.ae2_try_replicator(hit.pos,hit.face){self.swing_arm();return Ok(true)}}
+        #[cfg(feature = "ae2-lab")]
+        if let Some(hit)=block_hit {if self.ae2_try_eraser(hit.pos){self.swing_arm();return Ok(true)}}
+        #[cfg(feature = "ae2-lab")]
+        if block_hit.is_some() && !matches!(self.guest_use,Some(GuestUse::OnBlock(_))) && self.ae2_cell_item_use(false) {
+            self.swing_arm();return Ok(true);
+        }
         let mut anchor_passed = false;
+        #[cfg(feature="ae2-lab")]
+        if let Some(hit)=block_hit {
+            if self.hand == Hand::Main && self.ae2_try_wrench_rotate(hit.pos, hit.face) {
+                self.swing_arm();return Ok(true);
+            }
+            if self.ae2_try_remove_facade(hit.pos,hit.face) || self.ae2_try_facade_cycle(hit.pos,hit.face,true) || self.ae2_try_remove_part(hit.pos,hit.face) || self.ae2_try_facade(hit.pos,hit.face) {
+                self.swing_arm();return Ok(true);
+            }
+            if self.hand == Hand::Main && self.ae2_try_wrench_disassemble(hit.pos) {
+                self.swing_arm();return Ok(true);
+            }
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(hit) = block_hit {
+            if self.ae2_try_debug_item_generator(hit.pos) { self.swing_arm(); return Ok(true); }
+        }
+        #[cfg(feature = "ae2-lab")]
+        if !(sneaking && hands_full) {
+            if let Some(hit) = block_hit { if self.ae2_try_debug_cube_use(hit.pos) { self.swing_arm(); return Ok(true); } }
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(hit) = block_hit {
+            let face = match hit.face { [1,0,0] => "east", [-1,0,0] => "west", [0,1,0] => "up", [0,-1,0] => "down", [0,0,1] => "south", _ => "north" };
+            if self.ae2_try_provider_memory(hit.pos,face) || self.ae2_try_machine_memory_face(hit.pos,face) { self.swing_arm(); return Ok(true); }
+            if self.held().is_some_and(|s| s.item.as_ref() == "ae2:memory_card") {
+                if self.ae2_try_p2p_card((hit.pos[0], hit.pos[1], hit.pos[2]), face) { self.swing_arm(); return Ok(true); }
+            }
+        }
         // MultiPlayerGameMode.useItemOn: blocks react first.
         if !(sneaking && hands_full)
             && let Some(hit) = block_hit
         {
             let held = self.held().cloned();
+            #[cfg(feature = "ae2-lab")]
+            {
+                let face = match hit.face {
+                    [1, 0, 0] => "east",
+                    [-1, 0, 0] => "west",
+                    [0, 1, 0] => "up",
+                    [0, -1, 0] => "down",
+                    [0, 0, 1] => "south",
+                    _ => "north",
+                };
+                if self.ae2_try_crafting_upgrade(hit.pos,hit.face) {self.swing_arm();return Ok(true);}
+                if self.ae2_try_p2p_card((hit.pos[0],hit.pos[1],hit.pos[2]),face) {self.swing_arm();return Ok(true);}
+                if self.ae2_try_place_cable(hit.pos, hit.face) {
+                    self.swing_arm();
+                    return Ok(true);
+                }
+                if self.ae2_try_attach_part((hit.pos[0], hit.pos[1], hit.pos[2]), face) {
+                    self.swing_arm();
+                    return Ok(true);
+                }
+            }
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_try_crank_use((hit.pos[0],hit.pos[1],hit.pos[2])) {self.swing_arm();return Ok(true);}
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_try_charger_use((hit.pos[0],hit.pos[1],hit.pos[2])) {self.swing_arm();return Ok(true);}
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_try_tank_interaction((hit.pos[0],hit.pos[1],hit.pos[2])){self.swing_arm();return Ok(true);}
+            #[cfg(feature = "ae2-lab")]
+            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+                && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
+                && self.ae2_open_local_provider((hit.pos[0],hit.pos[1],hit.pos[2]), Some(hit.face)) {
+                self.swing_arm();
+                return Ok(true);
+            }
+            #[cfg(feature = "ae2-lab")]
+            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+                && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
+                && self.ae2_open_local_machine((hit.pos[0],hit.pos[1],hit.pos[2]),Some(hit.face)) {
+                self.swing_arm();return Ok(true);
+            }
+            #[cfg(feature = "ae2-lab")]
+            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+                && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
+                && self.ae2_open_local_bus((hit.pos[0],hit.pos[1],hit.pos[2]),hit.face) {
+                self.swing_arm();return Ok(true);
+            }
+            #[cfg(feature = "ae2-lab")]
+            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+                && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
+                && self.ae2_open_local_pattern_access((hit.pos[0],hit.pos[1],hit.pos[2]),hit.face) {
+                self.swing_arm();return Ok(true);
+            }
+            #[cfg(feature = "ae2-lab")]
+            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+                && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
+                && self.ae2_open_terminal((hit.pos[0],hit.pos[1],hit.pos[2]),Some(hit.face)) {
+                self.screen=Screen::Inventory;
+                self.capture(false);
+                self.swing_arm();
+                return Ok(true);
+            }
+            #[cfg(feature="ae2-lab")]
+            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator")) && self.ae2_ensure_machine((hit.pos[0], hit.pos[1], hit.pos[2])) && matches!(self.world.block_entities.get(&(hit.pos[0],hit.pos[1],hit.pos[2])),Some(BlockEntity::Ae2(m)) if ae2_terminal::ae2_hand_menu_kind(m.kind)) {
+                self.open_menu(hit.pos);
+                self.swing_arm();
+                return Ok(true);
+            }
             if self.use_lectern(hit.pos, held.as_ref()) {
                 self.swing_arm();
                 return Ok(true);
@@ -3650,6 +4254,8 @@ impl Game<'_> {
             // TRY_WITH_EMPTY_HAND: only the main hand's turn uses the block
             // itself (useWithoutItem).
             if !anchor_passed && self.hand == Hand::Main {
+                #[cfg(feature = "ae2-lab")]
+                self.ae2_phantom_use((hit.pos[0], hit.pos[1], hit.pos[2]));
                 let face = match hit.face {
                     [0, 1, 0] => Direction::Up,
                     [0, -1, 0] => Direction::Down,
@@ -3702,10 +4308,14 @@ impl Game<'_> {
         // A guest's UseItemOn stops at ItemStack.useOn: what Item.use does
         // (throw, drink, eat, raise, equip) waits for its UseItem.
         let on_block = matches!(self.guest_use, Some(GuestUse::OnBlock(_)));
+        #[cfg(feature = "ae2-lab")]
+        if !on_block && self.ae2_cell_item_use(true) {self.swing_arm();return Ok(true);}
+        #[cfg(feature = "ae2-lab")]
+        if !on_block && self.ae2_try_open_portable() { self.swing_arm(); return Ok(true); }
         let spawn_egg = stack.item.ends_with("_spawn_egg");
         use horizon_client::first_person::UseResult;
         let swings = self.swings_started;
-        match self.use_tool(&stack, block_hit.is_some())? {
+        match self.use_tool(&stack, block_hit.is_some(),host)? {
             UseResult::Success { swing } => {
                 if (UseResult::Success { swing }).should_swing(swings, self.swings_started) {
                     self.swing_arm();
@@ -3722,6 +4332,8 @@ impl Game<'_> {
         {
             return Ok(true);
         }
+        #[cfg(feature = "ae2-lab")]
+        if !on_block && self.ae2_try_guide_use(&stack) {return Ok(true);}
         if !on_block
             && (self.raise_shield(self.held_slot())
                 || self.use_fishing_rod(&stack)
@@ -3801,35 +4413,57 @@ impl Game<'_> {
             item: stack.item.to_string(),
             can_use_game_master_blocks: self.can_use_game_master_blocks(),
         };
-        let outcome = self.with_level(|b, level, ticks| b.place_block(level, ticks, &ctx));
-        let PlaceOutcome::Placed { pos, state } = outcome else {
-            self.process_level_events()?;
-            // BlockItem.useOn: a consumable that could not be placed is used,
-            // which ItemStack.useOn counts as a use of the item.
-            if self.start_eating(&info) {
-                self.stats.add("used", &stack.item, 1);
+        let place=|game:&mut Self| -> std::result::Result<Option<(BlockPos,BlockStateId)>,String> {
+            let pending=game.with_level(|b,level,ticks|b.begin_block_placement(level,ticks,&ctx));
+            let Some(pending)=pending else {return Ok(None)};
+            let pos=pending.pos;
+            let target=[pos.x,pos.y,pos.z];
+            let state=pending.state;
+            #[cfg(feature="ae2-lab")]
+            let state=game.ae2_apply_item_block_state(target,state,&stack);
+            if let Some(entity)=BlockEntity::for_block(&game.res.facts().get(state).name) {
+                let key=(pos.x,pos.y,pos.z);
+                game.world.block_entities.insert(key,entity);
+                let game_master=game.can_use_game_master_blocks();
+                game.apply_placed_item(target,&stack,game_master);
+                #[cfg(feature="ae2-lab")]
+                {
+                    if let Some(error)=game.ae2_formation_import_error.take() {return Err(error);}
+                    game.ae2_record_node_owner(target);
+                    if game.world.block_entities.refresh_pending_placed_ae2(key,None)==Some(false) {
+                        return Err("placed AE2 owner escaped before import".into());
+                    }
+                }
             }
+            let outcome=game.with_level(|b,level,ticks|b.finish_block_placement(level,ticks,pending));
+            Ok(match outcome {PlaceOutcome::Placed {pos,state}=>Some((pos,state)),_=>None})
+        };
+        #[cfg(feature="ae2-lab")]
+        let placed=self.ae2_with_placement_transaction(place)?;
+        #[cfg(not(feature="ae2-lab"))]
+        let placed=place(self)?;
+        let Some((pos,state))=placed else {
+            self.process_level_events()?;
+            if self.start_eating(&info) {self.stats.add("used",&stack.item,1);}
             return Ok(true);
         };
-        let target = [pos.x, pos.y, pos.z];
-        self.mod_block_event(target, state, true);
-        if let Some(entity) = BlockEntity::for_block(&self.res.facts().get(state).name) {
-            let key = (target[0], target[1], target[2]);
-            self.world.block_entities.insert(key, entity);
-            let game_master = self.can_use_game_master_blocks();
-            self.apply_placed_item(target, &stack, game_master);
-            // Block.setPlacedBy.
-            match self.world.block_entities.get(&key) {
-                Some(BlockEntity::CommandBlock(_)) => {
-                    let data = stack.data().is_some_and(|d| {
-                        d.other(horizon_client::block_entity_item::BLOCK_ENTITY_DATA)
-                            .is_some()
-                    });
-                    self.command_block_placed(key, !data);
-                }
-                Some(BlockEntity::Sign(sign)) if !sign.waxed => self.open_sign_editor(key, true),
-                _ => {}
+        let target=[pos.x,pos.y,pos.z];
+        let key=(pos.x,pos.y,pos.z);
+        self.mod_block_event(target,state,true);
+        #[cfg(feature="ae2-lab")]
+        {
+            self.ae2_publish_placed_energy(key);
+            if matches!(self.res.facts().get(state).name.as_ref(),"ae2:quantum_ring"|"ae2:quantum_link") {
+                self.ae2_quantum_block_added(key);
             }
+        }
+        match self.world.block_entities.get(&key) {
+            Some(BlockEntity::CommandBlock(_))=>{
+                let data=stack.data().is_some_and(|d|d.other(horizon_client::block_entity_item::BLOCK_ENTITY_DATA).is_some());
+                self.command_block_placed(key,!data);
+            },
+            Some(BlockEntity::Sign(sign)) if !sign.waxed=>self.open_sign_editor(key,true),
+            _=>{},
         }
         self.swing_arm();
         // BlockItem.place's sound is among the level events;
@@ -3949,6 +4583,8 @@ impl Game<'_> {
         let cell = self.held_mut();
         if let Some(s) = cell.as_mut() {
             s.count -= 1;
+            #[cfg(feature = "ae2-lab")]
+            horizon_client::ae2_stack_identity::synchronize_tracked(s);
             if s.count == 0 {
                 *cell = None;
             }
@@ -4634,6 +5270,19 @@ impl Game<'_> {
     /// What the tick runs after the local player's own update: effects, the
     /// world's entities and blocks, and the network hub.
     fn tick_world(&mut self, running: bool) -> Result<()> {
+        #[cfg(feature = "ae2-lab")]
+        if self.remote.is_none() && self.level_pass.first { self.ae2_advance_running_tick(); }
+        #[cfg(feature = "ae2-lab")]
+        if running {
+            self.ae2_tick_debug_cubes();
+            self.tick_ae2_grid();
+            self.tick_ae2_interfaces();
+            self.ae2_portable_tick();
+        } else if self.remote.is_none() {
+            self.ae2_tick_frozen_grid_service();
+        }
+        #[cfg(feature="ae2-lab")]
+        self.ae2_check_network_advancements();
         self.update_chunk_tickets();
         horizon_client::spans::time("tick_effects", || self.tick_effects(running));
         // Player.tick's ItemCooldowns.tick for the window's player (a
@@ -4648,6 +5297,8 @@ impl Game<'_> {
         // items, popped crops) moves on the tick it appears, as in vanilla.
         horizon_client::spans::time("tick_local_hand", || self.tick_local_hand())?;
         horizon_client::spans::time("postprocess_chunks", || self.postprocess_chunks())?;
+        #[cfg(feature = "ae2-lab")]
+        if running {self.ae2_compass_tick_local();}
         if running {
             horizon_client::spans::time("tick_blocks", || self.tick_blocks())?;
         }
@@ -4672,6 +5323,8 @@ impl Game<'_> {
         if running {
             horizon_client::spans::time("entity_portals", || self.handle_entity_portals());
             horizon_client::spans::time("tick_items", || self.tick_items());
+            #[cfg(feature = "ae2-lab")]
+            self.tick_ae2_environment();
             horizon_client::spans::time("touch_arrows", || self.touch_arrows());
         }
         horizon_client::spans::time("spawn_loaded_entities", || self.spawn_loaded_entities());
@@ -4684,7 +5337,17 @@ impl Game<'_> {
                 self.resolve_arrivals();
             });
         }
+        #[cfg(feature = "ae2-lab")]
+        {
+            self.ae2_local_craft_allowance=None;
+            if self.remote.is_none() {self.ae2_prune_machine_craft_calculations();}
+        }
         horizon_client::spans::time("tick_lan", || self.tick_lan(false));
+        #[cfg(feature = "ae2-lab")]
+        if self.remote.is_none() {
+            self.ae2_tick_machine_craft_calculations();
+            self.ae2_tick_local_craft_calculation();
+        }
         self.tick_friends();
         horizon_client::spans::time("tick_hand", || self.tick_hand());
         horizon_client::spans::time("tick_sleep", || self.tick_sleep());
@@ -4722,6 +5385,16 @@ impl Game<'_> {
         {
             self.use_with_hand()?;
             self.use_delay = 4;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.remote.is_none() {
+            self.ae2_ready_event_level();
+            self.ae2_tick_me_level();
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.level_pass.last && self.remote.is_none() {
+            self.ae2_cpu_service_end_tick();
+            self.ae2_commit_pathing();
         }
         Ok(())
     }
@@ -4855,6 +5528,11 @@ impl Game<'_> {
     /// the cursor where it is. Like GLFW's `glfwSetCursorPos`, nothing warps
     /// while the window is unfocused (losing focus releases the pointer).
     fn capture(&mut self, capture: bool) {
+        if self.options.offscreen {
+            if capture { self.reset_inventory_clicks(); } else { self.stop_mining(); }
+            self.captured = false;
+            return;
+        }
         // A guest's action (`as_guest`) opens and closes screens on the
         // guest's own client: the window's pointer stays the host's (#687).
         if self.lan_acting.is_some() {
@@ -4912,7 +5590,7 @@ impl Game<'_> {
                 if self.focused {
                     warp(window);
                 }
-                let scale = HudBatch::new(size).scale;
+                let scale = self.screen_batch(size).scale;
                 self.cursor = (size[0] as f32 / 2.0 / scale, size[1] as f32 / 2.0 / scale);
             } else {
                 let _ = window.set_cursor_grab(CursorGrabMode::None);
@@ -4927,6 +5605,7 @@ impl Game<'_> {
     fn apply_cursor_icon(&mut self) {
         use horizon_client::widgets::Cursor;
         let wanted = horizon_client::widgets::take_cursor();
+        if self.options.offscreen { self.cursor_icon = wanted; return; }
         if wanted == self.cursor_icon {
             return;
         }
@@ -5026,6 +5705,35 @@ impl Game<'_> {
     /// (`shouldAddSlotToQuickCraft`); screens the menu engine doesn't
     /// model take every slot.
     fn quick_craft_accepts(&mut self, slot: usize, ty: i32, dragged: usize) -> bool {
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_is_fake_slot(slot) {return self.carried.is_some();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_is_remote_repo_slot(slot) {return false;}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_local_crafting_terminal_open() {
+            if !(slot<36 || (327..=335).contains(&slot)) {return false;}
+            let Some(carried)=self.carried.clone() else{return false;};
+            if ty!=2 && carried.count as usize<=dragged {return false;}
+            let max=self.res.items().stack_max(&carried);
+            return self.slot_view(slot).is_none_or(|item|item.same_item_same_components(&carried) && item.count<max);
+        }
+        #[cfg(feature="ae2-lab")]
+        if let Some((owner, _)) = self.remote.as_ref().and_then(|r| r.ae2_terminal_toolbox.as_ref()) {
+            if slot == *owner { return false; }
+            if (365..374).contains(&slot) {
+                let Some(carried) = self.carried.clone() else { return false; };
+                if !horizon_client::ae2_network_tool::is_card(&carried.item)
+                    || (ty != 2 && carried.count as usize <= dragged) { return false; }
+                let max = self.res.items().stack_max(&carried);
+                return self.slot_view(slot).is_none_or(|s|
+                    s.same_item_same_components(&carried) && s.count < max);
+            }
+        }
+        #[cfg(feature="ae2-lab")]
+        if (360..365).contains(&slot) && self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) {
+            return (ty==2 || dragged==0) && self.carried.as_ref().is_some_and(|s|s.item.as_ref()=="ae2:view_cell" && s.count==1)
+                && self.slot_view(slot).is_none();
+        }
         let mut accepts = true;
         self.menu_session(|menu, env, to_menu| {
             accepts = to_menu(slot).is_some_and(|s| menu.quick_craft_accepts(env, s, ty, dragged));
@@ -5050,10 +5758,13 @@ impl Game<'_> {
         let cooldown =
             horizon_client::cooldowns::group(stack, info.and_then(|i| i.use_cooldown.as_ref()));
         let partial = self.clock.fraction() as f32;
+        let bar = hud_overlays::damage_bar(stack.damage as i32, max_damage);
+        #[cfg(feature = "ae2-lab")]
+        let bar = self.ae2_energy_bar(stack).or(bar);
         let decorations = hud_overlays::ItemDecorations {
             count: stack.count,
             count_text,
-            bar: hud_overlays::damage_bar(stack.damage as i32, max_damage),
+            bar,
             cooldown: self.cooldowns.percent(&cooldown, partial),
         };
         let mut draws = vec![hud_layout::GuiDraw::Push(vec![
@@ -5089,7 +5800,7 @@ impl Game<'_> {
         batch
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
-        let mut batch = HudBatch::new(size);
+        let mut batch = self.screen_batch(size);
         let (w, h) = (batch.width, batch.height);
         if self.screen == Screen::Win {
             self.draw_win_screen(&mut batch);
@@ -5338,6 +6049,8 @@ impl Game<'_> {
             Screen::Playing | Screen::Options | Screen::Win => {}
         }
         self.draw_toasts(&mut batch);
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_draw_job_toast(&mut batch);
         self.draw_pack_toasts(&mut batch);
         self.remote_hud(&mut batch);
         self.draw_sign_editor(&mut batch);
@@ -5351,10 +6064,46 @@ impl Game<'_> {
     fn creative_tab_open(&self) -> bool {
         self.screen == Screen::Creative && !self.creative_screen.tab().inventory
     }
+    #[cfg(feature="ae2-lab")]
+    fn ae2_crafting_terminal_screen(&self)->bool {self.remote.as_ref().is_some_and(|r|r.ae2_crafting_screen) || self.ae2_local_crafting_terminal_open()}
+    #[cfg(feature="ae2-lab")]
+    fn ae2_network_tool_screen(&self)->bool {self.remote.as_ref().is_some_and(|r|r.ae2_network_tool_screen)}
+    #[cfg(feature="ae2-lab")]
+    fn ae2_network_status_screen(&self)->bool {self.remote.as_ref().is_some_and(|r|r.ae2_network_status_screen)}
+    #[cfg(feature="ae2-lab")]
+    fn ae2_anchor_screen(&self)->bool {self.remote.as_ref().is_some_and(|r|r.ae2_anchor_screen)}
+    #[cfg(feature="ae2-lab")]
+    fn ae2_craft_screen(&self)->u8 {self.remote.as_ref().map_or_else(||self.ae2_local_craft_screen(),|r|r.ae2_craft_screen)}
+    #[cfg(feature="ae2-lab")]
+    fn ae2_pattern_access_screen(&self)->bool {self.ae2_local_pattern_access_open() || self.remote.as_ref().is_some_and(|r|r.ae2_pattern_access_screen)}
+    fn screen_batch(&self, size: [u32; 2]) -> HudBatch {
+        let mut batch = HudBatch::new(size);
+        #[cfg(feature="ae2-lab")]
+        if (self.ae2_crafting_terminal_screen() || self.ae2_pattern_access_screen()) && batch.height < 251.0 && batch.scale > 1.0 {
+            batch.scale -= 1.0;
+            batch.width = (size[0] as f32 / batch.scale).ceil();
+            batch.height = (size[1] as f32 / batch.scale).ceil();
+        }
+        batch
+    }
     fn inventory_origin(&self, batch: &HudBatch) -> (f32, f32) {
         if self.screen == Screen::Creative {
             return Self::creative_origin(batch);
         }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_crafting_terminal_screen() {return batch.centered_origin(195.0,251.0);}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_pattern_access_screen() {return batch.centered_origin(195.0,224.0);}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_status_screen() {return batch.centered_origin(195.0,157.0);}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_anchor_screen() {return batch.centered_origin(195.0,100.0);}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()==1 {return batch.centered_origin(176.0,107.0);}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()==2 {return batch.centered_origin(238.0,206.0);}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()==3 {return batch.centered_origin(238.0,185.0);}
         let (x, y) = batch.centered_origin(176.0, self.screen_height());
         (x + self.recipe_book_shift(batch.width), y)
     }
@@ -5365,6 +6114,47 @@ impl Game<'_> {
     }
     /// 300.. are the open container's slots.
     fn slots(&self) -> Vec<usize> {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() {
+            return (0..36).chain(300..327).collect();
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() {return (0..36).chain(300..327).collect();}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() {return (0..36).chain(300..354).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_pattern_access_screen() {
+            let mut slots:Vec<usize>=(0..36).collect();
+            if let Some(rows)=self.ae2_pattern_access_layout().as_ref().and_then(|v|v.get("rows")).and_then(|v|v.as_array()) {
+                for (line,row) in rows.iter().take(6).enumerate() {
+                    if row.get("kind").and_then(|v|v.as_str())==Some("provider") {slots.extend(300+line*9..309+line*9);}
+                }
+            }
+            return slots;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()!=0 {return (300..=320).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_status_screen() {return (303..311).chain([325,326]).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_anchor_screen() {return vec![300];}
+        #[cfg(feature = "ae2-lab")]
+        if let Some((view_cells, toolbox)) = self.remote.as_ref().and_then(|r| {
+            let view_cells = r.ae2_view_cells.is_some();
+            let toolbox = r.ae2_terminal_toolbox.is_some();
+            (view_cells || toolbox).then_some((view_cells, toolbox))
+        }) {
+            return ae2_terminal::terminal_visible_slots(view_cells, toolbox);
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_portable_open() { return (0..36).chain(300..354).collect(); }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_terminal_open() {
+            let mut slots:Vec<usize>=(0..36).chain(300..354).collect();
+            if self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) {slots.extend(360..365);}
+            if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {slots.extend(365..374);}
+            return slots;
+        }
         if self.creative_inventory_open() {
             return Creative::inventory_slots().collect();
         }
@@ -5376,6 +6166,8 @@ impl Game<'_> {
         }
         let mut v: Vec<usize> = (0..36).collect();
         match self.container_kind() {
+            #[cfg(feature = "ae2-lab")]
+            Some(BlockEntity::Ae2(_)) => v.extend((0..self.container_size()).map(|i| 300 + i)),
             Some(BlockEntity::Chest(_)) => v.extend((0..self.container_size()).map(|i| 300 + i)),
             Some(BlockEntity::Furnace(_)) => v.extend(300..303),
             Some(BlockEntity::Brewing(_)) => v.extend(300..305),
@@ -5408,6 +6200,66 @@ impl Game<'_> {
     }
     /// InventoryMenu / CraftingMenu slot layouts.
     fn slot_position(&self, i: usize) -> (f32, f32) {
+        #[cfg(feature="ae2-lab")]
+        if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) && (365..374).contains(&i) {
+            let height = if self.ae2_crafting_terminal_screen() {251.0} else {self.screen_height()};
+            return (175.0 + ((i-365)%3) as f32*18.0, height-84.0 + ((i-365)/3) as f32*18.0);
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) && (360..365).contains(&i) {return (if self.ae2_crafting_terminal_screen(){195.0}else{176.0},18.0+(i-360) as f32*18.0);}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_pattern_access_screen() {
+            return match i {
+                0..=8=>(8.0+i as f32*18.0,201.0),
+                9..=35=>(8.0+((i-9)%9) as f32*18.0,143.0+((i-9)/9) as f32*18.0),
+                300..=353=>(8.0+((i-300)%9) as f32*18.0,17.0+((i-300)/9) as f32*18.0),
+                _=>(-1000.0,-1000.0),
+            };
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()!=0 {
+            return match (self.ae2_craft_screen(),i) {
+                (1,300)=>(23.0,53.0),(1,302)=>(120.0,53.0),(1,303)=>(152.0,0.0),
+                (2,300)=>(12.0,22.0),(2,302)=>(162.0,181.0),(2,303)=>(6.0,181.0),
+                (2,304)=>(19.0,138.0),
+                (2,305..=316)=>(12.0+((i-305)%3) as f32*68.0,43.0+((i-305)/3) as f32*18.0),
+                (2,318)=>(218.0,19.0),(2,319)=>(218.0,117.0),
+                (3,300)=>(-18.0,18.0),(3,302)=>(103.0,140.0),(3,303)=>(163.0,140.0),(3,304)=>(8.0,140.0),
+                (3,305..=316)=>(12.0+((i-305)%3) as f32*68.0,25.0+((i-305)/3) as f32*18.0),
+                (3,318)=>(218.0,19.0),(3,319)=>(218.0,117.0),(3,320)=>(8.0,164.0),
+                _=>(-1000.0,-1000.0),
+            };
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_anchor_screen() { return if i==300 {(-18.0,18.0)} else {(-1000.0,-1000.0)}; }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_status_screen() {
+            return match i {
+                303..=310 => (13.0+((i-303)%2) as f32*78.0,42.0+((i-303)/2) as f32*18.0),
+                325=>(176.0,41.0),326=>(176.0,95.0),_=>(-1000.0,-1000.0),
+            };
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_tool_screen() {
+            return match i {
+                0..=8 => (8.0+i as f32*18.0,142.0),
+                9..=35 => (8.0+((i-9)%9) as f32*18.0,84.0+((i-9)/9) as f32*18.0),
+                300..=308 => (62.0+((i-300)%3) as f32*18.0,19.0+((i-300)/3) as f32*18.0),
+                _ => (-1000.0,-1000.0),
+            };
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_crafting_terminal_screen() {
+            return match i {
+                0..=8 => (8.0+i as f32*18.0,225.0),
+                9..=35 => (8.0+((i-9)%9) as f32*18.0,167.0+((i-9)/9) as f32*18.0),
+                300..=326 => (8.0+((i-300)%9) as f32*18.0,18.0+((i-300)/9) as f32*18.0),
+                327..=335 => (26.0+((i-327)%3) as f32*18.0,93.0+((i-327)/3) as f32*18.0),
+                336 => (134.0,111.0),337 => (81.0,92.0),338 => (99.0,92.0),
+                345 => (176.0,18.0),353 => (176.0,54.0),346 => (-18.0,18.0),347 => (-18.0,36.0),349 => (-18.0,54.0),350 => (-18.0,72.0),351 => (-18.0,90.0),352 => (-18.0,108.0),
+                _ => (-1000.0,-1000.0),
+            };
+        }
         if self.creative_inventory_open()
             && let Some(position) = Creative::inventory_slot_position(i)
         {
@@ -5472,6 +6324,33 @@ impl Game<'_> {
     }
     fn slot_at(&self, batch: &HudBatch, x: f32, y: f32) -> Option<usize> {
         let (ox, oy) = self.inventory_origin(batch);
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()!=0 {
+            let hit=|sx:f32,sy:f32,w:f32,h:f32|x>=ox+sx && x<ox+sx+w && y>=oy+sy && y<oy+sy+h;
+            if self.ae2_craft_screen()==1 {
+                if hit(120.0,51.0,38.0,20.0) {return Some(302);}
+                if hit(152.0,0.0,20.0,20.0) {return Some(303);}
+            } else if self.ae2_craft_screen()==3 {
+                if hit(-18.0,18.0,16.0,16.0) {return Some(300);}
+                if hit(8.0,164.0,80.0,20.0) {return Some(320);}
+                if hit(103.0,140.0,50.0,20.0) {return Some(302);}
+                if hit(163.0,140.0,50.0,20.0) {return Some(303);}
+                if hit(8.0,140.0,80.0,20.0) {return Some(304);}
+                if hit(218.0,19.0,16.0,16.0) {return Some(318);}
+                if hit(218.0,117.0,16.0,16.0) {return Some(319);}
+                for i in 0..12 {if hit(12.0+(i%3) as f32*68.0,25.0+(i/3) as f32*18.0,68.0,18.0) {return Some(305+i);}}
+            } else {
+                if hit(162.0,181.0,50.0,20.0) {return Some(302);}
+                if hit(6.0,181.0,50.0,20.0) {return Some(303);}
+                if hit(19.0,138.0,180.0,20.0) {return Some(304);}
+                if hit(218.0,19.0,16.0,16.0) {return Some(318);}
+                if hit(218.0,117.0,16.0,16.0) {return Some(319);}
+                for i in 0..12 {
+                    if hit(12.0+(i%3) as f32*68.0,43.0+(i/3) as f32*18.0,68.0,18.0) {return Some(305+i);}
+                }
+            }
+            return None;
+        }
         self.slots().into_iter().find(|&i| {
             let (sx, sy) = self.slot_position(i);
             x >= ox + sx && x < ox + sx + 16.0 && y >= oy + sy && y < oy + sy + 16.0
@@ -5501,6 +6380,30 @@ impl Game<'_> {
     }
     /// What a slot shows: the crafting result slots are computed.
     fn slot_view(&mut self, i: usize) -> Option<ItemStack> {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_craft_screen()!=0 && (300..327).contains(&i) {
+            return self.ae2_local_craft_slot_view(i);
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() && (300..327).contains(&i) {
+            return self.ae2_local_provider_slot_view(i);
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() && (300..327).contains(&i) {return self.ae2_local_machine_slot_view(i);}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() && (300..354).contains(&i) {return self.ae2_local_bus_slot_view(i);}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_pattern_access_open() && (300..354).contains(&i) {return self.ae2_local_pattern_access_slot_view(i);}
+        #[cfg(feature="ae2-lab")]
+        if (365..374).contains(&i) {return self.remote.as_ref().and_then(|r|r.ae2_terminal_toolbox.as_ref()).and_then(|(_, slots)|slots.get(i-365)).cloned().flatten();}
+        #[cfg(feature="ae2-lab")]
+        if (360..365).contains(&i) {return self.remote.as_ref().and_then(|r|r.ae2_view_cells.as_ref()).and_then(|cells|cells.get(i-360)).cloned().flatten();}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_portable_open() && (300..354).contains(&i) { return self.ae2_portable_slot_view(i); }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_terminal_open() && (300..354).contains(&i) {
+            return self.ae2_terminal_slot_view(i);
+        }
         match i {
             200 => self.craft_result(),
             309 if matches!(self.container_kind(), Some(BlockEntity::Crafter(_))) => {
@@ -5530,9 +6433,29 @@ impl Game<'_> {
             .map(|(name, result)| (name.to_owned(), result))
     }
     fn draw_inventory_slots(&mut self, batch: &mut HudBatch, ox: f32, oy: f32) {
+        #[cfg(feature="ae2-lab")]
+        if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {
+            let height = if self.ae2_crafting_terminal_screen() {251.0} else {self.screen_height()};
+            batch.sprite_subregion(&self.gui.atlas,"ae2:guis/extra_panels",[ox+174.0,oy+height-90.0,59.0,66.0],[69.0,62.0],128.0,128.0);
+        }
         let drag = self.drag_view();
         for i in self.slots() {
+            #[cfg(feature="ae2-lab")]
+            if self.ae2_network_status_screen() || self.ae2_anchor_screen() {continue;}
+            #[cfg(feature="ae2-lab")]
+            if self.ae2_pattern_access_screen() && !(300..=353).contains(&i) && i>=300 {continue;}
+            #[cfg(feature="ae2-lab")]
+            if self.ae2_craft_screen()!=0 && ((self.ae2_craft_screen()==3 && !(305..=316).contains(&i)) || (self.ae2_craft_screen()!=3 && i!=300)) {continue;}
+            #[cfg(feature="ae2-lab")]
+            if self.ae2_crafting_terminal_screen() && matches!(i,337|338|345|346|347|349|350|351|353) {
+                continue;
+            }
             let (sx, sy) = self.slot_position(i);
+            #[cfg(feature="ae2-lab")]
+            if (360..365).contains(&i) {
+                batch.fill(&self.gui.atlas,ox+sx,oy+sy,18.0,18.0,rgba(65,65,65,255));
+                batch.fill(&self.gui.atlas,ox+sx+1.0,oy+sy+1.0,16.0,16.0,rgba(139,139,139,255));
+            }
             if i == 504 && self.offhand.is_none() {
                 batch.sprite(
                     &self.gui.atlas,
@@ -5593,6 +6516,8 @@ impl Game<'_> {
             {
                 Some(BlockEntity::Chest(_)) if self.draw_machine_screen(batch, ox, oy) => {}
                 Some(BlockEntity::Chest(_)) => self.draw_chest_screen(batch, ox, oy),
+                #[cfg(feature = "ae2-lab")]
+                Some(BlockEntity::Ae2(_)) => self.draw_chest_screen(batch, ox, oy),
                 Some(BlockEntity::Furnace(f)) => {
                     let (tex, key, fallback) = match f.kind {
                         horizon_client::containers::FurnaceKind::Furnace => {
@@ -5667,6 +6592,8 @@ impl Game<'_> {
                     | BlockEntity::Skull(_)
                     | BlockEntity::Campfire(_),
                 ) => {}
+                #[cfg(feature = "ae2-lab")]
+                None if self.ae2_portable_open() => self.draw_chest_screen(batch, ox, oy),
                 None if self.mount_active() => self.draw_mount_background(batch, ox, oy),
                 None => {
                     let texture = if self.craft_size == 3 {
@@ -5685,7 +6612,11 @@ impl Game<'_> {
                 }
             }
         }
-        if self.container.is_none() && self.craft_size != 3 && !self.mount_active() {
+        #[cfg(feature = "ae2-lab")]
+        let portable_open = self.ae2_portable_open();
+        #[cfg(not(feature = "ae2-lab"))]
+        let portable_open = false;
+        if self.container.is_none() && self.craft_size != 3 && !self.mount_active() && !portable_open {
             self.draw_inventory_player(batch, ox, oy);
         }
         self.draw_inventory_slots(batch, ox, oy);
@@ -5704,6 +6635,8 @@ impl Game<'_> {
         }
         self.draw_carried(batch);
         self.draw_slot_tooltip(batch);
+        #[cfg(feature = "ae2-lab")]
+        self.draw_pattern_access_header_tooltip(batch,ox,oy);
         if self.container.is_none() && self.craft_size == 2 && !self.mount_active() {
             self.draw_inventory_effects(batch, (ox, oy), 176);
         }
@@ -5716,9 +6649,25 @@ impl Game<'_> {
     pub(super) fn reset_inventory_clicks(&mut self) {
         self.inv_clicks = Default::default();
         self.inv_drag = None;
+        #[cfg(feature="ae2-lab")]
+        self.ae2_fake_drag.clear();
         self.last_inv_click = None;
     }
     pub(super) fn close_container(&mut self) {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_terminal_open() {
+            if self.ae2_local_crafting_session_open() && ae2_client_config::settings().clear_grid_on_close {self.ae2_clear_local_crafting_grid();}
+            if self.ae2_local_encoding_session_open() && ae2_client_config::settings().clear_grid_on_close {self.ae2_clear_local_encoding();}
+            self.ae2_remember_local_terminal_search();self.ae2_job_ui.terminal_closed();
+        }
+        #[cfg(feature = "ae2-lab")]
+        { self.ae2_local_provider = None; self.ae2_local_terminal = None; self.ae2_local_craft = None; }
+        #[cfg(feature = "ae2-lab")]
+        let local_machine_items=self.ae2_local_machine_close();
+        #[cfg(feature = "ae2-lab")]
+        {self.ae2_local_bus=None;self.ae2_local_energy=None;self.ae2_local_pattern_access=None;}
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_portable_close();
         self.reset_inventory_clicks();
         self.close_station();
         self.mount_closed();
@@ -5727,6 +6676,8 @@ impl Game<'_> {
             return self.remote_close_container();
         }
         let mut returned: Vec<ItemStack> = self.carried.take().into_iter().collect();
+        #[cfg(feature = "ae2-lab")]
+        returned.extend(local_machine_items);
         returned.extend(self.craft_grid.iter_mut().filter_map(Option::take));
         for stack in returned {
             if let Some(rest) = self.give(stack)
@@ -5794,6 +6745,14 @@ impl Game<'_> {
         button: i32,
         input: horizon_client::menu::Input,
     ) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_craft_click(slot,button,input) {return true;}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_portable_click(slot, button, input) { return true; }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_terminal_click(slot, button, input) {
+            return true;
+        }
         if let Some(slot) = slot
             && slot >= Creative::DISPLAY
             && self.creative_tab_open()
@@ -5823,7 +6782,7 @@ impl Game<'_> {
         let first = self.creative_screen.first_row(&self.pack.names);
         let shown = items.get(first * 9 + slot - Creative::DISPLAY);
         let catalog = self.res.items();
-        let max = |s: &ItemStack| catalog.get(&s.item).map_or(64, |i| i.max_stack);
+        let max = |s: &ItemStack| catalog.stack_max(s);
         match click_display(&mut self.carried, shown, max, button, input) {
             DisplayClick::Hotbar(i, stack) => self.inventory[i] = Some(stack),
             DisplayClick::Drop(stack) => self.player_drop(stack),
@@ -5833,6 +6792,38 @@ impl Game<'_> {
     /// Several clicks on one menu instance (a quick craft drag is three).
     fn menu_ops(&mut self, ops: &[(Option<usize>, i32, horizon_client::menu::Input)]) -> bool {
         use horizon_client::menu::Input;
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_craft_screen()!=0 || self.ae2_terminal_open() || self.ae2_portable_open() {
+            if self.ae2_local_craft_matrix_drag(ops) {return true;}
+            for &(slot,button,input) in ops {
+                if self.ae2_local_craft_click(slot,button,input) {continue;}
+                if self.ae2_portable_click(slot,button,input) {continue;}
+                self.ae2_terminal_click(slot,button,input);
+            }
+            return true;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() {
+            for &(slot, button, input) in ops {
+                self.ae2_local_provider_click(slot, button, input);
+            }
+            return true;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() {
+            for &(slot,button,input) in ops {self.ae2_local_machine_click(slot,button,input);}
+            return true;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() {
+            for &(slot,button,input) in ops {self.ae2_local_bus_click(slot,button,input);}
+            return true;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_pattern_access_open() {
+            for &(slot,button,input) in ops {self.ae2_local_pattern_access_click(slot,button,input);}
+            return true;
+        }
         if self.remote.is_some() && self.screen == Screen::Inventory {
             // On a server the clicks are the server's: predicted and sent.
             return self.remote_menu_ops(ops);
@@ -6256,8 +7247,12 @@ impl Game<'_> {
         } else {
             0
         };
+        #[cfg(feature = "ae2-lab")]
+        if self.remote.is_none(){menu.recipe_durability_rng=Some(self.world.random.clone());}
         let outcome = run(&mut menu, &env, &to_menu);
         let made = maps.made.take();
+        #[cfg(feature = "ae2-lab")]
+        if self.remote.is_none(){if let Some(random)=menu.recipe_durability_rng.take(){self.world.random=random;}}
         match outcome {
             None => return false,
             Some(false) => return true,
@@ -6395,7 +7390,7 @@ impl Game<'_> {
         else {
             return false;
         };
-        let batch = HudBatch::new(size);
+        let batch = self.screen_batch(size);
         let hover = match self.slot_at(&batch, self.cursor.0, self.cursor.1) {
             None => Hover::Nothing,
             Some(slot) if slot >= Creative::DISPLAY => {
@@ -6421,7 +7416,7 @@ impl Game<'_> {
         else {
             return false;
         };
-        let batch = HudBatch::new(size);
+        let batch = self.screen_batch(size);
         let Some(slot) = self.slot_at(&batch, self.cursor.0, self.cursor.1) else {
             return false;
         };
@@ -6443,8 +7438,26 @@ impl Game<'_> {
     /// The plain inventory mouse press: starts a quick craft drag when a
     /// stack is held, gathers on a double click, else the normal click.
     fn inventory_press(&mut self, right: bool) {
+        #[cfg(feature="ae2-lab")]
+        self.ae2_fake_drag.clear();
         use horizon_client::container_screen::Target;
         use horizon_client::menu::Input;
+        #[cfg(feature = "ae2-lab")]
+        if let Some(r) = self.renderer.as_ref() {
+            let batch = self.screen_batch([r.config.width, r.config.height]);
+            let (ox, oy) = self.inventory_origin(&batch);
+            if self.ae2_search_click(ox, oy, right) {
+                self.inv_clicks.skip_release();
+                return;
+            }
+            if !right && self.ae2_pattern_access_screen() {
+                let (x,y)=(self.cursor.0-ox,self.cursor.1-oy);
+                let action=if (175.0..191.0).contains(&x) && (18.0..34.0).contains(&y) {Some(-10)}
+                    else if (175.0..191.0).contains(&x) && (107.0..123.0).contains(&y) {Some(-11)}
+                    else if (-18.0..-2.0).contains(&x) && (18.0..34.0).contains(&y) {Some(-12)} else {None};
+                if action.is_some_and(|action|self.remote_pattern_access_control(action)) {self.inv_clicks.skip_release();return;}
+            }
+        }
         if !right && self.sort_press() {
             return;
         }
@@ -6505,6 +7518,12 @@ impl Game<'_> {
                     self.click_inventory(right);
                     return;
                 }
+                #[cfg(feature = "ae2-lab")]
+                if self.ae2_local_terminal_open() || self.ae2_local_provider_open() || self.ae2_local_machine_open() || self.ae2_local_bus_open() || self.ae2_local_pattern_access_open() || self.ae2_portable_open() {
+                    self.last_inv_click=None;
+                    self.inv_clicks.skip_release();
+                    return;
+                }
                 if let Some(moved) = self.last_quick_moved.clone() {
                     if self.remote.is_some() {
                         self.remote_quick_move_all(slot, &moved);
@@ -6533,6 +7552,10 @@ impl Game<'_> {
                     last == slot && !was_right && now.duration_since(at).as_millis() < 250
                 });
             self.last_inv_click = Some((now, slot, right));
+            // AEBaseScreen intercepts FakeSlot clicks before vanilla's
+            // double-click pickup-all behavior.
+            #[cfg(feature="ae2-lab")]
+            let double=double && !self.ae2_is_fake_slot(slot) && !self.ae2_is_remote_repo_slot(slot);
             if double && self.menu_click(Some(slot), 0, Input::PickupAll) {
                 self.last_inv_click = None;
                 // The double click's own release (`mouseReleased`'s PICKUP_ALL).
@@ -6588,7 +7611,17 @@ impl Game<'_> {
         let Some(r) = self.renderer.as_ref() else {
             return;
         };
-        let batch = HudBatch::new([r.config.width, r.config.height]);
+        let batch = self.screen_batch([r.config.width, r.config.height]);
+        #[cfg(feature="ae2-lab")]
+        if let Some(slot)=self.slot_at(&batch,self.cursor.0,self.cursor.1) {
+            if self.carried.is_some() && self.ae2_is_fake_slot(slot) {
+                if !self.ae2_fake_drag.contains(&slot) {self.ae2_fake_drag.push(slot);}
+                if self.ae2_fake_drag.len()>1 {
+                    for target in self.ae2_fake_drag.clone() {self.ae2_fake_drag_action(target,ty!=0);}
+                }
+                return;
+            }
+        }
         if let Some(slot) = self.slot_at(&batch, self.cursor.0, self.cursor.1)
             && slot != 200
             && slot < Creative::DISPLAY
@@ -6604,7 +7637,7 @@ impl Game<'_> {
         let Some(r) = self.renderer.as_ref() else {
             return (None, false);
         };
-        let batch = HudBatch::new([r.config.width, r.config.height]);
+        let batch = self.screen_batch([r.config.width, r.config.height]);
         (
             self.slot_at(&batch, self.cursor.0, self.cursor.1),
             self.clicked_outside(&batch),
@@ -6630,6 +7663,27 @@ impl Game<'_> {
     fn clicked_outside(&self, batch: &HudBatch) -> bool {
         use horizon_client::container_screen::{Book, Image, clicked_outside};
         let (ox, oy) = self.inventory_origin(batch);
+        #[cfg(feature="ae2-lab")]
+        if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {
+            let height = if self.ae2_crafting_terminal_screen() {251.0} else {self.screen_height()};
+            if (ox+174.0..ox+233.0).contains(&self.cursor.0) && (oy+height-90.0..oy+height-24.0).contains(&self.cursor.1) {return false;}
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_crafting_terminal_screen() {return self.cursor.0<ox-18.0 || self.cursor.0>=ox+213.0 || self.cursor.1<oy || self.cursor.1>=oy+251.0;}
+        #[cfg(feature="ae2-lab")]
+        if self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) {return self.cursor.0<ox || self.cursor.0>=ox+194.0 || self.cursor.1<oy || self.cursor.1>=oy+self.screen_height();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_status_screen() {return self.cursor.0<ox || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+157.0;}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_anchor_screen() {return self.cursor.0<ox-18.0 || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+100.0;}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_pattern_access_screen() {return self.cursor.0<ox-18.0 || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+224.0;}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()!=0 {
+            let (w,h)=match self.ae2_craft_screen(){1=>(176.0,107.0),3=>(238.0,185.0),_=>(238.0,206.0)};
+            let left=if self.ae2_craft_screen()==3 {ox-18.0} else {ox};
+            return self.cursor.0<left || self.cursor.0>=ox+w || self.cursor.1<oy || self.cursor.1>=oy+h;
+        }
         let (shift, width, height) = if self.screen == Screen::Creative {
             (0.0, Creative::WIDTH as i32, Creative::HEIGHT as i32)
         } else {
@@ -6715,6 +7769,8 @@ impl Game<'_> {
             self.has_shift_down(),
             false,
         );
+        #[cfg(feature="ae2-lab")]
+        if std::mem::take(&mut self.ae2_fake_drag).len()>1 {self.inv_drag=None;return;}
         match (release, Target::of(slot, outside)) {
             (Release::QuickCraft, _) => self.inventory_release(),
             (Release::Click(input), Target::Outside) => {
@@ -6741,6 +7797,8 @@ impl Game<'_> {
     /// 2 that fills every slot it crosses; without infinite materials the
     /// press does nothing.
     fn inventory_pick_press(&mut self) {
+        #[cfg(feature="ae2-lab")]
+        self.ae2_fake_drag.clear();
         use horizon_client::container_screen::{Button, Target};
         let (slot, outside) = self.inventory_target();
         let was_crafting = self.inv_clicks.quick_crafting().is_some();
@@ -6781,6 +7839,8 @@ impl Game<'_> {
             self.has_shift_down(),
             true,
         );
+        #[cfg(feature="ae2-lab")]
+        if std::mem::take(&mut self.ae2_fake_drag).len()>1 {self.inv_drag=None;return;}
         match (release, slot) {
             (Release::QuickCraft, _) => self.inventory_release(),
             (Release::Click(input), Some(slot)) if !outside => {
@@ -6838,11 +7898,52 @@ impl Game<'_> {
         else {
             return;
         };
-        let batch = HudBatch::new(size);
+        let batch = self.screen_batch(size);
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_priority_open() || self.ae2_local_machine_editor_open() || self.ae2_local_energy.is_some() || self.ae2_local_pattern_access_open() || self.ae2_local_craft_screen()==1 || self.ae2_terminal_open() {
+            let (ox,oy)=self.inventory_origin(&batch);
+            if self.ae2_search_click(ox,oy,right) {return;}
+        }
         let Some(slot) = self.slot_at(&batch, self.cursor.0, self.cursor.1) else {
             return;
         };
         let held_shift = self.has_shift_down();
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_craft_screen()!=0 {
+            let input=if held_shift {horizon_client::menu::Input::QuickMove} else {horizon_client::menu::Input::Pickup};
+            self.ae2_local_craft_click(Some(slot),i32::from(right),input);
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() {
+            let alternate=held_shift || self.ae2_local_provider_priority_open() && self.has_control_down();
+            let input=if alternate {horizon_client::menu::Input::QuickMove} else {horizon_client::menu::Input::Pickup};
+            self.ae2_local_provider_click(Some(slot),i32::from(right),input);
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() {
+            let alternate=held_shift || self.ae2_local_machine_editor_open() && self.has_control_down();
+            let input=if alternate {horizon_client::menu::Input::QuickMove}else{horizon_client::menu::Input::Pickup};
+            self.ae2_local_machine_click(Some(slot),i32::from(right),input);return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() {
+            let alternate=held_shift || self.ae2_local_energy.is_some() && self.has_control_down();
+            let input=if alternate {horizon_client::menu::Input::QuickMove}else{horizon_client::menu::Input::Pickup};
+            self.ae2_local_bus_click(Some(slot),i32::from(right),input);return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_pattern_access_open() {
+            let input=if held_shift {horizon_client::menu::Input::QuickMove}else{horizon_client::menu::Input::Pickup};
+            self.ae2_local_pattern_access_click(Some(slot),i32::from(right),input);return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_terminal_open() || self.ae2_portable_open() {
+            let input=if held_shift {horizon_client::menu::Input::QuickMove} else {horizon_client::menu::Input::Pickup};
+            self.menu_click(Some(slot),i32::from(right),input);
+            return;
+        }
         if self.crafter_click(slot, held_shift, right) {
             return;
         }
@@ -6857,7 +7958,7 @@ impl Game<'_> {
         {
             return;
         }
-        let max = |items: &Items, s: &ItemStack| items.get(&s.item).map_or(64, |i| i.max_stack);
+        let max = |items: &Items, s: &ItemStack| items.stack_max(s);
         let shift = held_shift;
         if slot >= 300
             && let Some(key) = self.container
@@ -7127,6 +8228,8 @@ impl Game<'_> {
         // `ItemEntityRenderer`.
         self.mark_entity(out.len(), "minecraft:item");
         self.dropped_item_geometry(camera, alpha, &mut out);
+        #[cfg(feature = "ae2-lab")]
+        { self.mark_entity(out.len(), ""); self.ae2_visual_geometry(camera, &mut out); self.ae2_fx_geometry(camera, &mut out); }
         // `VaultRenderer`.
         self.mark_entity(out.len(), "");
         self.vault_geometry(camera, alpha, &mut out);
@@ -7893,6 +8996,11 @@ impl Game<'_> {
         &self,
         chunks: impl IntoIterator<Item = &'a Arc<horizon_client::chunk::Chunk>>,
     ) -> Vec<Arc<horizon_client::chunk::Chunk>> {
+        #[cfg(feature = "ae2-lab")]
+        let modes = {
+            let network = self.ae2_network();
+            network.analyze().ok().map(|analysis| ae2_network_core::CommittedChannels::capture(&network, &analysis))
+        };
         horizon_client::save::chunks_with_block_entities(
             chunks,
             &self.world.block_entities,
@@ -7900,6 +9008,12 @@ impl Game<'_> {
         )
         .into_iter()
         .map(|mut c| {
+            #[cfg(feature = "ae2-lab")]
+            self.world.block_entities.project_vanilla_metadata(&mut c);
+            #[cfg(feature = "ae2-lab")]
+            if let Some(modes) = modes.as_ref() { self.ae2_project_saved_node_modes(&mut c, modes); }
+            #[cfg(feature = "ae2-lab")]
+            self.ae2_project_saved_energy(&mut c);
             self.attach_save_data(&mut c);
             Arc::new(c)
         })
@@ -8117,6 +9231,20 @@ impl Game<'_> {
         self.selected = level.selected_slot.clamp(0, 8) as usize;
         self.streaming = streaming;
         self.world = world;
+        #[cfg(feature = "ae2-lab")]
+        {
+            self.ae2_committed_channels = Default::default();
+            *self.ae2_live_events.borrow_mut() = Default::default();
+            *self.ae2_me_runtime.borrow_mut() = Default::default();
+            *self.ae2_quantum_runtime.borrow_mut() = Default::default();
+            self.ae2_formation_staging = false;
+            self.ae2_formation_fluid_runtime = Default::default();
+            self.ae2_formation_import_error = None;
+            *self.ae2_device_scheduler.borrow_mut() = Default::default();
+            *self.ae2_storage_monitors.borrow_mut() = Default::default();
+            self.ae2_processor_ticks = Default::default();
+            self.world.block_entities.set_ae2_journal_clock(self.ae2_me_runtime.borrow().clock());
+        }
         self.inventory = inventory;
         self.save = save;
         self.level = level;
@@ -8169,7 +9297,7 @@ impl Game<'_> {
             r.clear_sections();
         }
         self.apply_settings();
-        self.streaming.sky_light = dim != Dim::Nether;
+        self.streaming.sky_light = horizon_client::save::LevelShape::for_dir(&horizon_client::save::dimension_dir(&self.world_root, dim.id())).sky_light;
         self.streaming.nether_shading = dim == Dim::Nether;
         self.load_world_state();
         Ok(())
@@ -8233,6 +9361,10 @@ impl Game<'_> {
         let (streaming, save) =
             self.make_streaming(&self.world_root.clone(), target, self.level.seed)?;
         let mut world = World::new(self.res.facts().air, self.level.seed);
+        #[cfg(feature = "ae2-lab")]
+        world.block_entities.start_ae2_journal();
+        #[cfg(feature = "ae2-lab")]
+        world.block_entities.set_ae2_journal_clock(self.ae2_me_runtime.borrow().clock());
         world.fast_lava = target == Dim::Nether;
         world.game_time = self.world.game_time;
         world.day_time = self.world.day_time;
@@ -8245,6 +9377,8 @@ impl Game<'_> {
         // The sculk tables' watched blocks are built once per game.
         world.watched = std::mem::take(&mut self.world.watched);
         self.streaming = streaming;
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_event_forget_level();
         self.world = world;
         self.save = save;
         self.dim = target;
@@ -8888,8 +10022,15 @@ impl Game<'_> {
         &mut self,
         stack: &ItemStack,
         allow_block_actions: bool,
+        _host:Option<&mut lan::LanHost>,
     ) -> Result<horizon_client::first_person::UseResult> {
         use horizon_client::first_person::UseResult;
+        #[cfg(feature="ae2-lab")]
+        if stack.item.as_ref()=="ae2:entropy_manipulator" {return self.ae2_use_entropy(stack).map_err(Into::into);}
+        #[cfg(feature="ae2-lab")]
+        if stack.item.as_ref()=="ae2:matter_cannon" {return self.ae2_use_cannon(stack,_host).map_err(Into::into);}
+        #[cfg(feature="ae2-lab")]
+        if stack.item.as_ref()=="ae2:color_applicator" {return self.ae2_use_applicator(stack,allow_block_actions).map_err(Into::into);}
         let item = stack.item.trim_start_matches("minecraft:").to_owned();
         let at = |p: [i32; 3]| {
             [
@@ -9132,6 +10273,8 @@ impl Game<'_> {
         let p = Vec3::new(at[0], at[1], at[2]);
         self.next_entity += 1;
         self.orbs.push(ExperienceOrb {
+            health: 5,
+            invulnerable: false,
             id: self.next_entity,
             position: p,
             previous: p,
@@ -10030,12 +11173,12 @@ impl Game<'_> {
         batch.sprite(&self.gui.atlas, &tab_sprite(&tab, true), ox + tx, oy + ty);
         for t in &tabs {
             let (tx, ty) = Creative::tab_position(t);
-            let stack = ItemStack {
+            let stack = t.icon_stack.clone().unwrap_or_else(|| ItemStack {
                 item: Arc::from(t.icon.as_str()),
                 count: 1,
                 damage: 0,
                 extra: None,
-            };
+            });
             self.draw_item(
                 batch,
                 &stack,
@@ -10353,6 +11496,8 @@ impl Game<'_> {
         if self.remote.is_some() {
             return Ok(());
         }
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_compass_refresh();
         self.save_level(wait)?;
         self.save_parked_levels(wait)?;
         self.save_game_metadata()
@@ -10371,6 +11516,8 @@ impl Game<'_> {
         self.save_warden_tracker();
         self.sync_level();
         self.store_owner();
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_save_anchor_tickets()?;
         self.level.write(&self.world_root)?;
         self.save_world_state();
         self.message = Some(("Saved the game".into(), Instant::now()));
@@ -10538,6 +11685,12 @@ impl Game<'_> {
             let scale = HudBatch::new(size).scale;
             crosshair.debug_crosshair(at, view_pitch, view_yaw, scale);
         }
+        #[cfg(feature = "ae2-lab")]
+        let (anchor_overlay_faces,anchor_lines,anchor_occluded)=self.ae2_anchor_overlay_geometry(at);
+        #[cfg(not(feature = "ae2-lab"))]
+        let (anchor_overlay_faces,anchor_lines,anchor_occluded):(Vec<[f32;7]>,Vec<horizon_client::gizmos::Line>,Vec<horizon_client::gizmos::Line>)=(vec![],vec![],vec![]);
+        let anchor_lines=horizon_client::gizmos::camera_relative(&anchor_lines,at,view);
+        let anchor_occluded=horizon_client::gizmos::camera_relative(&anchor_occluded,at,view);
         let debug_lines = horizon_client::gizmos::camera_relative(&lines, at, view);
         let debug_lines_on_top = horizon_client::gizmos::camera_relative(&on_top, at, view);
         let debug_crosshair = horizon_client::gizmos::camera_relative(&crosshair.on_top, at, view);
@@ -10568,6 +11721,20 @@ impl Game<'_> {
                         [0.0; 3]
                     };
                     let p = h.pos.map(f64::from);
+                    if let Some((id,_,boxes))=self.world.dynamic_shapes.get(&(h.pos[0],h.pos[1],h.pos[2])) && *id==state {
+                        let mut edges=Vec::new();
+                        for b in boxes {
+                            for axis in 0..3 { for a in 0..2 { for c in 0..2 {
+                                let other:Vec<_>=(0..3).filter(|v|*v!=axis).collect();
+                                let mut from=[0.;3];let mut to=[0.;3];
+                                from[axis]=b[axis];to[axis]=b[axis+3];
+                                from[other[0]]=b[other[0]+3*a];to[other[0]]=from[other[0]];
+                                from[other[1]]=b[other[1]+3*c];to[other[1]]=from[other[1]];
+                                edges.push([p[0]+from[0],p[1]+from[1],p[2]+from[2],p[0]+to[0],p[1]+to[1],p[2]+to[2]]);
+                            }}}
+                        }
+                        return edges;
+                    }
                     f.outline_edges
                         .iter()
                         .map(|e| std::array::from_fn(|i| p[i % 3] + o[i % 3] + e[i]))
@@ -10644,6 +11811,11 @@ impl Game<'_> {
             self.celestial_geometry(&sky)
         } else if self.dim == Dim::End && self.settings.horizon.sky {
             (self.end_flash_geometry(), None)
+        } else if cfg!(feature = "ae2-lab") && self.settings.horizon.sky {
+            #[cfg(feature = "ae2-lab")]
+            {if self.dim == Dim::Spatial {(self.ae2_spatial_sky(),None)} else {(Vec::new(),None)}}
+            #[cfg(not(feature = "ae2-lab"))]
+            {(Vec::new(),None)}
         } else {
             (Vec::new(), None)
         };
@@ -10730,6 +11902,9 @@ impl Game<'_> {
             outline_after_terrain,
             debug_lines: &debug_lines,
             debug_lines_on_top: &debug_lines_on_top,
+            anchor_overlay_faces: &anchor_overlay_faces,
+            anchor_overlay_lines: &anchor_lines,
+            anchor_overlay_occluded: &anchor_occluded,
             debug_crosshair: &debug_crosshair,
             hud: &hud,
             clouds: (!title
@@ -11178,6 +12353,13 @@ impl Game<'_> {
         }
     }
     fn update_world(&mut self) {
+        self.update_world_receive(true);
+    }
+    /// A synchronous authoritative read may pump normal chunk ownership and
+    /// lighting without polling packets, moving the player ticket centre,
+    /// advancing gameplay, or starting unrelated pregeneration work.
+    fn update_world_receive(&mut self, regular_frame: bool) {
+        if regular_frame {
         if let Err(e) = self.poll_remote() {
             log::warn!("Horizon: {e}");
         }
@@ -11197,6 +12379,7 @@ impl Game<'_> {
         self.streaming.loading =
             self.options.execution_role.is_client() && self.loading_reason().is_some();
         self.tick_pregen();
+        }
         let (uploads, unloaded) =
             horizon_client::spans::time("streaming", || self.streaming.update(&mut self.world));
         if let Some(lod) = &mut self.lod {
@@ -11349,10 +12532,12 @@ impl ApplicationHandler for Game<'_> {
             return;
         }
         // The Window constructor: created fullscreen when options.txt says so.
-        let fullscreen = self.settings.fullscreen;
+        let fullscreen = self.settings.fullscreen && !self.options.offscreen;
         let size = self.options.window_size.map(f64::from);
         self.fullscreen = horizon_client::window::FullscreenState::new(fullscreen);
         let attributes = Window::default_attributes()
+            .with_visible(!self.options.offscreen)
+            .with_active(!self.options.offscreen)
             .with_title("Horizon")
             .with_window_icon(horizon_client::window::icon());
         // Wayland names the window by its app id, which the horizon.desktop entry matches.
@@ -11530,8 +12715,10 @@ impl ApplicationHandler for Game<'_> {
                 }
                 WindowEvent::CursorMoved { position, .. } => {
                     if let Some(r) = &self.renderer {
-                        let b = HudBatch::new([r.config.width, r.config.height]);
+                        let b = self.screen_batch([r.config.width, r.config.height]);
                         self.cursor = (position.x as f32 / b.scale, position.y as f32 / b.scale);
+                        #[cfg(feature = "ae2-lab")]
+                        if self.ae2_guide_active(){self.ae2_guide_pointer(self.cursor,self.ae2_guide_left_down,self.ae2_guide_right_down);}
                         if self.screen == Screen::Advancements {
                             self.advancements_drag();
                         }
@@ -11594,6 +12781,7 @@ impl ApplicationHandler for Game<'_> {
                         && self.sleeping.is_none()
                         && self.player.is_some()
                         && !self.mod_wheel(d)
+                        && !self.native_item_wheel(raw_y as f32)
                         && let Some((wheel, (_, vertical_steps))) =
                             self.mouse
                                 .on_scroll(raw_x, raw_y, discrete, wheel_sensitivity)
@@ -11626,8 +12814,20 @@ impl ApplicationHandler for Game<'_> {
                     if self.screen == Screen::Creative && d != 0.0 {
                         self.creative_screen.wheel(f64::from(d), &self.pack.names);
                     }
+                    #[cfg(feature="ae2-lab")]
+                    let craft_report_scroll=self.screen==Screen::Inventory && d!=0.0 && self.ae2_craft_screen()==2
+                        && self.menu_click(Some(if d>0.0 {318} else {319}),0,horizon_client::menu::Input::Pickup);
+                    #[cfg(not(feature="ae2-lab"))]
+                    let craft_report_scroll=false;
+                    #[cfg(feature="ae2-lab")]
+                    let pattern_access_scroll=self.screen==Screen::Inventory && d!=0.0 && self.ae2_pattern_access_screen()
+                        && self.remote_pattern_access_control(if d>0.0 {-10} else {-11});
+                    #[cfg(not(feature="ae2-lab"))]
+                    let pattern_access_scroll=false;
                     if self.screen == Screen::Inventory
                         && d != 0.0
+                        && !craft_report_scroll
+                        && !pattern_access_scroll
                         && !self.tweak_scroll(d, self.inventory_target().0)
                     {
                         self.station_scroll(d);
@@ -11856,7 +13056,14 @@ impl ApplicationHandler for Game<'_> {
                             self.stats_click(size);
                         }
                         Screen::Stats if button == MouseButton::Left => self.stats_release(),
-                        Screen::Mod if pressed => self.mod_screen_click(button),
+                        Screen::Mod => {
+                            #[cfg(feature = "ae2-lab")]
+                            if self.ae2_guide_active() {
+                                match button{MouseButton::Left=>self.ae2_guide_left_down=pressed,MouseButton::Right=>self.ae2_guide_right_down=pressed,_=>{}}
+                                if !pressed {self.ae2_guide_pointer(self.cursor,self.ae2_guide_left_down,self.ae2_guide_right_down);}
+                            }
+                            if pressed {self.mod_screen_click(button);}
+                        },
                         _ => {}
                     }
                 }
@@ -11919,6 +13126,19 @@ impl ApplicationHandler for Game<'_> {
                         }
                     } else {
                         self.creative_search_edit(event.text.as_deref());
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                WindowEvent::KeyboardInput { event, .. }
+                    if self.ae2_search_focused()
+                        && event.state == ElementState::Pressed
+                        && !matches!(event.physical_key, PhysicalKey::Code(KeyCode::Escape)) =>
+                {
+                    if let Some(shortcut) = self.edit_shortcut(&event) {
+                        self.ae2_search_shortcut(shortcut);
+                    } else {
+                        let key = match event.physical_key { PhysicalKey::Code(key) => Some(key), _ => None };
+                        self.ae2_search_input(event.text.as_deref(), key);
                     }
                 }
                 WindowEvent::KeyboardInput { event, .. }
@@ -12017,6 +13237,14 @@ impl ApplicationHandler for Game<'_> {
                     let PhysicalKey::Code(key) = event.physical_key else {
                         return Ok(());
                     };
+                    #[cfg(feature = "ae2-lab")]
+                    if self.ae2_guide_active() && event.state==ElementState::Pressed {
+                        if !self.ae2_guide_key(key) {self.key_pressed(key)?;}
+                        if !self.has_control_down() && !self.modifiers.super_key() {
+                            if let Some(text)=event.text.as_deref(){self.ae2_guide_text(text);}
+                        }
+                        return Ok(());
+                    }
                     self.mod_key(key, event.state == ElementState::Pressed, event.repeat);
                     // key.smoothCamera toggles the cinematic camera.
                     if self.screen == Screen::Playing
@@ -12408,6 +13636,8 @@ impl<'a> Game<'a> {
             craft_size: 2,
             craft_table: None,
             inv_drag: None,
+            #[cfg(feature="ae2-lab")]
+            ae2_fake_drag: Vec::new(),
             tweaks: Default::default(),
             inv_clicks: Default::default(),
             last_inv_click: None,
@@ -12508,6 +13738,70 @@ impl<'a> Game<'a> {
             title: None,
             armor: [None, None, None, None],
             offhand: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_terminal_page: 0,
+            #[cfg(feature = "ae2-lab")]
+            ae2_remembered_search: String::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_job_ui: ae2_job_ui::JobUi::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_local_provider: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_local_machine: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_local_bus: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_local_pattern_access: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_local_energy: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_local_terminal: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_local_craft: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_local_craft_allowance: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_pending_machine_crafts: Vec::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_portable_slot: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_portable_page: 0,
+            #[cfg(feature = "ae2-lab")]
+            ae2_portable_idle_buffer: 0,
+            #[cfg(feature = "ae2-lab")]
+            ae2_portable_drag: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_wireless_power: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_guide: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_guide_left_down: false,
+            #[cfg(feature = "ae2-lab")]
+            ae2_guide_right_down: false,
+            #[cfg(feature = "ae2-lab")]
+            ae2_p2p_light_cache: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_terminal_view: Vec::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_visual_cache: HashMap::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_cranks: HashMap::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_debug_cubes: HashMap::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_anchors: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_detectors: HashMap::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_compass_index: ae2_compass::CompassIndex::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_fx_pending: Vec::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_job_status_pending: Vec::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_lan_active: false,
+            #[cfg(feature = "ae2-lab")]
+            ae2_fx_active: Vec::new(),
             hand: Hand::Main,
             shield_cooldown: 0,
             cooldowns: Default::default(),
@@ -12542,6 +13836,28 @@ impl<'a> Game<'a> {
             level_teleports: Vec::new(),
             levels: Default::default(),
             level_pass: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_committed_channels: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_live_events: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_me_runtime: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_quantum_runtime: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_formation_staging: false,
+            #[cfg(feature="ae2-lab")]
+            ae2_formation_fluid_runtime: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_formation_import_error: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_device_scheduler: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_storage_monitors: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_processor_ticks: Default::default(),
+            #[cfg(feature="ae2-lab")]
+            ae2_advancement_service: Default::default(),
             portals: Default::default(),
             end_travel: false,
             respawn_config: None,
@@ -13320,7 +14636,7 @@ fn build_renderer(
     renderer.hud.fire_animations = atlas
         .fire_animations
         .iter()
-        .map(|(rect, animation)| (*rect, animation.clone(), usize::MAX))
+        .map(|(rect, animation)| (*rect, animation.clone(), None))
         .collect();
     Ok(renderer)
 }
@@ -13373,7 +14689,7 @@ fn loading_renderer(
         renderer.hud.fire_animations = atlas
             .fire_animations
             .iter()
-            .map(|(rect, animation)| (*rect, animation.clone(), usize::MAX))
+            .map(|(rect, animation)| (*rect, animation.clone(), None))
             .collect();
     }
     Ok(renderer)
@@ -13407,6 +14723,9 @@ fn loading_frame(hud: &HudBatch) -> Frame<'_> {
         outline_after_terrain: false,
         debug_lines: &[],
         debug_lines_on_top: &[],
+        anchor_overlay_faces: &[],
+        anchor_overlay_lines: &[],
+        anchor_overlay_occluded: &[],
         debug_crosshair: &[],
         hud,
         nether_lighting: false,
@@ -13593,8 +14912,22 @@ fn write_report(game: &Game<'_>) -> Result<()> {
     Ok(())
 }
 
+/// Offscreen rendering also isolates the native application lifecycle.
+fn client_event_loop(offscreen: bool) -> Result<EventLoop<()>> {
+    let mut builder = EventLoop::builder();
+    #[cfg(target_os = "macos")]
+    if offscreen {
+        use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+        builder.with_activation_policy(ActivationPolicy::Prohibited)
+            .with_activate_ignoring_other_apps(false)
+            .with_default_menu(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = offscreen;
+    Ok(builder.build()?)
+}
 fn run_event_loop(mut game: Game<'_>) -> Result<()> {
-    EventLoop::new()?.run_app(&mut game)?;
+    client_event_loop(game.options.offscreen)?.run_app(&mut game)?;
     horizon_client::discord_presence::stop();
     write_report(&game)?;
     if let Some(e) = game.error.take() {
@@ -13629,7 +14962,8 @@ impl Loading {
             return;
         }
         // The Window constructor: created fullscreen when options.txt says so.
-        let fullscreen = self.settings.fullscreen;
+        let offscreen = self.options.as_ref().is_some_and(|o| o.offscreen);
+        let fullscreen = self.settings.fullscreen && !offscreen;
         let size = self
             .options
             .as_ref()
@@ -13637,6 +14971,8 @@ impl Loading {
             .map(f64::from);
         self.fullscreen = horizon_client::window::FullscreenState::new(fullscreen);
         let attributes = Window::default_attributes()
+            .with_visible(!offscreen)
+            .with_active(!offscreen)
             .with_title("Horizon")
             .with_window_icon(horizon_client::window::icon());
         // Wayland names the window by its app id, which the horizon.desktop entry matches.
@@ -13926,6 +15262,7 @@ fn run_loading(
     let (receiver, loader) =
         startup_menu::spawn_loader(&options, &settings, &vanilla_root, started, &progress)?;
     let menu = startup_menu::StartupMenu::new(&options, pack_error.as_deref())?;
+    let offscreen = options.offscreen;
     let loading = Loading {
         window: None,
         renderer: None,
@@ -13946,7 +15283,7 @@ fn run_loading(
         error: None,
     };
     let mut app = App::Loading(Box::new(loading));
-    EventLoop::new()?.run_app(&mut app)?;
+    client_event_loop(offscreen)?.run_app(&mut app)?;
     horizon_client::discord_presence::stop();
     match app {
         App::Ready(mut game) => {
@@ -13973,6 +15310,8 @@ pub fn run() -> Result<()> {
     {
         return Ok(());
     }
+    // Isolate test clipboard access before constructing any UI or workers.
+    horizon_client::clipboard::set_automated(options.offscreen);
     // Before any worker starts: on Linux they go behind the server thread
     // and the render thread.
     horizon_threads::put_helpers_behind();

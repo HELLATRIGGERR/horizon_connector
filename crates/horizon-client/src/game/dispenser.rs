@@ -522,12 +522,7 @@ impl Game<'_> {
         }
         let mut rest = remainder;
         if let Some(entity) = self.world.block_entities.get_mut(&pos) {
-            let max = self
-                .res
-                .items()
-                .get(&rest.item)
-                .map_or(64, |i| i.max_stack)
-                .max(1);
+            let max = self.res.items().stack_max(&rest);
             for cell in entity.slots_mut() {
                 match cell {
                     None => {
@@ -586,6 +581,30 @@ impl Game<'_> {
     ) -> Result<Option<ItemStack>> {
         let item = stack.item.to_string();
         let (left, event) = match item.as_str() {
+            #[cfg(feature = "ae2-lab")]
+            "ae2:entropy_manipulator" | "ae2:color_applicator" | "ae2:matter_cannon" => {
+                let mut tool = stack;
+                let normal = step(facing);
+                let front = offset(pos, facing);
+                let hit = super::Hit {
+                    pos: [front.0, front.1, front.2],
+                    face: normal.map(|v| -v),
+                    point: [front.0, front.1, front.2].map(|v| f64::from(v) + 0.5),
+                };
+                // AE2 registers DefaultDispenseItemBehavior: retain the tool
+                // even when its action fails, and use the normal click/smoke.
+                match item.as_str() {
+                    "ae2:entropy_manipulator" => { self.ae2_entropy_at(&mut tool, hit, false, true)?; }
+                    "ae2:color_applicator" => { self.ae2_applicator_at(&mut tool, hit)?; }
+                    _ => {
+                        let origin = [pos.0, pos.1, pos.2].map(|v| f64::from(v) + 0.5);
+                        let dir = normal.map(f64::from);
+                        let origin = std::array::from_fn(|i| origin[i] + dir[i] * 0.7);
+                        self.ae2_cannon_at(&mut tool, origin, dir, 32.0, true, true, None)?;
+                    }
+                }
+                (Some(tool), CLICK)
+            },
             "minecraft:arrow"
             | "minecraft:tipped_arrow"
             | "minecraft:spectral_arrow"
@@ -615,6 +634,14 @@ impl Game<'_> {
             "minecraft:flint_and_steel" => self.dispense_flint_and_steel(pos, facing, stack)?,
             "minecraft:bone_meal" => self.dispense_bone_meal(pos, facing, stack)?,
             "minecraft:tnt" => self.dispense_tnt(pos, facing, stack),
+            #[cfg(feature = "ae2-lab")]
+            "ae2:tiny_tnt" => {
+                let target=Self::pos_of(offset(pos,facing));
+                let rot=self.world.random.next_double()*f64::from(std::f32::consts::TAU);
+                self.add_primed_tnt(target,rot,80);
+                if let Some(t)=self.tnts.last_mut(){t.tiny=true;}
+                (shrink(stack),CLICK)
+            },
             "minecraft:wither_skeleton_skull" => self.dispense_wither_skull(pos, facing, stack)?,
             "minecraft:carved_pumpkin" => self.dispense_carved_pumpkin(pos, facing, stack)?,
             "minecraft:glass_bottle" => self.dispense_glass_bottle(pos, facing, stack)?,
@@ -1316,9 +1343,10 @@ impl Game<'_> {
                 None,
                 None,
             );
-        } else if &*name == "minecraft:tnt" {
-            if self.ui.rules.bool("tnt_explodes") {
+        } else if &*name == "minecraft:tnt" || (cfg!(feature = "ae2-lab") && &*name == "ae2:tiny_tnt") {
+            if &*name == "ae2:tiny_tnt" || self.ui.rules.bool("tnt_explodes") {
                 self.spawn_primed_tnt(target_pos, false);
+                if &*name == "ae2:tiny_tnt" { if let Some(t)=self.tnts.last_mut(){t.tiny=true;} }
                 self.with_level(|b, level, ticks| b.remove_block(level, ticks, target_pos, false));
                 self.process_level_events()?;
             } else {
@@ -1548,6 +1576,8 @@ impl Game<'_> {
             return Ok((Some(stack), FAIL));
         };
         let target = (placed.x, placed.y, placed.z);
+        #[cfg(feature = "ae2-lab")]
+        let state=self.ae2_apply_item_block_state([target.0,target.1,target.2],state,&stack);
         if let Some(entity) = BlockEntity::for_block(&self.res.facts().get(state).name) {
             self.world.block_entities.insert(target, entity);
             self.apply_placed_item([target.0, target.1, target.2], &stack, false);

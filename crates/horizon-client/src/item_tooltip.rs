@@ -184,18 +184,28 @@ fn is_potion_item(item: &str) -> bool {
 /// The name line of `stack`, as the item's translation or, for potions and
 /// smithing templates, its name component gives it.
 pub fn name_line(stack: &ItemStack, translate: &dyn Fn(&str) -> Option<String>) -> String {
-    let path = stack.item.trim_start_matches("minecraft:");
+    let (namespace, path) = stack
+        .item
+        .split_once(':')
+        .unwrap_or(("minecraft", &stack.item));
     if let Some(name) = stack.custom_name() {
         return name.to_owned();
     }
     if let Some(name) = stack.item_name() {
         return name;
     }
+    #[cfg(feature="ae2-lab")]
+    if let Some(id)=ae2_facade_texture(stack) {
+        let base=translate("item.ae2.facade").unwrap_or_else(||"Facade".into());
+        return format!("{base} - {}",name_line(&ItemStack::new(id.as_str(),1),translate));
+    }
     if stack.data().is_some_and(|d| d.ominous_banner) {
         return translate("block.minecraft.ominous_banner")
             .unwrap_or_else(|| "Ominous Banner".to_owned());
     }
-    let key = if is_potion_item(&stack.item) {
+    let key = if namespace != "minecraft" {
+        None
+    } else if is_potion_item(&stack.item) {
         Some(crate::brewing::potion_name_key(&stack.item, stack.potion()))
     } else if let Some(pattern) = path.strip_suffix("_armor_trim_smithing_template") {
         Some(format!("trim_pattern.minecraft.{pattern}"))
@@ -208,9 +218,19 @@ pub fn name_line(stack: &ItemStack, translate: &dyn Fn(&str) -> Option<String>) 
         None
     };
     key.and_then(|k| translate(&k))
-        .or_else(|| translate(&format!("item.minecraft.{path}")))
-        .or_else(|| translate(&format!("block.minecraft.{path}")))
+        .or_else(|| translate(&format!("item.{namespace}.{path}")))
+        .or_else(|| translate(&format!("block.{namespace}.{path}")))
         .unwrap_or_else(|| path.replace('_', " "))
+}
+
+#[cfg(feature="ae2-lab")]
+pub fn ae2_facade_texture(stack:&ItemStack)->Option<String> {
+    if stack.item.as_ref()!="ae2:facade" {return None;}
+    let data=stack.data()?;
+    let horizon_world::nbt::Tag::String(id)=data.other("ae2:facade_item")
+        .or_else(||data.other("minecraft:custom_data").and_then(|tag|tag.get("ae2:facade_item")))? else {return None;};
+    let id=id.to_string_lossy();
+    id.contains(':').then_some(id)
 }
 
 /// ItemStack.getRarity: the ominous banner override, then the enchantment upgrade.
@@ -521,6 +541,21 @@ pub fn lore_texts(stack: &ItemStack) -> Vec<crate::text::Text> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature="ae2-lab")]
+    #[test]
+    fn facade_source_material_wins_over_legacy_and_invalid_source_fails_closed() {
+        let mut facade=ItemStack::new("ae2:facade",1);
+        facade.data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("ae2:facade_item",Tag::String("minecraft:stone".into()))])));
+        assert_eq!(ae2_facade_texture(&facade).as_deref(),Some("minecraft:stone"));
+        facade.data_mut().set_other("ae2:facade_item",Some(Tag::String("minecraft:oak_log".into())));
+        assert_eq!(ae2_facade_texture(&facade).as_deref(),Some("minecraft:oak_log"));
+        facade.data_mut().set_other("ae2:facade_item",Some(Tag::String("ae2:facade".into())));
+        assert_eq!(ae2_facade_texture(&facade).as_deref(),Some("ae2:facade"));
+        assert!(name_line(&facade, &|_| None).contains("Facade"));
+        facade.data_mut().set_other("ae2:facade_item",Some(Tag::Int(5)));
+        assert_eq!(ae2_facade_texture(&facade),None);
+    }
 
     #[test]
     fn lore_keeps_component_colours_under_dark_purple_italic() {

@@ -154,7 +154,7 @@ pub struct DimensionType {
 impl DimensionType {
     pub fn vanilla(name: &str) -> Self {
         let (min_y, height, has_skylight) = match name {
-            "minecraft:the_nether" => (0, 256, false),
+            "minecraft:the_nether" | "ae2:spatial_storage" => (0, 256, false),
             "minecraft:the_end" => (0, 256, false),
             _ => (-64, 384, true),
         };

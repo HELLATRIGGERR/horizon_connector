@@ -83,6 +83,13 @@ pub struct RegistryIds {
 }
 const EMPTY: &[String] = &[];
 impl Registries {
+    /// Replace command biome IDs with the actual loaded data-pack registry.
+    /// Preserve exported tag IDs while keeping vanilla and namespaced biomes.
+    pub fn set_loaded_biomes(&mut self, mut ids: Vec<String>) {
+        ids.sort();ids.dedup();
+        self.biomes=ids.clone();
+        self.by_registry.entry("minecraft:worldgen/biome".into()).or_default().ids=ids;
+    }
     /// Fill what the game did not build itself from vanilla's exported
     /// registries (`command-registries.json`, written by
     /// `VanillaCommandParseOracle registries`): built-in registries such as

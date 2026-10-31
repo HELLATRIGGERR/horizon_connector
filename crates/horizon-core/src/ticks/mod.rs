@@ -353,7 +353,7 @@ impl std::fmt::Display for TickError {
 }
 impl std::error::Error for TickError {}
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct LevelTicks {
     chunks: HashMap<i64, ChunkTicks>,
     deadlines: DeadlineIndex,
@@ -599,7 +599,8 @@ impl LevelTicks {
         self.to_run.retain(|tick| !area.contains(tick.pos));
         // Vanilla clearArea leaves its lazily computed membership set intact.
     }
-    fn area_ticks(&self, area: TickArea) -> Vec<ScheduledTick> {
+    /// Snapshot pending ticks for a physical region transfer.
+    pub fn area_ticks(&self, area: TickArea) -> Vec<ScheduledTick> {
         let mut ticks: Vec<_> = self
             .already_run
             .iter()

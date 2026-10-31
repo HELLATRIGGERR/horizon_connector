@@ -45,31 +45,42 @@ fn ingredient(v: &Value) -> Option<Ingredient> {
                 .filter_map(|s| s.as_str().map(str::to_owned))
                 .collect(),
         )),
-        // A brewing slot: the item predicate's `item` ingredient.
-        Value::Object(o) => ingredient(o.get("item")?),
+        // Source 1.21 item/tag ingredients (AE2), and brewing predicates.
+        Value::Object(o) => {
+            if let Some(tag)=o.get("tag").and_then(Value::as_str) {Some(Ingredient::Tag(tag.to_owned()))}
+            else {ingredient(o.get("item")?)}
+        },
         _ => None,
     }
 }
 
-/// Every recipe file, by recipe id (the registry's order).
-pub(super) fn recipes(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Value>) {
-    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if path.is_dir() {
-            recipes(&path, &format!("{prefix}{name}/"), out);
-        } else if let Some(stem) = name.strip_suffix(".json")
-            && let Ok(v) = serde_json::from_slice(&std::fs::read(&path).unwrap_or_default())
-        {
-            out.insert(format!("minecraft:{prefix}{stem}"), v);
+/// Every enabled recipe, with complete resource locations.
+pub(super) fn resource_recipes(resources: &Path) -> BTreeMap<String, Value> {
+    fn collect(dir: &Path, prefix: &str, namespace: &str, out: &mut BTreeMap<String, Value>) {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Ok(kind) = std::fs::symlink_metadata(&path).map(|m|m.file_type()) else {continue;};
+            if kind.is_dir() { collect(&path, &format!("{prefix}{name}/"), namespace, out); }
+            else if (kind.is_file() || kind.is_symlink()) && name.ends_with(".json") {
+                if let Ok(v) = serde_json::from_slice(&std::fs::read(&path).unwrap_or_default()) {
+                    out.insert(format!("{namespace}:{prefix}{}",name.trim_end_matches(".json")),v);
+                }
+            }
         }
     }
+    let mut namespaces=vec!["minecraft".to_owned()];namespaces.extend(crate::mod_content::namespaces(resources));
+    namespaces.sort();namespaces.dedup();
+    let mut all=BTreeMap::new();
+    for namespace in namespaces {collect(&resources.join("data").join(&namespace).join("recipe"),"",&namespace,&mut all);}
+    let tags=crate::items::load_tags(resources,"item").unwrap_or_default();
+    all.retain(|_,v|crate::recipe_conditions::enabled(v,&tags));
+    all
 }
 
 /// The packet's payload for the vanilla data pack in `resources`.
 pub fn update_recipes(resources: &Path, sync: &SyncData) -> Vec<u8> {
-    let mut all = BTreeMap::new();
-    recipes(&resources.join("data/minecraft/recipe"), "", &mut all);
+    let all = resource_recipes(resources);
     let tags: BTreeMap<&str, &[i32]> = sync
         .tags
         .registries
@@ -145,4 +156,24 @@ pub fn update_recipes(resources: &Path, sync: &SyncData) -> Vec<u8> {
         w.varint(0); // nor removed
     }
     w.data
+}
+
+#[cfg(test)] mod ae2_tests {
+    use super::*;
+    #[test] fn old_source_item_and_tag_ingredients_keep_their_namespace() {
+        assert!(matches!(ingredient(&serde_json::json!({"tag":"c:ingots/iron"})),Some(Ingredient::Tag(t)) if t=="c:ingots/iron"));
+        assert!(matches!(ingredient(&serde_json::json!({"item":"ae2:fluix_crystal"})),Some(Ingredient::Items(v)) if v==["ae2:fluix_crystal"]));
+        assert!(matches!(ingredient(&serde_json::json!("#minecraft:planks")),Some(Ingredient::Tag(t)) if t=="minecraft:planks"));
+        assert!(ingredient(&serde_json::json!({"unknown":"ae2:fluix_crystal"})).is_none());
+    }
+    #[test]
+    #[ignore="needs merged native resources and pinned Java registry export"]
+    fn ae2_synchronized_recipe_data_matches_actual_java_registry() {
+        let root=std::env::var_os("AE2_NATIVE_RESOURCES").expect("AE2_NATIVE_RESOURCES");
+        let oracle=std::env::var_os("AE2_RECIPE_ORACLE").expect("AE2_RECIPE_ORACLE");
+        let rows:Value=serde_json::from_slice(&std::fs::read(oracle).unwrap()).unwrap();
+        let expected:BTreeSet<_>=rows.as_array().unwrap().iter().map(|r|r["id"].as_str().unwrap().to_owned()).collect();
+        let actual:BTreeSet<_>=resource_recipes(Path::new(&root)).into_keys().filter(|id|id.starts_with("ae2:")).collect();
+        assert_eq!(actual,expected);
+    }
 }

@@ -25,11 +25,11 @@ pub struct EntityMemory {
     pub(super) raw: HashMap<u32, Tag>,
     /// Entities of types Horizon does not simulate, kept per chunk and
     /// written back unchanged.
-    unknown: HashMap<(i32, i32), Vec<Tag>>,
+    pub(super) unknown: HashMap<(i32, i32), Vec<Tag>>,
     /// Entities without a Horizon entity ID (orbs, arrows, falling blocks, crystals,
     /// the dragon): the UUID and compound they were loaded with, found again by
     /// type and position (an entity that has moved since loading is saved afresh).
-    anon: HashMap<(String, [u64; 3]), (Vec3, Option<[i32; 4]>, Tag)>,
+    pub(super) anon: HashMap<(String, [u64; 3]), (Vec3, Option<[i32; 4]>, Tag)>,
 }
 
 fn anon_key(kind: &str, p: Vec3) -> (String, [u64; 3]) {
@@ -229,7 +229,7 @@ impl Game<'_> {
                         }
                     }
                     // PrimedTnt.readAdditionalSaveData: its fuse (80 when absent) and motion.
-                    "minecraft:tnt" => {
+                    "minecraft:tnt" | "ae2:tiny_tnt_primed" => {
                         if let Some(position) = entity_nbt::position(&tag) {
                             let fuse = match tag.get("fuse") {
                                 Some(Tag::Short(f)) => i32::from(*f),
@@ -242,6 +242,7 @@ impl Game<'_> {
                                 velocity: entity_nbt::motion(&tag),
                                 fuse,
                                 on_ground: matches!(tag.get("OnGround"), Some(Tag::Byte(1))),
+                                tiny:kind=="ae2:tiny_tnt_primed",in_water:false,saved_uuid:uuid,tiny_owner:None,
                             });
                         }
                     }
@@ -692,6 +693,13 @@ impl Game<'_> {
                 out.entry(chunk_of(p.position)).or_default().push(tag);
             }
         }
+        for t in &mut self.tnts {
+            if keys.contains(&chunk_of(t.position)) {
+                let uuid=*t.saved_uuid.get_or_insert_with(random_uuid);
+                let kind=if t.tiny {"ae2:tiny_tnt_primed"}else{"minecraft:tnt"};
+                out.entry(chunk_of(t.position)).or_default().push(entity_nbt::primed_tnt_to_nbt(kind,t.position,t.velocity,uuid,t.fuse,t.on_ground));
+            }
+        }
         for f in &self.falling {
             if keys.contains(&chunk_of(f.position)) {
                 let (uuid, raw) = match &f.saved {
@@ -867,6 +875,7 @@ impl Game<'_> {
                 keep
             });
             self.crystals.retain(|c| !gone(c.position));
+            self.tnts.retain(|t|!gone(t.position));
             self.ominous_spawners
                 .retain(|s| !gone(Vec3::new(s.position[0], s.position[1], s.position[2])));
             if self.dragon.as_ref().is_some_and(|d| gone(d.position)) {

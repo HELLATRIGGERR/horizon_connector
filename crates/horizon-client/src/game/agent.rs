@@ -58,7 +58,9 @@ pub(super) const HELP: &[&str] = &[
     "open-inventory                 open the inventory screen",
     "click-button LABEL             click a button of the open screen or menu by its label",
     "click-at X Y [right]           click at GUI pixel X Y of the window",
-    "drag-at [right] X Y X Y...     press at the first GUI point, move through the others, release",
+    "drag-at [right|middle] X Y X Y...  press at the first GUI point, move through the others, release",
+    #[cfg(feature = "ae2-lab")]
+    "ae2-drag-step start|add|end MODE [SLOT]  send one crafting-terminal drag packet for race fixtures",
     "scroll-at X Y STEPS            turn the wheel at GUI pixel X Y (positive scrolls up)",
     "command TEXT                   run a /command",
     "pause                          open the pause menu",
@@ -679,11 +681,7 @@ impl Game<'_> {
         if self.screen == Screen::Inventory && self.title.is_none() {
             let mut slots = Vec::new();
             for i in self.slots() {
-                let stack = if i == 200 {
-                    self.craft_result()
-                } else {
-                    self.slot_mut(i).clone()
-                };
+                let stack = self.slot_view(i);
                 slots.push(self.slot_value(i, &stack));
             }
             v["slots"] = json!(slots);
@@ -703,6 +701,24 @@ impl Game<'_> {
                 });
                 v["title"] = json!(spans.collect::<Vec<_>>());
             }
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_local_provider_open() {
+                v["title"] = json!([{ "text": if self.ae2_local_provider_priority_open() { "Priority" } else { "ME Pattern Provider" } }]);
+            }
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_local_machine_open() {v["title"]=json!([{ "text": self.ae2_local_machine_title() }]);}
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_local_bus_open() {v["title"]=json!([{ "text": self.ae2_local_bus_title() }]);}
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_local_pattern_access_open() {v["title"]=json!([{ "text": "AE2 Pattern Access" }]);}
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_terminal_open() {
+                v["title"] = json!([{ "text": if self.ae2_local_crafting_terminal_open() {"AE2 Crafting Terminal"} else {"AE2 ME Terminal"} }]);
+            }
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_local_craft_screen()!=0 {
+                v["title"] = json!([{ "text": match self.ae2_local_craft_screen() {1=>"AE2 Craft Amount",3=>"AE2 Crafting Status",_=>"AE2 Craft Confirm"} }]);
+            }
             // The recipe book's buttons (GUI pixels): the book button, then
             // the recipe buttons of the page, page arrows, filter and tabs.
             let book = self.recipe_book_targets();
@@ -712,9 +728,33 @@ impl Game<'_> {
                     "known": self.recipe_book_known(),
                 });
             }
+            #[cfg(feature = "ae2-lab")]
+            if self.ae2_pattern_access_screen() {
+                v["pattern_layout"]=self.ae2_pattern_access_layout().unwrap_or(serde_json::Value::Null);
+            }
             v["slot_ids"] = json!(
                 "0-8 hotbar, 9-35 inventory, 100+ crafting grid (row-major), 200 crafting result, 300+ container, 500-503 armor, 504 offhand, 600+ station"
             );
+        }
+        if self.screen == Screen::Creative && self.title.is_none() {
+            let items = self.creative_screen.items(&self.pack.names);
+            let first = self.creative_screen.first_row(&self.pack.names) * 9;
+            let mut slots=(0..45).map(|i|self.slot_value(900+i,&items.get(first+i).cloned())).collect::<Vec<_>>();
+            slots.extend((0..9).map(|i|self.slot_value(i,&self.inventory[i])));
+            v["slots"]=json!(slots);
+            v["carried"]=json!(self.carried.as_ref().map(|s|self.stack_value(s)));
+            v["creative_tab"]=json!(self.creative_screen.tab().id);
+            v["creative_search"]=json!(self.creative_screen.search.value);
+            v["creative_item_count"]=json!(items.len());
+            if let Some(renderer)=self.renderer.as_ref() {
+                let batch=super::HudBatch::new([renderer.config.width,renderer.config.height]);
+                let (ox,oy)=Self::creative_origin(&batch);
+                v["origin"]=json!([ox,oy]);
+                v["creative_tabs"]=json!(self.creative_screen.tabs.iter().map(|t| {
+                    let (x,y)=horizon_client::creative::Creative::tab_position(t);
+                    json!({"id":t.id,"title":self.creative_tab_title(t),"rect":[ox+x,oy+y,26.0,32.0],"items":t.items.len()})
+                }).collect::<Vec<_>>());
+            }
         }
         v
     }
@@ -918,7 +958,7 @@ impl Game<'_> {
         let scale = self
             .renderer
             .as_ref()
-            .map(|r| horizon_client::hud::HudBatch::new([r.config.width, r.config.height]).scale)
+            .map(|r| self.screen_batch([r.config.width, r.config.height]).scale)
             .ok_or("no renderer yet")?;
         let device_id = DeviceId::dummy();
         for (i, &(x, y)) in points.iter().enumerate() {
@@ -1459,9 +1499,32 @@ impl Game<'_> {
                 )?;
                 ok(json!({ "ok": true, "clicked": w.label, "screen": self.screen_label() }))
             }
+            #[cfg(feature = "ae2-lab")]
+            "ae2-drag-step" => {
+                if !self.ae2_crafting_terminal_screen() || self.remote.is_none() {
+                    return Err("crafting terminal unavailable".into());
+                }
+                let stage = a.get(0, "start, add or end")?;
+                let mode = a.get(1, "MODE")?.parse::<i32>()?;
+                if !(0..=2).contains(&mode) { return Err("drag mode must be 0, 1 or 2".into()); }
+                let (slot, header) = match stage {
+                    "start" => (None, 0),
+                    "add" => {
+                        let index = a.get(2, "SLOT")?.parse::<usize>()?;
+                        (Some(index), 1)
+                    }
+                    "end" => (None, 2),
+                    _ => return Err("expected start, add or end".into()),
+                };
+                if !self.remote_menu_ops(&[(slot, (mode << 2) | header, horizon_client::menu::Input::QuickCraft)]) {
+                    return Err("drag packet slot unavailable".into());
+                }
+                ok(json!({ "ok": true, "stage": stage }))
+            }
             "drag-at" => {
                 let right = a.pos.first() == Some(&"right");
-                let numbers = &a.pos[usize::from(right)..];
+                let middle = a.pos.first() == Some(&"middle");
+                let numbers = &a.pos[usize::from(right || middle)..];
                 let points = numbers
                     .chunks(2)
                     .map(|c| match c {
@@ -1472,7 +1535,9 @@ impl Game<'_> {
                 if points.is_empty() {
                     return Err("drag-at needs X Y pairs".into());
                 }
-                let button = if right {
+                let button = if middle {
+                    MouseButton::Middle
+                } else if right {
                     MouseButton::Right
                 } else {
                     MouseButton::Left

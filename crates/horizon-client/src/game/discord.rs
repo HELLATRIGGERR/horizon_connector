@@ -36,6 +36,8 @@ impl Game<'_> {
                 Dim::Overworld => Dimension::Overworld,
                 Dim::Nether => Dimension::Nether,
                 Dim::End => Dimension::End,
+                #[cfg(feature = "ae2-lab")]
+                Dim::Spatial => Dimension::End,
             },
             mode: self.mode,
         }

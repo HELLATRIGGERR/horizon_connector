@@ -70,6 +70,22 @@ pub(super) struct GuestPlay {
     pub(super) mount_window: Option<super::lan_mount_menu::GuestMount>,
     /// The lectern the guest reads (game/lan_stations.rs).
     pub(super) lectern: Option<super::lan_stations::GuestLectern>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_terminal: Option<super::ae2_terminal::GuestTerminal>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_machine: Option<super::ae2_terminal::GuestMachine>,
+    #[cfg(feature="ae2-lab")]
+    pub(super) ae2_anchor: Option<super::ae2_anchor_ui::GuestAnchor>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_portable: Option<super::ae2_portable_ui::GuestPortable>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_network_tool: Option<super::ae2_network_tool_ui::GuestNetworkTool>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_craft_confirm: Option<super::ae2_craft_confirm::GuestCraftConfirm>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_pattern_access: Option<super::ae2_pattern_access::GuestPatternAccess>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_bus: Option<super::ae2_bus_ui::GuestBus>,
     /// What the guest's body was given for its effects and enchantments.
     potions: super::potions::BodyPotions,
     /// `ServerPlayer.getStats` and the inventory `inventory_changed` last saw.
@@ -218,8 +234,18 @@ impl Game<'_> {
         conn: u32,
         f: impl FnOnce(&mut Self) -> R,
     ) -> Option<R> {
+        self.as_guest_with_host(host, conn, |game, _| f(game))
+    }
+    /// Actor-scoped actions that synchronously affect another guest need the
+    /// host's safe mutable context; no global pointer or deferred fake hit.
+    pub(super) fn as_guest_with_host<R>(
+        &mut self,
+        host: &mut LanHost,
+        conn: u32,
+        f: impl FnOnce(&mut Self, &mut LanHost) -> R,
+    ) -> Option<R> {
         let swap = self.enter_guest(host, conn)?;
-        let result = f(self);
+        let result = f(self, host);
         self.leave_guest(host, swap);
         Some(result)
     }
@@ -593,8 +619,10 @@ impl Game<'_> {
         let left_vehicle = g.vehicle.filter(|_| guest_vehicle.is_none());
         if guest_vehicle.is_none() {
             g.vehicle_good = None;
+            g.vehicle_relocated = false;
         }
         g.vehicle = guest_vehicle;
+        g.vehicle_uuid = guest_vehicle.map(|id| self.uuid_for(id));
         let fell_asleep = bed.is_some() && g.bed.is_none();
         (g.bed, g.sleep_timer, g.spawn) = (bed, guest_sleep_timer, guest_spawn);
         g.respawn_elsewhere = guest_respawn.map(|c| c.saved());
@@ -664,6 +692,7 @@ impl Game<'_> {
             let left_vehicle = match g.vehicle.filter(|_| teleported) {
                 Some(v) => {
                     (g.vehicle, g.vehicle_good) = (None, None);
+                    g.vehicle_uuid = None;
                     Some(v)
                 }
                 None => left_vehicle,
@@ -717,6 +746,24 @@ impl Game<'_> {
         {
             // Nothing the guest can use opened: its lid closes again.
             self.container_openers_changed(pos, false);
+        }
+        #[cfg(feature = "ae2-lab")]
+        if opened_station.is_some()
+            || guest_lectern.is_some()
+            || opened_table.is_some()
+            || guest_mount.is_some()
+        {
+            self.lan_ae2_terminal_closed(host, conn, None);
+            self.lan_ae2_machine_closed(host, conn, None);
+            self.lan_ae2_bus_closed(host, conn, None);
+            self.lan_ae2_portable_closed(host, conn, None);
+            self.lan_ae2_network_tool_closed(host, conn, None);
+            #[cfg(feature="ae2-lab")]
+            self.lan_ae2_anchor_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_craft_confirm_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_pattern_access_closed(host, conn, None);
         }
         if let Some(station) = opened_station {
             self.lan_station_opened(host, conn, station);
@@ -776,6 +823,42 @@ impl Game<'_> {
     /// Hand a container the guest opened over (ServerPlayer.openMenu);
     /// false when it is not one a guest can open.
     fn lan_open_container(&mut self, host: &mut LanHost, conn: u32, pos: (i32, i32, i32)) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_has_terminal(pos) {
+            return self.lan_open_ae2_terminal(host, conn, pos);
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_has_machine_menu(pos) {
+            return self.lan_open_ae2_machine(host, conn, pos);
+        }
+        #[cfg(feature = "ae2-lab")]
+        self.lan_ae2_terminal_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_ae2_machine_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_ae2_bus_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_ae2_portable_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_ae2_network_tool_closed(host, conn, None);
+            #[cfg(feature="ae2-lab")]
+            self.lan_ae2_anchor_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_craft_confirm_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_pattern_access_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        if let Some(BlockEntity::Ae2(machine)) = self.world.block_entities.get(&pos)
+            && matches!(machine.kind, horizon_client::ae2_world::MachineKind::SkyStoneChest | horizon_client::ae2_world::MachineKind::SmoothSkyStoneChest)
+        {
+            let Some(incarnation) = self.world.block_entities.incarnation(&pos) else { return false; };
+            let slots = Slots::Ae2SkyChest(pos, machine.kind, incarnation);
+            let Some(items) = host.hub.guest(conn).and_then(|g| slots.read(&self.world, g)) else { return false; };
+            self.guest_container_closed(host, conn);
+            self.lan_station_closed(host, conn, None);
+            host.hub.open_container(conn, "minecraft:generic_9x4", horizon_protocol::text::literal("Sky Stone Chest"), pos, slots, items);
+            return true;
+        }
         let name = &self
             .res
             .facts()
@@ -928,6 +1011,8 @@ impl Game<'_> {
 
     /// A packet from a guest that the hub does not handle itself.
     pub(super) fn lan_guest_packet(&mut self, host: &mut LanHost, conn: u32, packet: S) {
+        #[cfg(feature = "ae2-lab")]
+        let _formation_guests = self.ae2_formation_guest_scope(host);
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else {
             return;
         };
@@ -949,6 +1034,25 @@ impl Game<'_> {
                     host.hub.ack(conn, a.sequence);
                     if spectator {
                         return;
+                    }
+                    #[cfg(feature="ae2-lab")]
+                    if host.hub.guests[gi].within_block_range(a.pos,0.0) {
+                        let face=match a.direction {0=>"down",1=>"up",2=>"north",3=>"south",4=>"west",5=>"east",_=>""};
+                        if !face.is_empty() && self.lan_open_monitor_craft(host,conn,(a.pos[0],a.pos[1],a.pos[2]),face) {return;}
+                        if !face.is_empty() && self.as_guest(host,conn,|g|g.ae2_try_monitor_attack((a.pos[0],a.pos[1],a.pos[2]),face)).unwrap_or(false) {
+                            host.hub.send_inventory(gi);return;
+                        }
+                        let facade = self.as_guest(host, conn, |g| {
+                            g.chat_capture = Some(Vec::new());
+                            let used = g.with_hand(Hand::Main, |g| g.ae2_try_facade_cycle(a.pos, direction(i32::from(a.direction)), false));
+                            (used, g.chat_capture.take().unwrap_or_default())
+                        });
+                        if let Some((true, lines)) = facade {
+                            for line in lines { host.hub.send_to(conn, &C::SystemChat(play::SystemChat {
+                                content: horizon_client::lan::data::component_nbt(&line.component()), overlay: true,
+                            })); }
+                            host.hub.send_inventory(gi); return;
+                        }
                     }
                     let face = direction(i32::from(a.direction));
                     let play = host.play.entry(conn).or_default();
@@ -1052,6 +1156,279 @@ impl Game<'_> {
                 if spectator {
                     return;
                 }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos,0.0) {
+                    let hand=if p.hand==1 {Hand::Off}else{Hand::Main};
+                    let result=self.as_guest(host,conn,|g|{
+                        g.chat_capture=Some(Vec::new());
+                        let used=g.with_hand(hand,|g|g.ae2_try_replicator(p.pos,direction(p.face)));
+                        (used,g.chat_capture.take().unwrap_or_default())
+                    });
+                    if let Some((true,lines))=result {
+                        for line in lines {host.hub.send_to(conn,&C::SystemChat(play::SystemChat {
+                            content:horizon_client::lan::data::component_nbt(&line.component()),overlay:false,
+                        }));}
+                        host.hub.send_inventory(gi);return;
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos,0.0) {
+                    let hand=if p.hand==1 {Hand::Off}else{Hand::Main};
+                    let result=self.as_guest(host,conn,|g|{
+                        g.chat_capture=Some(Vec::new());
+                        let used=g.with_hand(hand,|g|g.ae2_try_meteorite_placer(p.pos));
+                        (used,g.chat_capture.take().unwrap_or_default())
+                    });
+                    if let Some((Some(placed),lines))=result {
+                        for line in lines {host.hub.send_to(conn,&C::SystemChat(play::SystemChat {
+                            content:horizon_client::lan::data::component_nbt(&line.component()),overlay:false,
+                        }));}
+                        if placed {
+                            // Source sends the acting player nine full chunks
+                            // after reporting successful live placement.
+                            let (cx,cz)=(p.pos[0]>>4,p.pos[2]>>4);
+                            let mut bodies=Vec::with_capacity(9);
+                            for x in cx-1..=cx+1 {for z in cz-1..=cz+1 {
+                                if let Some(chunk)=self.world.chunks.get(&(x,z)) {
+                                    bodies.push(host.hub.encoder.body_in(chunk,&self.world));
+                                }
+                            }}
+                            host.hub.guests[gi].sender.send_many(bodies);
+                        }
+                        host.hub.send_inventory(gi);return;
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos,0.0) && self.as_guest(host,conn,|g|g.with_hand(if p.hand==1 {Hand::Off}else{Hand::Main},|g|g.ae2_try_eraser(p.pos))).unwrap_or(false) {
+                    host.hub.send_inventory(gi);return;
+                }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos, 0.0) && self.as_guest(host, conn, |g| {
+                    let hands_full=g.inventory[g.selected].is_some() || g.offhand.is_some();
+                    if g.keys.contains(&KeyCode::ShiftLeft) && hands_full { return false; }
+                    g.with_hand(if p.hand == 1 { Hand::Off } else { Hand::Main }, |g| g.ae2_try_debug_cube_use(p.pos))
+                }).unwrap_or(false) { host.hub.send_inventory(gi); return; }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos, 0.0) && self.as_guest(host, conn, |g| g.with_hand(if p.hand == 1 { Hand::Off } else { Hand::Main }, |g| g.ae2_try_debug_item_generator(p.pos))).unwrap_or(false) {
+                    host.hub.send_inventory(gi); return;
+                }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos,0.0) && self.as_guest(host,conn,|g|g.with_hand(if p.hand==1{Hand::Off}else{Hand::Main},|g|g.ae2_cell_item_use(false))).unwrap_or(false) {
+                    host.hub.send_inventory(gi);return;
+                }
+                #[cfg(feature = "ae2-lab")]
+                if p.hand == 0 && host.hub.guests[gi].within_block_range(p.pos, 0.0)
+                    && self.as_guest(host, conn, |g| g.with_hand(Hand::Main,
+                        |g| g.ae2_try_wrench_rotate(p.pos, direction(p.face))
+                            || g.ae2_try_wrench_disassemble(p.pos))).unwrap_or(false) {
+                    host.hub.send_inventory(gi);
+                    return;
+                }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos,0.0) {
+                    let face=match p.face {0=>"down",1=>"up",2=>"north",3=>"south",4=>"west",5=>"east",_=>""};
+                    let hand=if p.hand==1 {Hand::Off} else {Hand::Main};
+                    if !face.is_empty() && self.as_guest(host,conn,|g|g.with_hand(hand,|g|g.ae2_try_monitor_use((p.pos[0],p.pos[1],p.pos[2]),face))).unwrap_or(false) {
+                        host.hub.send_inventory(gi);return;
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos,0.0) && self.as_guest(host,conn,|g|g.with_hand(if p.hand==1{Hand::Off}else{Hand::Main},|g|g.ae2_try_crafting_upgrade(p.pos,direction(p.face)))).unwrap_or(false) {
+                    host.hub.send_inventory(gi);return;
+                }
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_open_ae2_network_tool_at(host,conn,p.hand,(p.pos[0],p.pos[1],p.pos[2]),p.face) { return; }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos, 0.0) {
+                    let hand = if p.hand == 1 { Hand::Off } else { Hand::Main };
+                    let pos = (p.pos[0], p.pos[1], p.pos[2]);
+                    if self
+                        .as_guest(host, conn, |g| {
+                            g.with_hand(hand, |g| {
+                                let bypass = g.keys.contains(&KeyCode::ShiftLeft)
+                                    && (g.inventory[g.selected].is_some() || g.offhand.is_some());
+                                (!bypass && (g.ae2_try_crank_use(pos) || g.ae2_try_charger_use(pos)))
+                                    || g.ae2_try_tank_interaction(pos)
+                            })
+                        })
+                        .unwrap_or(false)
+                    {
+                        host.hub.send_inventory(gi);
+                        return;
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos, 0.0) {
+                    let hand = if p.hand == 1 { Hand::Off } else { Hand::Main };
+                    let face = direction(p.face);
+                    let side = match p.face {
+                        0 => "down",
+                        1 => "up",
+                        2 => "north",
+                        3 => "south",
+                        4 => "west",
+                        _ => "east",
+                    };
+                    let facade = self.as_guest(host, conn, |g| {
+                        g.chat_capture = Some(Vec::new());
+                        let used = g.with_hand(hand, |g| {
+                            g.ae2_try_remove_facade(p.pos, face)
+                                || g.ae2_try_facade_cycle(p.pos, face, true)
+                                || g.ae2_try_remove_part(p.pos,face)
+                                || g.ae2_try_facade(p.pos, face)
+                        });
+                        (used, g.chat_capture.take().unwrap_or_default())
+                    });
+                    if let Some((true, lines)) = facade {
+                        for line in lines { host.hub.send_to(conn, &C::SystemChat(play::SystemChat {
+                            content: horizon_client::lan::data::component_nbt(&line.component()), overlay: true,
+                        })); }
+                        host.hub.send_inventory(gi);
+                        return;
+                    }
+                    let memory = self.as_guest(host, conn, |g| {
+                        g.chat_capture = Some(Vec::new());
+                        let used = g.with_hand(hand, |g| g.ae2_try_provider_memory(p.pos,side) || g.ae2_try_machine_memory_face(p.pos,side));
+                        (used, g.chat_capture.take().unwrap_or_default())
+                    });
+                    if let Some((true, lines)) = memory {
+                        for line in lines {
+                            host.hub.send_to(conn, &C::SystemChat(play::SystemChat {
+                                content: horizon_client::lan::data::component_nbt(&line.component()),
+                                overlay: true,
+                            }));
+                        }
+                        host.hub.send_inventory(gi);
+                        return;
+                    }
+                    if self
+                        .as_guest(host, conn, |g| {
+                            g.with_hand(hand, |g| {
+                                g.ae2_try_p2p_card((p.pos[0], p.pos[1], p.pos[2]), side)
+                            })
+                        })
+                        .unwrap_or(false)
+                    {
+                        host.hub.send_inventory(gi);
+                        return;
+                    }
+                    if self
+                        .as_guest(host, conn, |g| {
+                            g.with_hand(hand, |g| g.ae2_try_place_cable(p.pos, face))
+                        })
+                        .unwrap_or(false)
+                    {
+                        host.hub.send_inventory(gi);
+                        for at in [
+                            p.pos,
+                            [p.pos[0] + face[0], p.pos[1] + face[1], p.pos[2] + face[2]],
+                        ] {
+                            let state = self.world.block(at[0], at[1], at[2]).0 as i32;
+                            host.hub.send_to(
+                                conn,
+                                &C::BlockUpdate(play::BlockUpdate { pos: at, state }),
+                            );
+                        }
+                        return;
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos, 0.0) {
+                    let pos = (p.pos[0], p.pos[1], p.pos[2]);
+                    let face = match p.face {
+                        0 => Some("down"),
+                        1 => Some("up"),
+                        2 => Some("north"),
+                        3 => Some("south"),
+                        4 => Some("west"),
+                        5 => Some("east"),
+                        _ => None,
+                    };
+                    let hand = if p.hand == 1 { Hand::Off } else { Hand::Main };
+                    if let Some(face) = face
+                        && self
+                            .as_guest(host, conn, |g| {
+                                g.with_hand(hand, |g| g.ae2_try_attach_part(pos, face))
+                            })
+                            .unwrap_or(false)
+                    {
+                        host.hub.send_inventory(gi);
+                        let d = direction(p.face);
+                        for at in [p.pos, [p.pos[0] + d[0], p.pos[1] + d[1], p.pos[2] + d[2]]] {
+                            let state = self.world.block(at[0], at[1], at[2]).0 as i32;
+                            host.hub.send_to(
+                                conn,
+                                &C::BlockUpdate(play::BlockUpdate { pos: at, state }),
+                            );
+                        }
+                        return;
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                {
+                    let target = (p.pos[0], p.pos[1], p.pos[2]);
+                    let guest = &host.hub.guests[gi];
+                    let hands_full =
+                        guest.inventory[guest.selected].is_some() || guest.offhand.is_some();
+                    let menu_allowed =
+                        guest.within_block_range(p.pos, 0.0) && !(guest.sneaking && hands_full);
+                    let hit_face = match direction(p.face) {
+                        [1, 0, 0] => Some(0),
+                        [-1, 0, 0] => Some(1),
+                        [0, 1, 0] => Some(2),
+                        [0, -1, 0] => Some(3),
+                        [0, 0, 1] => Some(4),
+                        [0, 0, -1] => Some(5),
+                        _ => None,
+                    };
+                    if menu_allowed {
+                        if self.lan_open_cpu_craft_status(host,conn,target) {return;}
+                        if self.lan_open_ae2_anchor(host,conn,target) {return;}
+                        if matches!(self.world.block_entities.get(&target),Some(BlockEntity::Ae2(m)) if matches!(m.kind,horizon_client::ae2_world::MachineKind::SkyStoneChest|horizon_client::ae2_world::MachineKind::SmoothSkyStoneChest))
+                            && self.lan_open_container(host,conn,target) {return;}
+                        let face=match direction(p.face) {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};
+                        if self.lan_open_pattern_access(host,conn,target,face) {return;}
+                        if let (Some(host_address), Some(face)) =
+                            (self.ae2_local_address(target), hit_face)
+                        {
+                            let part = super::ae2_parts::PartAddress {
+                                host: host_address,
+                                face,
+                            };
+                            if self.lan_open_ae2_bus(host, conn, target, face) { return; }
+                            if self.ae2_part_machine(part).ok().flatten().is_some_and(|m|m.kind==horizon_client::ae2_world::MachineKind::Terminal) && self.lan_open_ae2_view_terminal(host,conn,target,part) {return;}
+                            if self.ae2_part_machine(part).ok().flatten().is_some_and(|m|m.kind==horizon_client::ae2_world::MachineKind::CraftingTerminal)
+                                && self.lan_open_ae2_crafting_terminal(host,conn,target,part) { return; }
+                            if self.ae2_part_machine(part).ok().flatten().is_some_and(|m|m.kind==horizon_client::ae2_world::MachineKind::PatternEncodingTerminal)
+                                && self.lan_open_ae2_encoding_terminal(host,conn,target,part) {return;}
+                            if self.ae2_part_machine(part).ok().flatten().is_some()
+                                && self.lan_open_ae2_part_machine(host, conn, target, part)
+                            {
+                                return;
+                            }
+                        }
+                    }
+                    if self.ae2_has_machine_menu(target)
+                        && !self.ae2_has_terminal(target)
+                        && menu_allowed
+                    {
+                        self.lan_open_ae2_machine(host, conn, target);
+                        return;
+                    }
+                    let terminal_face = match self.world.block_entities.get(&target) {
+                        Some(BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::CableBus => {
+                            let face=match direction(p.face) {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};
+                            matches!(m.config.get(&"parts".into()),Some(horizon_world::nbt::Tag::List(parts)) if parts.iter().any(|part|
+                                part.get("face")==Some(&horizon_world::nbt::Tag::String(face.into()))
+                                && matches!(part.get("id"),Some(horizon_world::nbt::Tag::String(id)) if id.to_string().is_ok_and(|s|matches!(s.as_str(),"ae2:terminal"|"ae2:pattern_encoding_terminal")))))
+                        }
+                        _=>true,
+                    };
+                    if self.ae2_has_terminal(target) && terminal_face && menu_allowed {
+                        self.lan_open_ae2_terminal(host, conn, target);
+                        return;
+                    }
+                }
                 let face = direction(p.face);
                 let hit = Hit {
                     pos: p.pos,
@@ -1065,17 +1442,23 @@ impl Game<'_> {
                 let hand = if p.hand == 1 { Hand::Off } else { Hand::Main };
                 let logged = self.world.block_log.as_ref().map_or(0, Vec::len);
                 let heard = self.audio.capture.as_ref().map_or(0, Vec::len);
-                let swung = self.as_guest(host, conn, |g| {
+                let outcome = self.as_guest(host, conn, |g| {
                     g.forced_hit = Some(hit);
                     g.guest_use = Some(GuestUse::OnBlock(hand));
                     let swings = g.swings_started;
-                    let _ = g.use_item();
+                    let passed = matches!(g.use_item(), Ok(None));
                     g.forced_hit = None;
                     g.guest_use = None;
-                    g.swings_started != swings
+                    (g.swings_started != swings, passed)
                 });
-                self.lan_swing_back(host, conn, swung);
+                self.lan_swing_back(host, conn, outcome.map(|(swung, _)| swung));
                 self.guest_use_sounds(host, conn, logged, heard);
+                #[cfg(feature = "ae2-lab")]
+                if outcome.is_some_and(|(_, passed)| passed)
+                    && self.lan_open_quartz_knife(host, conn, p.hand)
+                {
+                    return;
+                }
                 // The client predicted a result: correct it with what really is.
                 for pos in [
                     p.pos,
@@ -1091,16 +1474,84 @@ impl Game<'_> {
                 if spectator {
                     return;
                 }
+                #[cfg(feature = "ae2-lab")]
+                {
+                    let hand=if p.hand==1 {Hand::Off}else{Hand::Main};
+                    let result=self.as_guest(host,conn,|g|{
+                        g.chat_capture=Some(Vec::new());
+                        let used=g.with_hand(hand,|g|g.ae2_try_replicator_cycle());
+                        (used,g.chat_capture.take().unwrap_or_default())
+                    });
+                    if let Some((true,lines))=result {
+                        for line in lines {host.hub.send_to(conn,&C::SystemChat(play::SystemChat {
+                            content:horizon_client::lan::data::component_nbt(&line.component()),overlay:false,
+                        }));}
+                        host.hub.send_inventory(gi);return;
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                {
+                    let hand=if p.hand==1 {Hand::Off}else{Hand::Main};
+                    let result=self.as_guest(host,conn,|g|{
+                        g.chat_capture=Some(Vec::new());
+                        let used=g.with_hand(hand,|g|g.ae2_try_meteorite_cycle());
+                        (used,g.chat_capture.take().unwrap_or_default())
+                    });
+                    if let Some((true,lines))=result {
+                        for line in lines {host.hub.send_to(conn,&C::SystemChat(play::SystemChat {
+                            content:horizon_client::lan::data::component_nbt(&line.component()),overlay:false,
+                        }));}
+                        host.hub.send_inventory(gi);return;
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                {
+                    let hand = if p.hand == 1 { Hand::Off } else { Hand::Main };
+                    let cleared = self.as_guest(host, conn, |g| {
+                        g.chat_capture = Some(Vec::new());
+                        let used = g.with_hand(hand, |g| g.ae2_clear_memory_in_air());
+                        (used, g.chat_capture.take().unwrap_or_default())
+                    });
+                    if let Some((true, lines)) = cleared {
+                        for line in lines {
+                            host.hub.send_to(conn, &C::SystemChat(play::SystemChat {
+                                content: horizon_client::lan::data::component_nbt(&line.component()),
+                                overlay: true,
+                            }));
+                        }
+                        host.hub.send_inventory(gi);
+                        return;
+                    }
+                }
+                (host.hub.guests[gi].yaw,host.hub.guests[gi].pitch)=(p.yaw,p.pitch);
+                #[cfg(feature = "ae2-lab")]
+                if self.as_guest(host,conn,|g|g.with_hand(if p.hand==1{Hand::Off}else{Hand::Main},|g|g.ae2_cell_item_use(true))).unwrap_or(false) {
+                    host.hub.send_inventory(gi);return;
+                }
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_open_quartz_knife(host, conn, p.hand) {
+                    return;
+                }
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_open_ae2_portable(host, conn, p.hand) {
+                    return;
+                }
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_open_ae2_network_tool(host,conn,p.hand) {return;}
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_open_ae2_wireless(host, conn, p.hand) {
+                    return;
+                }
                 // handleUseItem: the client's rotation (absSnapRotationTo, which
                 // sends nothing back), then the item alone. What it looked at a
                 // moment ago (a block, a mob) is UseItemOn's or Interact's.
                 let hand = if p.hand == 1 { Hand::Off } else { Hand::Main };
                 let g = &mut host.hub.guests[gi];
                 (g.yaw, g.pitch) = (p.yaw, p.pitch);
-                let swung = self.as_guest(host, conn, |g| {
+                let swung = self.as_guest_with_host(host, conn, |g, host| {
                     g.guest_use = Some(GuestUse::Item(hand));
                     let swings = g.swings_started;
-                    let _ = g.use_item();
+                    let _ = g.use_item_with_host(host);
                     g.guest_use = None;
                     g.swings_started != swings
                 });
@@ -1138,13 +1589,7 @@ impl Game<'_> {
                 let Some(stack) = self.item_from_network(host, &p.item) else {
                     return;
                 };
-                if stack.count
-                    > self
-                        .res
-                        .items()
-                        .get(&stack.item)
-                        .map_or(64, |i| i.max_stack)
-                {
+                if stack.count > self.res.items().stack_max(&stack) {
                     return;
                 }
                 let play = host.play.entry(conn).or_default();
@@ -1164,6 +1609,9 @@ impl Game<'_> {
                     return;
                 }
                 let item = self.item_from_network(host, &p.item);
+                if item.as_ref().is_some_and(|stack| stack.count > self.res.items().stack_max(stack)) {
+                    return;
+                }
                 let slot = p.slot as usize;
                 let g = &mut host.hub.guests[gi];
                 let old = g.menu_slot(slot);
@@ -1180,6 +1628,30 @@ impl Game<'_> {
                     });
                 }
             }
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_pattern_access_click(host, conn, &p) => {
+                host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload {
+                    channel:"ae2:bus_ack".into(), data:p.container.to_be_bytes().to_vec(),
+                }));
+            }
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_craft_confirm_click(host, conn, &p) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_ae2_anchor_click(host, conn, &p) => {}
+            #[cfg(feature="ae2-lab")]
+            S::ContainerClick(p) if self.lan_ae2_network_tool_click(host, conn, &p) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_ae2_bus_click(host, conn, &p) => {
+                host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload {
+                    channel:"ae2:bus_ack".into(), data:p.container.to_be_bytes().to_vec(),
+                }));
+            }
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_ae2_portable_click(host, conn, &p) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_ae2_terminal_click(host, conn, &p) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_ae2_machine_click(host, conn, &p) => {}
             S::ContainerClick(p) if self.lan_merchant_click(host, conn, &p) => {}
             S::ContainerClick(p) if self.lan_inventory_click(host, conn, &p) => {}
             S::ContainerClick(p) if self.lan_crafting_click(host, conn, &p) => {}
@@ -1198,7 +1670,21 @@ impl Game<'_> {
             S::ContainerButtonClick(p) => {
                 self.lan_station_button(host, conn, p.container, p.button);
             }
-            S::RenameItem(p) => self.lan_station_rename(host, conn, &p.name),
+            S::RenameItem(p) => {
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_ae2_priority_text(host, conn, &p.name) {return;}
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_ae2_energy_text(host, conn, &p.name) {return;}
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_pattern_access_search(host, conn, &p.name) {return;}
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_craft_confirm_amount(host, conn, &p.name) {return;}
+                #[cfg(feature = "ae2-lab")]
+                if self.lan_ae2_terminal_search(host, conn, &p.name) {
+                    return;
+                }
+                self.lan_station_rename(host, conn, &p.name)
+            }
             S::SignUpdate(p) => self.lan_sign_update(host, conn, p),
             S::EditBook(p) => self.lan_edit_book(host, conn, p),
             S::ContainerSlotStateChanged(p) => {
@@ -1206,6 +1692,24 @@ impl Game<'_> {
             }
             S::SetBeacon(p) => self.lan_station_beacon(host, conn, p.primary, p.secondary),
             S::SelectTrade(p) => self.lan_select_trade(host, conn, p.item),
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_pattern_access_closed(host, conn, Some(p.container)) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_craft_confirm_closed(host, conn, Some(p.container)) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_ae2_anchor_closed(host, conn, Some(p.container)) => {}
+            #[cfg(feature="ae2-lab")]
+            S::ContainerClose(p) if self.lan_ae2_network_tool_closed(host, conn, Some(p.container)) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_ae2_bus_closed(host, conn, Some(p.container)) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_ae2_portable_closed(host, conn, Some(p.container)) => {
+            }
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_ae2_terminal_closed(host, conn, Some(p.container)) => {
+            }
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_ae2_machine_closed(host, conn, Some(p.container)) => {}
             S::ContainerClose(p) if self.lan_merchant_closed(host, conn, Some(p.container)) => {
                 self.guest_carried_back(host, gi);
             }
@@ -1250,6 +1754,22 @@ impl Game<'_> {
                 self.guest_carried_back(host, gi);
             }
             S::ChatCommand(c) => self.guest_chat_command(host, conn, &c.command),
+            #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if p.channel == super::ae2_hotkeys::CHANNEL => {
+                self.lan_ae2_hotkey(host, conn, &p.data);
+            }
+            #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if p.channel == "ae2:mouse_wheel" => {
+                self.lan_ae2_item_wheel(host, conn, &p.data);
+            }
+            #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if p.channel == "ae2:clear_encoding" => {
+                self.lan_clear_encoding(host,conn,&p.data);
+            }
+            #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if p.channel == "ae2:pinned_keys" => {
+                self.lan_ae2_pinned_keys(host,conn,&p.data);
+            }
             S::CustomPayload(p) if p.channel == horizon_protocol::quiet::CHANNEL => {
                 self.guest_quiet_commands(host, conn, &p.data)
             }
@@ -1880,10 +2400,30 @@ impl Game<'_> {
 
     /// Per tick, for every guest: dig, use items, pick up drops, die.
     pub(super) fn tick_guests(&mut self, host: &mut LanHost) {
+        #[cfg(feature = "ae2-lab")]
+        let _formation_guests = self.ae2_formation_guest_scope(host);
+        #[cfg(feature="ae2-lab")]
+        self.ae2_flush_advancements(host);
         self.lan_merchant_tick(host);
         self.lan_stations_tick(host);
         self.lan_tables_tick(host);
         self.lan_containers_tick(host);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_refresh_ae2_anchors(host);
+        #[cfg(feature="ae2-lab")]
+        self.lan_refresh_ae2_network_tools(host);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_refresh_craft_confirms(host);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_refresh_pattern_access(host);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_refresh_ae2_buses(host);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_refresh_ae2_terminals(host);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_refresh_ae2_portables(host);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_refresh_ae2_machines(host);
         self.tick_lan_mount_menus(host);
         self.announce_guest_advancements(host);
         let conns: Vec<u32> = host
@@ -2000,6 +2540,14 @@ impl Game<'_> {
     /// message, the loot and experience, the death screen.
     fn guest_die(&mut self, host: &mut LanHost, gi: usize, conn: u32) {
         if host.hub.guests[gi].health <= 0.0 && !host.hub.guests[gi].dead {
+            #[cfg(feature = "ae2-lab")]
+            self.lan_ae2_network_tool_closed(host, conn, None);
+            #[cfg(feature="ae2-lab")]
+            self.lan_ae2_anchor_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_craft_confirm_closed(host, conn, None);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_pattern_access_closed(host, conn, None);
             self.guest_forget_digging(host, conn);
             // FishingHook.shouldStopFishing: its owner is dead.
             if let Some(play) = host.play.get_mut(&conn) {

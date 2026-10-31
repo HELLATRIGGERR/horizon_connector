@@ -37,6 +37,8 @@ impl Game<'_> {
                 continue;
             }
             match self.world.block_entities.get(&pos) {
+                #[cfg(feature="ae2-lab")]
+                Some(BlockEntity::Ae2(machine)) if matches!(machine.kind,horizon_client::ae2_world::MachineKind::QuantumRing|horizon_client::ae2_world::MachineKind::QuantumLink) => self.ae2_quantum_ready_tick(pos),
                 Some(BlockEntity::Chest(items)) if items.len() == HOPPER_SLOTS => {
                     self.tick_hopper(pos)
                 }
@@ -84,6 +86,8 @@ impl Game<'_> {
                 let state = BlockStateId(i as u32);
                 let name: &str = &self.res.facts().get(state).name;
                 match name {
+                    #[cfg(feature="ae2-lab")]
+                    "ae2:quantum_ring" | "ae2:quantum_link" => Ticking::Yes,
                     "minecraft:hopper"
                     | "minecraft:crafter"
                     | "minecraft:beacon"

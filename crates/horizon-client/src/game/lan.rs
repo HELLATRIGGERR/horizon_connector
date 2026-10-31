@@ -39,6 +39,8 @@ pub struct LanSettings {
 }
 
 pub(super) struct LanHost {
+    #[cfg(feature = "ae2-lab")]
+    pub ae2_visual_sent: HashMap<(u32,String,i32,i32),u64>,
     pub hub: Hub,
     pub settings: LanSettings,
     pub host_entity: i32,
@@ -607,6 +609,8 @@ impl Game<'_> {
         self.world.block_log = Some(Vec::new());
         self.world.light_log = Some(Default::default());
         self.lan = Some(LanHost {
+            #[cfg(feature = "ae2-lab")]
+            ae2_visual_sent: HashMap::new(),
             hub,
             settings: LanSettings { port, ..settings },
             host_entity,
@@ -654,6 +658,8 @@ impl Game<'_> {
         let Some(mut host) = self.lan.take() else {
             return;
         };
+        #[cfg(feature = "ae2-lab")]
+        self.lan_close_ae2_menus(&mut host);
         for g in &host.hub.guests {
             self.save_guest(&host, g);
         }
@@ -674,6 +680,21 @@ impl Game<'_> {
         }
     }
 
+    /// Return real carried stacks while the owner is still attached. The
+    /// integrated server must do this before its final player/world snapshot.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn lan_close_ae2_menus(&mut self,host:&mut LanHost) {
+        let conns:Vec<u32>=host.hub.guests.iter().map(|guest|guest.conn).collect();
+        for conn in conns {
+            self.lan_pattern_access_closed(host,conn,None);
+            self.lan_ae2_terminal_closed(host,conn,None);
+            self.lan_ae2_machine_closed(host,conn,None);
+            self.lan_ae2_portable_closed(host,conn,None);
+            self.lan_ae2_network_tool_closed(host,conn,None);
+            self.lan_ae2_anchor_closed(host,conn,None);
+            self.lan_ae2_bus_closed(host,conn,None);
+        }
+    }
     /// Save a guest when they leave or the world closes: an integrated
     /// server's owner with the world (`save_game`), anyone else in their file.
     pub(super) fn save_guest(&mut self, host: &LanHost, guest: &horizon_client::lan::guest::Guest) {
@@ -900,6 +921,8 @@ impl Game<'_> {
         let Some(mut host) = self.lan.take() else {
             return;
         };
+        #[cfg(feature = "ae2-lab")]
+        { self.ae2_lan_active = true; }
         // What the tick sends a guest goes to its connection at the end.
         let holding = lan::Holding::start();
         // The host's own commands' (and command blocks') players moving
@@ -1091,6 +1114,18 @@ impl Game<'_> {
         self.lan_update_waypoints(&mut host, state.as_ref());
         self.lan_sync_scoreboard(&mut host);
         self.lan_sync_border(&mut host);
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_tick_paint();
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_sync_visuals(&mut host);
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_compass_sync(&host);
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_flush_fx(&host);
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_flush_job_status(&host);
+        #[cfg(feature = "ae2-lab")]
+        { self.ae2_lan_active = false; }
         drop(holding);
         lan::flush_all(host.hub.guests.iter().map(|g| &g.sender));
         self.lan = Some(host);

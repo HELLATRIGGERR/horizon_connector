@@ -601,7 +601,10 @@ mod tests {
         let debug = error.downcast_ref::<DebugCrash>().unwrap();
         // The stack starts where the crash was raised (DebugCrash::new, in this file).
         let first = debug.stack.lines().next().unwrap();
-        assert!(first.contains("crash.rs"), "{}", debug.stack);
+        assert!(first.contains("crash::DebugCrash::new"), "{}", debug.stack);
+        // The fast profile inherits release and omits line tables. The frame
+        // must still be correct; development builds also retain its location.
+        if cfg!(debug_assertions) { assert!(first.contains("crash.rs"), "{}", debug.stack); }
     }
 
     #[test]
@@ -622,7 +625,8 @@ mod tests {
         assert!(report.error.contains("crash.rs"));
         // The first frame is the test's own code, not the panic machinery.
         let first = report.stack.lines().next().unwrap();
-        assert!(first.contains("crash.rs"), "{}", report.stack);
+        assert!(first.contains("a_panic_becomes_a_report"), "{}", report.stack);
+        if cfg!(debug_assertions) { assert!(first.contains("crash.rs"), "{}", report.stack); }
         let text = report.text();
         assert!(text.contains("Description: Unexpected error"));
         assert!(text.contains(&format!(

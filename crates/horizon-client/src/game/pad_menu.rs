@@ -104,7 +104,7 @@ impl Game<'_> {
     pub(super) fn gui_scale(&self) -> Option<HudBatch> {
         self.renderer
             .as_ref()
-            .map(|r| HudBatch::new([r.config.width, r.config.height]))
+            .map(|r| self.screen_batch([r.config.width, r.config.height]))
     }
 
     /// Focus mode is on for the open screen.

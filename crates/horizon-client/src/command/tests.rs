@@ -94,6 +94,18 @@ fn suggestions(input: &str) -> Vec<String> {
 }
 
 #[test]
+fn loaded_namespaced_biomes_replace_exported_command_ids() {
+    let mut r=reg();
+    r.by_registry.get_mut("minecraft:worldgen/biome").unwrap().tags.push("minecraft:is_overworld".into());
+    let command="execute if biome ~ ~ ~ ae2:spatial_storage";
+    assert!(vanilla::dispatcher().parse(command,&r).executable().is_err());
+    r.set_loaded_biomes(vec!["minecraft:plains".into(),"ae2:spatial_storage".into()]);
+    assert!(vanilla::dispatcher().parse(command,&r).executable().is_ok());
+    assert!(r.tags("minecraft:worldgen/biome").contains(&"minecraft:is_overworld".into()));
+    assert!(vanilla::dispatcher().parse("execute if biome ~ ~ ~ other:missing",&r).executable().is_err());
+}
+
+#[test]
 fn reader_matches_brigadier() {
     let mut r = Reader::new("12 -3.5 abc \"q\\\"x\" true");
     assert_eq!(r.read_int().unwrap(), 12);

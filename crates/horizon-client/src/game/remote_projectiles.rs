@@ -102,6 +102,7 @@ impl Game<'_> {
                 velocity,
                 fuse: 80,
                 on_ground: false,
+                tiny:data==super::tnt::TINY_TNT_MARKER,in_water:false,saved_uuid:None,tiny_owner:None,
             }),
             // FallingBlockEntity.recreateFromPacket: the block state is the data.
             "minecraft:falling_block" => self.falling.push(FallingBlock {
@@ -309,8 +310,11 @@ impl Game<'_> {
         self.tnts.retain_mut(|t| {
             // A fluid lookup that fails leaves it where its move put it.
             let _ = t.tick(world, collision, assets, facts);
-            t.fuse > 0
+            if t.tiny { t.fuse >= 0 } else { t.fuse > 0 }
         });
+        for t in self.tnts.iter().filter(|t| t.tiny) {
+            self.particles.add(&horizon_client::particles::ParticleOptions::simple(horizon_client::particles::ParticleType::Smoke),[t.position.x,t.position.y,t.position.z],[0.0;3]);
+        }
         // FallingBlockEntity.tick runs on a client too: the block falls by
         // itself between the server's updates (every 20 ticks), then waits
         // where it lands for the server to place it and remove it.

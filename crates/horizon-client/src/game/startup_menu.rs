@@ -280,7 +280,7 @@ impl Loading {
             gui.atlas.font.uniform = self.settings.force_unicode;
             gui.atlas.font.japanese = self.settings.japanese_glyphs;
         }
-        if let Some(window) = &self.window
+        if !self.options.as_ref().is_some_and(|o| o.offscreen) && let Some(window) = &self.window
             && let Some(want) = self.fullscreen.request(self.settings.fullscreen)
         {
             window.set_fullscreen(want.then_some(winit::window::Fullscreen::Borderless(None)));

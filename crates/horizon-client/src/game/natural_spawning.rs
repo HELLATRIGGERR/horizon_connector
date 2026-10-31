@@ -41,12 +41,46 @@ impl LevelPlayer {
 }
 /// `ChunkMap.euclideanDistanceSquared` below 128 blocks
 /// (`playerIsCloseEnoughForSpawning`).
-fn close_enough_for_spawning(p: &LevelPlayer, (cx, cz): (i32, i32)) -> bool {
+pub(super) fn close_enough_for_spawning(p: &LevelPlayer, (cx, cz): (i32, i32)) -> bool {
     let (x, z) = (
         f64::from(cx * 16 + 8) - p.position.x,
         f64::from(cz * 16 + 8) - p.position.z,
     );
     !p.spectator && x * x + z * z < 16384.0
+}
+
+/// The mixin leaves vanilla's proximity result alone when disabled.
+pub(super) fn anchor_random_tick_allowed(
+    players: &[LevelPlayer],
+    chunk: (i32, i32),
+    anchor_owned: bool,
+    enabled: bool,
+) -> bool {
+    !anchor_owned || enabled || players.iter().any(|p| close_enough_for_spawning(p, chunk))
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::*;
+
+    #[test]
+    fn disabled_anchor_respects_vanilla_player_proximity_and_spectators() {
+        let position = Vec3::new(8.0, 64.0, 8.0);
+        let mut player = LevelPlayer {
+            position,
+            bounds: Aabb::new(position, position),
+            alive: true,
+            creative: false,
+            spectator: false,
+        };
+        assert!(anchor_random_tick_allowed(&[], (8, 0), true, true));
+        assert!(!anchor_random_tick_allowed(&[], (8, 0), true, false));
+        assert!(anchor_random_tick_allowed(&[], (8, 0), false, false));
+        assert!(anchor_random_tick_allowed(std::slice::from_ref(&player), (7, 0), true, false));
+        assert!(!anchor_random_tick_allowed(std::slice::from_ref(&player), (8, 0), true, false));
+        player.spectator = true;
+        assert!(!anchor_random_tick_allowed(&[player], (0, 0), true, false));
+    }
 }
 /// `EntityGetter.getNearestPlayer(x, y, z, -1, false)`: the nearest
 /// non-spectator, alive or not.
@@ -213,6 +247,8 @@ impl NaturalLevel for GameLevel<'_, '_> {
         match self.game.dim {
             Dim::Nether => 0.1,
             Dim::End => 0.25,
+            #[cfg(feature = "ae2-lab")]
+            Dim::Spatial => 1.0,
             _ => 0.0,
         }
     }
@@ -463,13 +499,25 @@ impl<'a> Game<'a> {
             }
         }
         let count = candidates.len() as i32;
+        // AE2's ChunkMap mixin admits its forced chunks to the spawning
+        // pass, but does not enlarge the player-based mob-cap count.
+        #[cfg(feature = "ae2-lab")]
+        let anchor_spawning = horizon_client::ae2_common_config::gameplay().spatial_anchor_random_ticks;
+        #[cfg(not(feature = "ae2-lab"))]
+        let anchor_spawning = false;
+        if anchor_spawning {
+            for &key in &self.streaming.owned_forced {
+                if seen.insert(key) {
+                    candidates.push(key);
+                }
+            }
+        }
         let levels = self.tickets.levels();
         candidates.retain(|&(cx, cz)| {
             levels.loaded_ticking(cx, cz)
                 && super::ticking_chunk(&self.world, cx, cz)
-                && players
-                    .iter()
-                    .any(|p| close_enough_for_spawning(p, (cx, cz)))
+                && ((anchor_spawning && self.streaming.owned_forced.contains(&(cx, cz)))
+                    || players.iter().any(|p| close_enough_for_spawning(p, (cx, cz))))
         });
         (count, candidates)
     }

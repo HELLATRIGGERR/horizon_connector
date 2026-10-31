@@ -252,6 +252,10 @@ pub struct Frame<'a> {
     /// over everything.
     pub debug_lines: &'a [[f32; 8]],
     pub debug_lines_on_top: &'a [[f32; 8]],
+    /// Camera-relative source overlay faces and depth-tested / occluded edges.
+    pub anchor_overlay_faces: &'a [[f32; 7]],
+    pub anchor_overlay_lines: &'a [[f32; 8]],
+    pub anchor_overlay_occluded: &'a [[f32; 8]],
     /// `DebugCrosshairRenderer`'s axes, camera relative like `debug_lines`:
     /// drawn after the hand at its projection, without the bob or fog.
     pub debug_crosshair: &'a [[f32; 8]],
@@ -381,6 +385,11 @@ pub struct Renderer {
     /// always-on-top ones.
     debug_lines: wgpu::RenderPipeline,
     debug_lines_on_top: wgpu::RenderPipeline,
+    anchor_overlay_pipeline: wgpu::RenderPipeline,
+    anchor_line_pipeline: wgpu::RenderPipeline,
+    anchor_occluded_pipeline: wgpu::RenderPipeline,
+    anchor_overlay_buffer: wgpu::Buffer,
+    anchor_overlay_capacity: u64,
     debug_line_buffer: wgpu::Buffer,
     debug_line_capacity: u64,
     /// The terrain resources with the debug crosshair's projection
@@ -1219,6 +1228,8 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &line_attributes,
         })];
+        let overlay_attributes=wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x4];
+        let overlay_buffers=[Some(wgpu::VertexBufferLayout{array_stride:28,step_mode:wgpu::VertexStepMode::Vertex,attributes:&overlay_attributes})];
         let alpha_blend = wgpu::BlendState::ALPHA_BLENDING;
         let debug_line_attributes =
             wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Unorm8x4,3=>Float32];
@@ -1380,6 +1391,20 @@ impl Renderer {
             false,
             Some(alpha_blend),
         );
+        let anchor_overlay_pipeline=pipeline("Anchor overlay faces","vs_anchor_overlay","fs_anchor_overlay",&overlay_buffers,tri,None,false,true,Some(alpha_blend));
+        let additive=wgpu::BlendState{color:wgpu::BlendComponent{src_factor:wgpu::BlendFactor::SrcAlpha,dst_factor:wgpu::BlendFactor::One,operation:wgpu::BlendOperation::Add},alpha:wgpu::BlendComponent::OVER};
+        let anchor_line_pipeline=pipeline("Anchor overlay lines","vs_anchor_line","fs_anchor_line",&debug_line_buffers,wgpu::PrimitiveTopology::TriangleStrip,None,true,true,Some(additive));
+        // Reversed depth: Less is behind an existing depth value, matching
+        // OverlayRenderType's occluded-only pass.
+        let anchor_occluded_pipeline=device.create_render_pipeline(&wgpu::RenderPipelineDescriptor{
+            label:Some("Anchor overlay occluded lines"),layout:Some(&layout),
+            vertex:wgpu::VertexState{module:&shader,entry_point:Some("vs_anchor_line"),compilation_options:Default::default(),buffers:&debug_line_buffers},
+            primitive:wgpu::PrimitiveState{topology:wgpu::PrimitiveTopology::TriangleStrip,cull_mode:None,..Default::default()},
+            depth_stencil:Some(wgpu::DepthStencilState{format:wgpu::TextureFormat::Depth32Float,depth_write_enabled:Some(false),depth_compare:Some(wgpu::CompareFunction::Less),stencil:Default::default(),bias:Default::default()}),
+            multisample:Default::default(),
+            fragment:Some(wgpu::FragmentState{module:&shader,entry_point:Some("fs_anchor_line"),compilation_options:wgpu::PipelineCompilationOptions{constants:&sprite_constants,..Default::default()},targets:&[Some(wgpu::ColorTargetState{format:config.format.remove_srgb_suffix(),blend:Some(alpha_blend),write_mask:wgpu::ColorWrites::ALL})]}),
+            multiview_mask:None,cache:None,
+        });
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Horizon globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -1535,6 +1560,7 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let anchor_overlay_buffer=device.create_buffer(&wgpu::BufferDescriptor{label:Some("Anchor overlay faces"),size:28*4096,usage:wgpu::BufferUsages::VERTEX|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false});
         let debug_line_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Debug lines"),
             size: 32 * 4096,
@@ -2363,6 +2389,11 @@ impl Renderer {
             lines,
             debug_lines,
             debug_lines_on_top,
+            anchor_overlay_pipeline,
+            anchor_line_pipeline,
+            anchor_occluded_pipeline,
+            anchor_overlay_buffer,
+            anchor_overlay_capacity:4096,
             debug_line_buffer,
             debug_line_capacity: 4096,
             crosshair_group,
@@ -3920,8 +3951,16 @@ impl Renderer {
         let debug_depth = frame.debug_lines.len() as u32;
         let debug_top = frame.debug_lines_on_top.len() as u32;
         let crosshair = frame.debug_crosshair.len() as u32;
-        if debug_depth + debug_top + crosshair > 0 {
-            let needed = u64::from(debug_depth + debug_top + crosshair);
+        let anchor_lines=frame.anchor_overlay_lines.len() as u32;
+        let anchor_occluded=frame.anchor_overlay_occluded.len() as u32;
+        let anchor_faces=frame.anchor_overlay_faces.len() as u32;
+        if anchor_faces>0 {
+            let needed=u64::from(anchor_faces);
+            if needed>self.anchor_overlay_capacity {self.anchor_overlay_capacity=needed.next_power_of_two();self.anchor_overlay_buffer=self.device.create_buffer(&wgpu::BufferDescriptor{label:Some("Anchor overlay faces"),size:28*self.anchor_overlay_capacity,usage:wgpu::BufferUsages::VERTEX|wgpu::BufferUsages::COPY_DST,mapped_at_creation:false});}
+            self.uploads.buffer(&mut encoder,&self.anchor_overlay_buffer,0,bytemuck::cast_slice(frame.anchor_overlay_faces));
+        }
+        if debug_depth + debug_top + crosshair + anchor_lines + anchor_occluded > 0 {
+            let needed = u64::from(debug_depth + debug_top + crosshair + anchor_lines + anchor_occluded);
             if needed > self.debug_line_capacity {
                 self.debug_line_capacity = needed.next_power_of_two();
                 self.debug_line_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -3936,6 +3975,8 @@ impl Renderer {
                 .iter()
                 .chain(frame.debug_lines_on_top)
                 .chain(frame.debug_crosshair)
+                .chain(frame.anchor_overlay_lines)
+                .chain(frame.anchor_overlay_occluded)
                 .copied()
                 .collect();
             self.uploads.buffer(
@@ -4391,7 +4432,7 @@ impl Renderer {
             });
             pass.set_bind_group(0, &self.group, &[]);
             pack_frame(&mut pass);
-            if frame.title || (sky_visible && (frame.skybox || frame.end_sky)) {
+            if frame.title || (sky_visible && (frame.skybox || frame.end_sky || celestial_vertices > 0)) {
                 if !frame.title && frame.skybox && !pack_draws_sky && !native_sky_pass {
                     match self
                         .native
@@ -4653,6 +4694,14 @@ impl Renderer {
                 pass.set_vertex_buffer(0, self.cloud_buffer.slice(..));
                 pass.draw_indexed(0..cloud_quads * 6, 0, 0..1);
             }
+            // Source anchor overlays are drawn after translucent world content.
+            let anchor_start=debug_depth+debug_top+crosshair;
+            if anchor_occluded>0 {
+                pass.set_pipeline(&self.anchor_occluded_pipeline);pass.set_bind_group(0,&self.group,&[]);
+                pass.set_vertex_buffer(0,self.debug_line_buffer.slice(..));pass.draw(0..4,anchor_start+anchor_lines..anchor_start+anchor_lines+anchor_occluded);
+            }
+            if anchor_faces>0 {pass.set_pipeline(&self.anchor_overlay_pipeline);pass.set_bind_group(0,&self.group,&[]);pass.set_vertex_buffer(0,self.anchor_overlay_buffer.slice(..));pass.draw(0..anchor_faces,0..1);}
+            if anchor_lines>0 {pass.set_pipeline(&self.anchor_line_pipeline);pass.set_bind_group(0,&self.group,&[]);pass.set_vertex_buffer(0,self.debug_line_buffer.slice(..));pass.draw(0..4,anchor_start..anchor_start+anchor_lines);}
             // LevelRenderer.executeSeeThrough, after the rest of the world.
             if see_through_quads > 0 {
                 pass.set_pipeline(&self.see_through_pipeline);

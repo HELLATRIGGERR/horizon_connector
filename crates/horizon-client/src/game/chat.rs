@@ -388,7 +388,11 @@ impl Game<'_> {
                 break;
             }
         }
+        #[cfg(feature = "ae2-lab")]
+        horizon_client::ae2_components::register(&mut self.ui.registries);
+        let loaded_biomes=self.res.biomes().list.iter().map(|b|b.name.clone()).collect();
         let reg = &mut self.ui.registries;
+        reg.set_loaded_biomes(loaded_biomes);
         reg.timelines = self.ui.timelines.keys().cloned().collect();
         reg.time_markers = self
             .ui

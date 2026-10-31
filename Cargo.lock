@@ -34,6 +34,39 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "ae2-cell-core"
+version = "0.1.0"
+
+[[package]]
+name = "ae2-crafting-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "ae2-links-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "ae2-machines-core"
+version = "0.1.0"
+dependencies = [
+ "ae2-cell-core",
+ "serde",
+]
+
+[[package]]
+name = "ae2-network-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1356,6 +1389,11 @@ name = "horizon-client"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
+ "ae2-cell-core",
+ "ae2-crafting-core",
+ "ae2-links-core",
+ "ae2-machines-core",
+ "ae2-network-core",
  "arboard",
  "bytemuck",
  "chrono",
@@ -1389,6 +1427,7 @@ dependencies = [
  "sha1",
  "sha2",
  "symphonia",
+ "toml",
  "ureq",
  "wgpu",
  "winit",

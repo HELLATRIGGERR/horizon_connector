@@ -46,6 +46,9 @@ pub const VEHICLE_KEY_Y: i32 = -100_000;
 pub enum Slots {
     /// One block entity.
     Block((i32, i32, i32)),
+    /// Physical AE2 sky chest, bound to this exact block-entity incarnation.
+    #[cfg(feature = "ae2-lab")]
+    Ae2SkyChest((i32, i32, i32), crate::ae2_world::MachineKind, u64),
     /// A double chest (`CompoundContainer`): the first half's slots, then
     /// the second's.
     Double((i32, i32, i32), (i32, i32, i32)),
@@ -57,6 +60,8 @@ impl Slots {
     fn halves(self) -> Vec<(i32, i32, i32)> {
         match self {
             Slots::Block(k) => vec![k],
+            #[cfg(feature = "ae2-lab")]
+            Slots::Ae2SkyChest(k, _, _) => vec![k],
             Slots::Double(a, b) => vec![a, b],
             Slots::Ender => Vec::new(),
         }
@@ -64,9 +69,13 @@ impl Slots {
     /// Whether the block entities behind the slots are still there
     /// (`Container.stillValid`).
     pub fn valid(self, world: &World) -> bool {
-        self.halves()
-            .iter()
-            .all(|k| world.block_entities.contains_key(k))
+        #[cfg(feature = "ae2-lab")]
+        if let Slots::Ae2SkyChest(pos, kind, incarnation) = self {
+            return world.block_entities.incarnation(&pos)==Some(incarnation)
+                && matches!(world.block_entities.get(&pos),Some(crate::containers::BlockEntity::Ae2(m)) if m.kind==kind && m.slots.len()==36)
+                && matches!(kind,crate::ae2_world::MachineKind::SkyStoneChest | crate::ae2_world::MachineKind::SmoothSkyStoneChest);
+        }
+        self.halves().iter().all(|k| world.block_entities.contains_key(k))
     }
     /// `Container.stillValid` for the guest: the block entities are there
     /// and the guest is within reach of each (`stillValidBlockEntity`). The
@@ -88,6 +97,7 @@ impl Slots {
         if self == Slots::Ender {
             return guest.ender_items.get(n).cloned().flatten();
         }
+        if !self.valid(world) {return None;}
         for k in self.halves() {
             let slots = world.block_entities.get(&k)?.slots();
             if n < slots.len() {
@@ -102,6 +112,7 @@ impl Slots {
         if self == Slots::Ender {
             return Some(guest.ender_items.clone());
         }
+        if !self.valid(world) {return None;}
         let mut items = Vec::new();
         for k in self.halves() {
             items.extend_from_slice(world.block_entities.get(&k)?.slots());
@@ -114,12 +125,20 @@ impl Slots {
             guest.ender_items = items;
             return;
         }
+        if !self.valid(world) {return;}
         let mut rest = items.into_iter();
         for k in self.halves() {
+            let mut changed=false;
             if let Some(e) = world.block_entities.get_mut(&k) {
                 for slot in e.slots_mut() {
-                    *slot = rest.next().flatten();
+                    let next=rest.next().flatten();
+                    changed |= *slot != next;
+                    *slot = next;
                 }
+            }
+            if changed && k.1 != VEHICLE_KEY_Y {
+                // Container mutations must be included in the next chunk save.
+                world.modified.insert((k.0 >> 4,k.2 >> 4));
             }
         }
     }
@@ -186,7 +205,7 @@ impl View<'_> {
         if self.container.is_none() && (5..=8).contains(&i) {
             return 1;
         }
-        rules.max_stack(&stack.item).max(1)
+        rules.items().stack_max(stack)
     }
     /// The ranges quick move uses: (container start..end, main, hotbar).
     fn player_ranges(&self) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
@@ -319,7 +338,7 @@ pub fn click(
     let mut drops = Vec::new();
     let before: Vec<Option<ItemStack>> = (0..view.len()).map(|i| view.get(i)).collect();
     if mode == input::QUICK_CRAFT {
-        quick_craft(view, drag, slot, button, rules);
+        quick_craft(view, drag, slot, button, rules, &mut drops);
     } else {
         *drag = None;
         match mode {
@@ -338,7 +357,7 @@ pub fn click(
                     }
                 }
             }
-            input::PICKUP => pickup(view, slot, button, rules),
+            input::PICKUP => pickup(view, slot, button, rules, &mut drops),
             input::QUICK_MOVE => {
                 if let Ok(i) = usize::try_from(slot)
                     && i < view.len()
@@ -353,7 +372,7 @@ pub fn click(
                     && let Ok(i) = usize::try_from(slot)
                     && let Some(stack) = view.get(i)
                 {
-                    let max = rules.max_stack(&stack.item).max(1);
+                    let max = rules.items().stack_max(&stack);
                     view.guest.carried = Some(ItemStack {
                         count: max,
                         ..stack
@@ -388,7 +407,7 @@ pub fn click(
     (drops, changed)
 }
 
-fn pickup(view: &mut View, slot: i32, button: i32, rules: &dyn Rules) {
+fn pickup(view: &mut View, slot: i32, button: i32, rules: &dyn Rules, drops:&mut Vec<ItemStack>) {
     let Ok(i) = usize::try_from(slot) else {
         return;
     };
@@ -399,6 +418,10 @@ fn pickup(view: &mut View, slot: i32, button: i32, rules: &dyn Rules) {
     if bundle_click(view, i, right, rules) {
         return;
     }
+    #[cfg(feature="ae2-lab")]
+    if wrapped_stack_click(view,i,right,rules,drops) {return;}
+    #[cfg(not(feature="ae2-lab"))]
+    let _ = drops;
     let (slot_item, carried) = (view.get(i), view.guest.carried.clone());
     match (slot_item, carried) {
         (None, None) => {}
@@ -443,6 +466,36 @@ fn pickup(view: &mut View, slot: i32, button: i32, rules: &dyn Rules) {
             }
         }
     }
+}
+
+/// WrappedGenericStack.overrideOtherStackedOnMe for a guest's generic
+/// container. The wrapper remains in its slot unless a supported bucket is
+/// filled, or its invalid payload is removed by the source fallback.
+#[cfg(feature="ae2-lab")]
+fn wrapped_stack_click(view:&mut View,i:usize,right:bool,rules:&dyn Rules,drops:&mut Vec<ItemStack>)->bool {
+    let Some(wrapper)=view.get(i).filter(|item|item.item.as_ref()=="ae2:wrapped_generic_stack") else{return false;};
+    let value=match crate::ae2_generic_stack::unwrap_item_stack_checked(&wrapper,&|id,fluid|fluid||rules.items().get(id).is_some()) {
+        Ok(Some(value))=>value,Ok(None)|Err(_)=>{view.set(i,None);return true;},
+    };
+    if right || !value.fluid {return true;}
+    let Some(carried)=view.guest.carried.clone().filter(|item|item.item.as_ref()=="minecraft:bucket" && item.same_item_same_components(&ItemStack::new("minecraft:bucket",1))) else{return true;};
+    if !value.key.components.is_empty(){return true;}
+    let Some(result)=crate::ae2_cell_codec::fluid_bucket(&value.key.item_id) else{return true;};
+    if value.amount<=0 {view.set(i,None);return true;}
+    if value.amount<1000 {return true;}
+    let remaining=value.amount-1000;
+    let replacement=if remaining==0 {None}else{
+        let next=crate::ae2_generic_stack::GenericStack{amount:remaining,..value};
+        let Ok(stack)=crate::ae2_generic_stack::wrap(&next) else{return true;};Some(stack)
+    };
+    view.set(i,replacement);
+    let filled=ItemStack::new(result,1);
+    if carried.count==1 {view.guest.carried=Some(filled);} else {
+        let mut empty=carried;empty.count-=1;view.guest.carried=Some(empty);
+        let (main,hotbar)=view.player_ranges();
+        if let Some(rest)=move_to(view,filled,main.start..hotbar.end,false,rules){drops.push(rest);}
+    }
+    true
 }
 
 /// `tryItemClickBehaviourOverride`: the carried stack's
@@ -557,7 +610,7 @@ fn pickup_all(view: &mut View, slot: i32, rules: &dyn Rules) {
     let Some(mut carried) = view.guest.carried.clone() else {
         return;
     };
-    let max = rules.max_stack(&carried.item).max(1);
+    let max = rules.items().stack_max(&carried);
     // Partial stacks first, then full ones.
     for full in [false, true] {
         for i in 0..view.len() {
@@ -589,6 +642,7 @@ fn quick_craft(
     slot: i32,
     button: i32,
     rules: &dyn Rules,
+    drops: &mut Vec<ItemStack>,
 ) {
     let (stage, kind) = (button & 3, ((button >> 2) & 3) as u8);
     match stage {
@@ -618,13 +672,13 @@ fn quick_craft(
             if slots.len() == 1 {
                 // A single slot behaves like a plain click.
                 let button = if kind == 1 { 1 } else { 0 };
-                pickup(view, slots[0] as i32, button, rules);
+                pickup(view, slots[0] as i32, button, rules, drops);
                 return;
             }
             let each = match kind {
                 0 => carried.count / slots.len() as u32,
                 1 => 1,
-                _ => rules.max_stack(&carried.item).max(1),
+                _ => rules.items().stack_max(&carried),
             };
             for i in slots {
                 if carried.count == 0 {
@@ -690,6 +744,30 @@ mod tests {
             [0.0, 64.0, 0.0],
             8,
         )
+    }
+
+    #[cfg(feature = "ae2-lab")]
+    #[test]
+    fn sky_chest_menu_rejects_same_position_replacement_without_touching_items() {
+        use crate::{ae2_world::{Machine,MachineKind},containers::BlockEntity};
+        use horizon_world::registry::BlockStateId;
+        let pos=(4,64,8);let mut world=World::new(BlockStateId(0),0);let mut player=guest();
+        let mut chest=Machine::new(MachineKind::SkyStoneChest);
+        chest.slots[35]=Some(ItemStack::new("minecraft:diamond",7));
+        world.block_entities.insert(pos,BlockEntity::Ae2(Box::new(chest)));
+        let slots=Slots::Ae2SkyChest(pos,MachineKind::SkyStoneChest,world.block_entities.incarnation(&pos).unwrap());
+        let mut changed=slots.read(&world,&player).unwrap();
+        assert_eq!(changed[35].as_ref().unwrap().count,7);
+        changed[35]=Some(ItemStack::new("minecraft:diamond",8));
+        slots.write(&mut world,&mut player,changed);
+        assert!(world.modified.contains(&(0,0)),"real inventory edit must mark its chunk dirty");
+        world.block_entities.remove(&pos);
+        let mut replacement=Machine::new(MachineKind::SkyStoneChest);
+        replacement.slots[35]=Some(ItemStack::new("minecraft:emerald",3));
+        world.block_entities.insert(pos,BlockEntity::Ae2(Box::new(replacement)));
+        assert!(!slots.valid(&world));assert!(slots.read(&world,&player).is_none());
+        slots.write(&mut world,&mut player,vec![Some(ItemStack::new("minecraft:diamond",7));36]);
+        assert_eq!(world.block_entities.get(&pos).unwrap().slots()[35].as_ref().unwrap().item.as_ref(),"minecraft:emerald");
     }
 
     /// The prepared resources' items, or None (the test is skipped) without them.
@@ -772,6 +850,23 @@ mod tests {
         assert_eq!(contents(&view.get(2)), []);
     }
 
+    #[cfg(feature="ae2-lab")]
+    #[test]
+    fn guest_chest_wrapped_fluid_fills_one_bucket_without_pickup_or_duplication() {
+        let Some(rules)=rules() else{return;};let mut g=guest();
+        let wrapped=crate::ae2_generic_stack::wrap(&crate::ae2_generic_stack::GenericStack{
+            key:crate::ae2_cell_codec::fluid_key("minecraft:water"),fluid:true,amount:1500,
+        }).unwrap();
+        let mut chest=vec![Some(wrapped.clone())];let mut drag=None;
+        let mut view=View{guest:&mut g,container:Some(&mut chest),shulker:false};
+        click(&mut view,&mut drag,0,0,input::PICKUP,&rules);
+        assert!(view.guest.carried.is_none());assert_eq!(view.get(0),Some(wrapped));
+        view.guest.carried=Some(ItemStack::new("minecraft:bucket",2));
+        let (drops,_)=click(&mut view,&mut drag,0,0,input::PICKUP,&rules);
+        assert!(drops.is_empty());assert_eq!(view.guest.carried.as_ref().unwrap().count,1);
+        assert!(view.guest.inventory.iter().flatten().any(|item|item.item.as_ref()=="minecraft:water_bucket"));
+        assert_eq!(crate::ae2_generic_stack::unwrap_item_stack(&view.get(0).unwrap()).unwrap().unwrap().amount,500);
+    }
     #[test]
     fn guest_shulker_box_menu_refuses_shulker_boxes() {
         let Some(rules) = rules() else {

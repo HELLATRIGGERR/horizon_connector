@@ -63,7 +63,7 @@ impl Game<'_> {
             .as_ref()
             .map(|r| [r.config.width, r.config.height])
             .ok_or("no renderer yet")?;
-        Ok(self.inventory_origin(&horizon_client::hud::HudBatch::new(size)))
+        Ok(self.inventory_origin(&self.screen_batch(size)))
     }
     /// Commands not known to control.rs; None when unknown here too.
     pub(super) fn station_command(&mut self, words: &[&str]) -> Result<Option<Value>> {
@@ -150,6 +150,8 @@ impl Game<'_> {
                     .filter_map(|i| {
                         let s = if i == 200 {
                             self.craft_result()
+                        } else if (360..365).contains(&i) {
+                            self.slot_view(i)
                         } else {
                             self.slot_mut(i).clone()
                         };

@@ -2,6 +2,26 @@
 //! bindings between the validated simulation pieces and the game loop.
 #![forbid(unsafe_code)]
 pub mod advancements;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_components;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_powered_items;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_item_capabilities;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_event_replay;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_upgrade_inventory;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_transform;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_network_tool;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_world;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_stack_identity;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_job_status;
 pub mod ambience;
 pub mod animate_tick;
 pub mod arrows;
@@ -157,6 +177,7 @@ pub mod raid;
 pub mod random_sequences;
 pub mod random_tick_sections;
 pub mod recipe_book;
+mod recipe_conditions;
 pub mod recipe_book_screen;
 pub mod reconnect;
 pub mod save;
@@ -207,3 +228,21 @@ pub mod world_spawn;
 pub mod worldborder;
 pub mod zip;
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_cell_codec;
+
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_generic_stack;
+
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_provider_queue;
+
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_meteorite;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_common_config;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_tick_config;
+#[cfg(feature = "ae2-lab")]
+mod ae2_creative;

@@ -1715,8 +1715,13 @@ impl OptionsUi {
                 for (name, category) in mappings {
                     if category != last_category {
                         last_category = category;
+                        let category_key = if category == "ae2" {
+                            "key.ae2.category".to_owned()
+                        } else {
+                            format!("key.category.minecraft.{category}")
+                        };
                         let label =
-                            Text::translate(&format!("key.category.minecraft.{category}"), &[])
+                            Text::translate(&category_key, &[])
                                 .with_style(&Style {
                                     bold: Some(true),
                                     underlined: Some(true),

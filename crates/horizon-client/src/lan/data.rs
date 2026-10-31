@@ -132,12 +132,33 @@ impl SyncData {
         let mut dynamic = Dynamic::default();
         for key in SYNCHRONIZED {
             let path = key.trim_start_matches("minecraft:");
-            let mut found = BTreeMap::new();
-            walk(&root.join(path), "", &mut found);
-            let (names, json): (Vec<_>, Vec<_>) = found
+            // Keep vanilla network IDs stable, then append data-driven
+            // entries from other namespaces (e.g. AE2's spatial dimension).
+            let mut namespaces = std::fs::read_dir(resources.join("data"))
                 .into_iter()
-                .map(|(n, v)| (format!("minecraft:{n}"), v))
-                .unzip();
+                .flatten()
+                .filter_map(Result::ok)
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n != "minecraft")
+                .collect::<Vec<_>>();
+            namespaces.sort();
+            namespaces.insert(0, "minecraft".into());
+            let mut entries = Vec::new();
+            for namespace in namespaces {
+                let mut found = BTreeMap::new();
+                walk(
+                    &resources.join("data").join(&namespace).join(path),
+                    "",
+                    &mut found,
+                );
+                entries.extend(
+                    found
+                        .into_iter()
+                        .map(|(n, v)| (format!("{namespace}:{n}"), v)),
+                );
+            }
+            let (names, json): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
             dynamic.registries.insert(
                 (*key).to_owned(),
                 names.iter().map(|n| (n.clone(), None)).collect(),

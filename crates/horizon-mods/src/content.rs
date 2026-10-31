@@ -11,7 +11,7 @@
 use crate::manifest::{Capability, MANIFEST, Manifest};
 use serde::Deserialize;
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     path::{Path, PathBuf},
 };
@@ -62,6 +62,23 @@ fn vanilla_id(id: &str) -> bool {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct BlockProperties {
+    /// Empty movement collision independent of the selection outline.
+    pub no_collision: Option<bool>,
+    /// No sturdy support faces, independently of collision geometry.
+    pub no_support: Option<bool>,
+    pub outline_empty: Option<bool>,
+    pub no_occlusion: Option<bool>,
+    /// Explicit state facts, independent of the inherited template.
+    pub can_occlude: Option<bool>,
+    pub skylight_down: Option<bool>,
+    pub light_dampening: Option<u8>,
+    pub random_ticks: Option<bool>,
+    pub replaceable: Option<bool>,
+    pub redstone_conductor: Option<bool>,
+    pub solid: Option<bool>,
+    pub suffocating: Option<bool>,
+    /// Native piston reaction, independently of the template block.
+    pub push_reaction: Option<String>,
     /// Destroy time in seconds of hand mining (-1: unbreakable).
     pub hardness: Option<f32>,
     pub explosion_resistance: Option<f32>,
@@ -81,6 +98,18 @@ struct BlockFile {
     template: String,
     #[serde(default)]
     properties: BlockProperties,
+    #[serde(default)]
+    state_properties: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    state_defaults: BTreeMap<String, String>,
+    #[serde(default)]
+    collision_boxes: BTreeMap<String, [f64; 6]>,
+    #[serde(default)]
+    outline_boxes: BTreeMap<String, [f64; 6]>,
+    #[serde(default)]
+    light_emission: BTreeMap<String, u8>,
+    #[serde(default)]
+    light_dampening_states: BTreeMap<String, u8>,
     #[serde(default = "yes")]
     item: bool,
 }
@@ -97,6 +126,14 @@ pub struct Block {
     /// The vanilla block it copies, `minecraft:<path>`.
     pub template: String,
     pub properties: BlockProperties,
+    pub state_properties: BTreeMap<String, Vec<String>>,
+    pub state_defaults: BTreeMap<String, String>,
+    /// One normalized cuboid per partial state selector (`*` is fallback).
+    pub collision_boxes: BTreeMap<String, [f64; 6]>,
+    pub outline_boxes: BTreeMap<String, [f64; 6]>,
+    /// Emitted light for partial state selectors, in the range 0..=15.
+    pub light_emission: BTreeMap<String, u8>,
+    pub light_dampening_states: BTreeMap<String, u8>,
     /// Also add a block item with the same id.
     pub item: bool,
 }
@@ -329,6 +366,12 @@ impl Content {
                 id: block,
                 template: file.template,
                 properties: file.properties,
+                state_properties: file.state_properties,
+                state_defaults: file.state_defaults,
+                collision_boxes: file.collision_boxes,
+                outline_boxes: file.outline_boxes,
+                light_emission: file.light_emission,
+                light_dampening_states: file.light_dampening_states,
                 item: file.item,
             });
         }
@@ -365,7 +408,86 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
             file.template
         ));
     }
+    let mut states = 1usize;
+    for (name, values) in &file.state_properties {
+        let valid = |s: &str| {
+            !s.is_empty()
+                && s.bytes()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
+        };
+        if !valid(name)
+            || values.is_empty()
+            || values.iter().any(|v| !valid(v))
+            || values.iter().collect::<BTreeSet<_>>().len() != values.len()
+        {
+            return Err(format!("invalid state property {name:?}"));
+        }
+        if !file
+            .state_defaults
+            .get(name)
+            .is_some_and(|v| values.contains(v))
+        {
+            return Err(format!(
+                "state property {name:?} needs a default in its values"
+            ));
+        }
+        states = states
+            .checked_mul(values.len())
+            .ok_or("state count overflow")?;
+        if states > 4096 {
+            return Err("at most 4096 states per block".into());
+        }
+    }
+    if file
+        .state_defaults
+        .keys()
+        .any(|name| !file.state_properties.contains_key(name))
+    {
+        return Err("state default has no declared property".into());
+    }
+    if file.properties.outline_empty==Some(true) && !file.outline_boxes.is_empty() {
+        return Err("outline_empty conflicts with outline_boxes".into());
+    }
+    if file.properties.no_collision==Some(true) && !file.collision_boxes.is_empty() {
+        return Err("no_collision conflicts with collision_boxes".into());
+    }
+    for (selector, bounds) in file.collision_boxes.iter().chain(file.outline_boxes.iter()) {
+        if bounds
+            .iter()
+            .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+            || (0..3).any(|i| bounds[i] >= bounds[i + 3])
+        {
+            return Err(format!("invalid collision box {selector:?}"));
+        }
+        if selector != "*" {
+            for part in selector.split(',') {
+                let Some((key, value)) = part.split_once('=') else {
+                    return Err(format!("invalid collision selector {selector:?}"));
+                };
+                if !file
+                    .state_properties
+                    .get(key)
+                    .is_some_and(|values| values.iter().any(|v| v == value))
+                {
+                    return Err(format!("unknown collision selector {selector:?}"));
+                }
+            }
+        }
+    }
+    for (selector, light) in file.light_emission.iter().chain(file.light_dampening_states.iter()) {
+        if *light > 15 { return Err(format!("invalid emission {selector:?}")); }
+        if selector != "*" {
+            for part in selector.split(',') {
+                let Some((key,value))=part.split_once('=') else { return Err(format!("invalid emission selector {selector:?}")); };
+                if !file.state_properties.get(key).is_some_and(|values|values.iter().any(|v|v==value)) { return Err(format!("unknown emission selector {selector:?}")); }
+            }
+        }
+    }
     let p = &file.properties;
+    if p.light_dampening.is_some_and(|v| v > 15) { return Err("light_dampening must be 0..15".into()); }
+    if p.push_reaction.as_deref().is_some_and(|v| !matches!(v,"PUSH_PULL"|"PUSH"|"POPPED"|"IMMOVEABLE"|"IGNORE_ENTITY")) {
+        return Err("invalid push_reaction".into());
+    }
     let finite = |v: Option<f32>| v.is_none_or(f32::is_finite);
     if !finite(p.hardness) || !finite(p.explosion_resistance) || !finite(p.friction) {
         return Err("hardness, explosion_resistance and friction are numbers".into());
@@ -471,6 +593,12 @@ capabilities = ["registries"]
             [Block {
                 id: "ruby:ruby_block".into(),
                 template: "minecraft:iron_block".into(),
+                state_properties: Default::default(),
+                state_defaults: Default::default(),
+                collision_boxes: Default::default(),
+                outline_boxes: Default::default(),
+                light_emission: Default::default(),
+                light_dampening_states: Default::default(),
                 properties: BlockProperties {
                     hardness: Some(4.0),
                     light: Some(3),

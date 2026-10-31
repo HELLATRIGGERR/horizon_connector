@@ -1495,6 +1495,12 @@ impl Game<'_> {
         from: [f64; 3],
         damage_type: &str,
     ) -> bool {
+        self.hits_player_caused_by(amount,from,damage_type,None)
+    }
+    pub(super) fn player_hits_player_kind(&mut self,amount:f32,from:[f64;3],damage_type:&str,attacker:u32)->bool {
+        self.hits_player_caused_by(amount,from,damage_type,Some(attacker))
+    }
+    fn hits_player_caused_by(&mut self,amount:f32,from:[f64;3],damage_type:&str,player_cause:Option<u32>)->bool {
         // ServerPlayer.canHarmPlayer refused another player's projectile.
         if self.creative || self.combat.refuse_player_hit {
             return false;
@@ -1509,7 +1515,7 @@ impl Game<'_> {
         let blocking = self.player_blocking(Some(from), damage_type, false);
         let raised = blocking.is_some();
         // Melee: the attacker stands at `from` (another player's hit has no mob behind it).
-        let attacker = (!projectile && damage_type != "minecraft:player_attack")
+        let attacker = (player_cause.is_none() && !projectile && damage_type != "minecraft:player_attack")
             .then(|| {
                 self.mobs
                     .iter()
@@ -1525,12 +1531,12 @@ impl Game<'_> {
             .flatten();
         // The causing entity for the death message.
         let owner = self.combat.projectile_owner.take();
-        if let Some(a) = attacker.or(owner) {
+        if let Some(a) = player_cause.or(attacker).or(owner) {
             self.note_attacker(damage_type, a);
         }
         // DamageSource.scalesWithDifficulty: a mob (or its projectile's
         // owner) caused the hit, not a player.
-        let living_cause = attacker.or(owner).is_some();
+        let living_cause = player_cause.is_none() && attacker.or(owner).is_some();
         let mut outcome = horizon_client::health::BlockOutcome::default();
         if let Some(player) = self.player.as_mut()
             && let Some(id) = self.motion.health.damage.id(damage_type)
@@ -1953,7 +1959,9 @@ impl Game<'_> {
             }
             ArrowEvent::Block { pos, reaction } => match reaction {
                 BlockReaction::PrimeTnt => {
+                    let tiny=cfg!(feature="ae2-lab") && &*self.res.facts().get(self.world.block(pos.x,pos.y,pos.z)).name == "ae2:tiny_tnt";
                     self.spawn_primed_tnt(pos, false);
+                    if tiny {if let Some(tnt)=self.tnts.last_mut(){tnt.tiny=true;}}
                     self.with_level(|b, level, ticks| b.remove_block(level, ticks, pos, false));
                     let _ = self.process_level_events();
                 }
@@ -2464,6 +2472,8 @@ impl Game<'_> {
                 return Ok(false);
             }
         }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_applicator_sheep(index).map_err(std::io::Error::other)? {self.swing_arm();return Ok(true);}
         if self.name_mob(index) {
             return Ok(true);
         }
@@ -3303,6 +3313,8 @@ pub(super) fn damage_type(kind: horizon_client::mobs::DamageKind, player: bool) 
     use horizon_client::mobs::DamageKind as K;
     match kind {
         K::PlayerAttack => "minecraft:player_attack",
+        #[cfg(feature="ae2-lab")]
+        K::MatterCannon => "ae2:matter_cannon",
         K::MaceSmash => "minecraft:mace_smash",
         K::MobAttack => "minecraft:mob_attack",
         K::Arrow => "minecraft:arrow",

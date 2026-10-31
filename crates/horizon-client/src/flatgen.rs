@@ -9,6 +9,23 @@ pub struct FlatTerrain {
     surface: Option<crate::lod::Surface>,
 }
 impl FlatTerrain {
+    /// A constant block column over a vertical range, with empty space outside.
+    /// AE2's source SpatialStorageChunkGenerator fills y=0 through 255 with
+    /// Matrix Frame; its biome is still present in every native chunk section.
+    pub fn filled_range(biome: u16, block: horizon_world::registry::BlockStateId, range: std::ops::Range<i32>) -> Option<Self> {
+        if range.start < crate::chunk::MIN_Y || range.end > crate::chunk::MIN_Y + crate::chunk::HEIGHT || range.start >= range.end { return None; }
+        let mut layers = vec![0; (range.end - crate::chunk::MIN_Y) as usize];
+        layers[(range.start - crate::chunk::MIN_Y) as usize..].fill(block.0);
+        Some(Self { layers, biome, surface: None })
+    }
+    /// An empty dimension.
+    pub fn void(biome: u16) -> Self {
+        Self {
+            layers: Vec::new(),
+            biome,
+            surface: None,
+        }
+    }
     /// The overworld generator of `world_gen_settings` (`data.dimensions`), if it
     /// is flat. Its `features` and `lakes` decorate the world; a world without
     /// them (the default) gets only its layers, as FlatLevelSource places them.
@@ -223,6 +240,24 @@ mod tests {
     use super::*;
     use crate::save::{number, text};
     use crate::server::json::{self, Json};
+
+    #[test]
+    fn filled_vertical_range_preserves_empty_exterior_and_all_section_biomes() {
+        let state = horizon_world::registry::BlockStateId(17);
+        let terrain = FlatTerrain::filled_range(42, state, 0..256).unwrap();
+        let chunk = terrain.finish(terrain.proto(&mut (), -7, 12));
+        for y in crate::chunk::MIN_Y..crate::chunk::MIN_Y + crate::chunk::HEIGHT {
+            for z in 0..16 { for x in 0..16 {
+                assert_eq!(chunk.get(x, y, z), if (0..256).contains(&y) { state.0 } else { 0 });
+            }}
+        }
+        for section in &chunk.sections {
+            for i in 0..64 { assert_eq!(section.biomes.get(i), 42); }
+        }
+        assert!(terrain.lod_surface(&mut (), -7, 12).is_none());
+        assert!(FlatTerrain::filled_range(42, state, -65..256).is_none());
+        assert!(FlatTerrain::filled_range(42, state, 0..321).is_none());
+    }
 
     fn read(text: &str) -> (Option<Tag>, Vec<String>) {
         let json: Json = json::parse(text, false).unwrap();

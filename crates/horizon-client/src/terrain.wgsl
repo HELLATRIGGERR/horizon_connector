@@ -323,3 +323,28 @@ struct DebugLineOut {
 @fragment fn fs_debug_line(in: DebugLineOut) -> @location(0) vec4<f32> {
     return apply_fog(in.color, in.spherical, in.cylindrical);
 }
+// AE2 Spatial Anchor overlay faces: camera-relative positions and unlit RGBA.
+struct AnchorOverlayOut { @builtin(position) clip: vec4<f32>, @location(0) color: vec4<f32> }
+@vertex fn vs_anchor_overlay(@location(0) pos: vec3<f32>, @location(1) color: vec4<f32>) -> AnchorOverlayOut {
+    var out: AnchorOverlayOut;
+    out.clip = globals.view_proj * vec4(pos, 1.0);
+    out.color = color;
+    return out;
+}
+@fragment fn fs_anchor_overlay(in: AnchorOverlayOut) -> @location(0) vec4<f32> { return in.color; }
+
+// Source Anchor overlay lines are unlit and not fogged.
+@vertex fn vs_anchor_line(@builtin(vertex_index) vertex: u32, @location(0) start: vec3<f32>, @location(1) end: vec3<f32>, @location(2) argb: vec4<f32>, @location(3) width: f32) -> DebugLineOut {
+    let position = select(start, end, vertex >= 2u);
+    let line_start = globals.view_proj * vec4(position, 1.0);
+    let line_end = globals.view_proj * vec4(position + (end-start), 1.0);
+    let ndc1=line_start.xyz/line_start.w; let ndc2=line_end.xyz/line_end.w;
+    let screen=globals.outline_params.xy;
+    let direction=normalize((ndc2.xy-ndc1.xy)*screen);
+    var offset=vec2(-direction.y,direction.x)*width/screen;
+    if offset.x<0.0 {offset = -offset;}
+    if vertex % 2u != 0u {offset = -offset;}
+    var out: DebugLineOut; out.clip=vec4((ndc1+vec3(offset,0.0))*line_start.w,line_start.w);
+    out.spherical=0.0;out.cylindrical=0.0;out.color=argb.zyxw;return out;
+}
+@fragment fn fs_anchor_line(in:DebugLineOut)->@location(0) vec4<f32> {return in.color;}

@@ -164,6 +164,26 @@ pub fn is_valid_repair_item(
     stack: &ItemStack,
     material: &ItemStack,
 ) -> bool {
+    #[cfg(feature = "ae2-lab")]
+    if let Some(rest) = stack.item.strip_prefix("ae2:") {
+        for (prefix, tag) in [
+            ("certus_quartz_", "c:gems/certus_quartz"),
+            ("nether_quartz_", "c:gems/quartz"),
+            ("fluix_", "c:gems/fluix"),
+        ] {
+            if let Some(kind) = rest.strip_prefix(prefix) {
+                if matches!(
+                    kind,
+                    "axe" | "hoe" | "pickaxe" | "shovel" | "sword" | "cutting_knife"
+                ) {
+                    return items
+                        .item_tags
+                        .get(tag)
+                        .is_some_and(|v| v.contains(&*material.item));
+                }
+            }
+        }
+    }
     e.props(&stack.item)
         .is_some_and(|p| Enchantments::item_in(items, &p.repairable, &material.item))
 }
@@ -173,6 +193,10 @@ pub fn increased_repair_cost(cost: u32) -> u32 {
 }
 /// The display name the rename box starts with (`getHoverName`).
 pub fn hover_name(names: &dyn Fn(&str) -> String, stack: &ItemStack) -> String {
+    #[cfg(feature="ae2-lab")]
+    if stack.custom_name().is_none() && stack.item_name().is_none() {
+        if let Some(id)=crate::item_tooltip::ae2_facade_texture(stack) {return format!("{} - {}",names(&stack.item),names(&id));}
+    }
     stack
         .custom_name()
         .map(str::to_owned)
@@ -448,6 +472,7 @@ pub fn grindstone_experience(
 #[derive(Clone, Debug)]
 pub enum Smithing {
     Transform {
+        id: String,
         template: Ingredient,
         base: Ingredient,
         addition: Ingredient,
@@ -503,30 +528,25 @@ impl StationRecipes {
         let mut files = Vec::new();
         let namespaces =
             std::iter::once("minecraft".to_owned()).chain(crate::mod_content::namespaces(root));
+        fn collect(base:&Path,dir:&Path,out:&mut Vec<(String,std::path::PathBuf)>,namespace:&str) {
+            let mut paths:Vec<_>=fs::read_dir(dir).into_iter().flatten().flatten().map(|e|e.path()).collect();paths.sort();
+            for path in paths {if path.is_dir(){collect(base,&path,out,namespace);}else if path.extension().is_some_and(|e|e=="json") {
+                if let Ok(relative)=path.strip_prefix(base) {let mut id=relative.with_extension("").to_string_lossy().replace('\\',"/");id.insert_str(0,":");id.insert_str(0,namespace);out.push((id,path));}
+            }}
+        }
         for namespace in namespaces {
-            let mut more: Vec<_> = fs::read_dir(root.join(format!("data/{namespace}/recipe")))
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|e| e == "json"))
-                .collect();
-            more.sort();
-            files.extend(more.into_iter().map(|p| (namespace.clone(), p)));
+            let base=root.join(format!("data/{namespace}/recipe"));collect(&base,&base,&mut files,&namespace);
         }
         let mut smithing = Vec::new();
         let mut stonecutting = Vec::new();
-        for (namespace, p) in files {
+        for (id, p) in files {
             let Ok(bytes) = fs::read(&p) else { continue };
             let Ok(v) = serde_json::from_slice::<Value>(&bytes) else {
                 continue;
             };
-            let id = format!(
-                "{namespace}:{}",
-                p.file_stem().and_then(|s| s.to_str()).unwrap_or("")
-            );
             match v["type"].as_str().unwrap_or("") {
                 "minecraft:smithing_transform" => smithing.push(Smithing::Transform {
+                    id: id.clone(),
                     template: ingredient(&v["template"], items),
                     base: ingredient(&v["base"], items),
                     addition: ingredient(&v["addition"], items),
@@ -616,37 +636,25 @@ impl StationRecipes {
     }
     /// `SmithingMenu.createResult`.
     pub fn smithing_result(
-        &self,
-        e: &Enchantments,
-        template: Option<&ItemStack>,
-        base: Option<&ItemStack>,
-        addition: Option<&ItemStack>,
-    ) -> Option<ItemStack> {
-        let (template, base, addition) = (template?, base?, addition?);
-        for r in &self.smithing {
-            match r {
-                Smithing::Transform {
-                    template: t,
-                    base: b,
-                    addition: a,
-                    result,
-                } => {
-                    if t.test(template) && b.test(base) && a.test(addition) {
-                        // SmithingTransformRecipe: transmute the base keeping its components.
-                        return Some(base.transmute(result, 1));
-                    }
-                }
-                Smithing::Trim {
-                    template: t,
-                    base: b,
-                    addition: a,
-                    pattern,
-                    ..
-                } => {
-                    if t.test(template) && b.test(base) && a.test(addition) {
-                        return apply_trim(e, base, addition, pattern);
-                    }
-                }
+        &self,e:&Enchantments,template:Option<&ItemStack>,base:Option<&ItemStack>,addition:Option<&ItemStack>,
+    )->Option<ItemStack> {self.smithing_recipe_result(e,template,base,addition).map(|(_,result)|result)}
+    /// Return the physical result and its stable namespaced recipe ID.
+    pub fn smithing_recipe_result(
+        &self,e:&Enchantments,template:Option<&ItemStack>,base:Option<&ItemStack>,addition:Option<&ItemStack>,
+    )->Option<(&str,ItemStack)> {
+        self.smithing_recipe_result_selected(e,template,base,addition,None)
+    }
+    pub fn smithing_recipe_result_selected(
+        &self,e:&Enchantments,template:Option<&ItemStack>,base:Option<&ItemStack>,addition:Option<&ItemStack>,selected:Option<&str>,
+    )->Option<(&str,ItemStack)> {
+        let (template,base,addition)=(template?,base?,addition?);
+        for recipe in &self.smithing {
+            let id=match recipe {Smithing::Transform{id,..}|Smithing::Trim{id,..}=>id};
+            if selected.is_some_and(|wanted|wanted!=id){continue;}
+            match recipe {
+                Smithing::Transform{id,template:t,base:b,addition:a,result} if t.test(template)&&b.test(base)&&a.test(addition)=>return Some((id,base.transmute(result,1))),
+                Smithing::Trim{id,template:t,base:b,addition:a,pattern} if t.test(template)&&b.test(base)&&a.test(addition)=>return apply_trim(e,base,addition,pattern).map(|result|(id.as_str(),result)),
+                _=>{}
             }
         }
         None
@@ -719,6 +727,58 @@ mod tests {
             s.enchant(id, *l);
         }
         s
+    }
+
+    #[cfg(feature = "ae2-lab")]
+    #[test]
+    fn ae2_tool_repairs_use_their_conventional_material_tags() {
+        use std::collections::{HashMap, HashSet};
+        let e = sample();
+        let items = Items::for_tests(HashMap::from([
+            (
+                "c:gems/certus_quartz".into(),
+                HashSet::from(["ae2:certus_quartz_crystal".into()]),
+            ),
+            (
+                "c:gems/quartz".into(),
+                HashSet::from(["minecraft:quartz".into()]),
+            ),
+            (
+                "c:gems/fluix".into(),
+                HashSet::from(["ae2:fluix_crystal".into()]),
+            ),
+        ]));
+        for (tool, correct, wrong) in [
+            (
+                "ae2:certus_quartz_pickaxe",
+                "ae2:certus_quartz_crystal",
+                "minecraft:quartz",
+            ),
+            (
+                "ae2:nether_quartz_axe",
+                "minecraft:quartz",
+                "ae2:fluix_crystal",
+            ),
+            (
+                "ae2:fluix_sword",
+                "ae2:fluix_crystal",
+                "ae2:certus_quartz_crystal",
+            ),
+        ] {
+            let stack = ItemStack::new(tool, 1);
+            assert!(is_valid_repair_item(
+                &e,
+                &items,
+                &stack,
+                &ItemStack::new(correct, 1)
+            ));
+            assert!(!is_valid_repair_item(
+                &e,
+                &items,
+                &stack,
+                &ItemStack::new(wrong, 1)
+            ));
+        }
     }
 
     #[test]
@@ -994,5 +1054,24 @@ mod tests {
         // min cost of Sharpness III = 23; ceil(23/2)=12 -> 12..23.
         let xp = grindstone_experience(&e, &mut r, Some(&s), None);
         assert!((12..24).contains(&xp));
+    }
+}
+
+#[cfg(test)]
+mod special_pattern_recipe_tests {
+    use super::*;
+    #[test]
+    fn nested_station_recipes_keep_namespace_and_full_ids() {
+        let root=std::env::temp_dir().join(format!("ae2-special-recipes-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let nested=root.join("data/example/recipe/nested/stations");std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(root.join("horizon-mod-content.json"),br#"["example"]"#).unwrap();
+        std::fs::write(nested.join("upgrade.json"),br#"{"type":"minecraft:smithing_transform","template":"minecraft:paper","base":"minecraft:iron_sword","addition":"minecraft:gold_ingot","result":{"id":"minecraft:golden_sword"}}"#).unwrap();
+        std::fs::write(nested.join("cut.json"),br#"{"type":"minecraft:stonecutting","ingredient":"minecraft:stone","result":{"id":"minecraft:stone_slab","count":2}}"#).unwrap();
+        let items=Items::for_tests(Default::default());let recipes=StationRecipes::load(&root,&items);
+        let enchantments=crate::enchant::tests::sample();let base=ItemStack::new("minecraft:iron_sword",1);
+        let (id,result)=recipes.smithing_recipe_result(&enchantments,Some(&ItemStack::new("minecraft:paper",1)),Some(&base),Some(&ItemStack::new("minecraft:gold_ingot",1))).unwrap();
+        assert_eq!(id,"example:nested/stations/upgrade");assert_eq!(&*result.item,"minecraft:golden_sword");
+        let stone=recipes.stonecutter(&ItemStack::new("minecraft:stone",1));assert_eq!(stone.len(),1);assert_eq!(stone[0].id,"example:nested/stations/cut");assert_eq!(stone[0].result.count,2);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

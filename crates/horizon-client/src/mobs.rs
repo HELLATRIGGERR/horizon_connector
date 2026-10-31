@@ -502,6 +502,8 @@ pub enum Who {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DamageKind {
     PlayerAttack,
+    #[cfg(feature = "ae2-lab")]
+    MatterCannon,
     /// `mace_smash`: a mace hit after a fall (the player attack tags too).
     MaceSmash,
     MobAttack,

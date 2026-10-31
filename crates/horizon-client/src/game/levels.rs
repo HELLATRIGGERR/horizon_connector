@@ -107,9 +107,37 @@ impl Default for Pass {
 #[derive(Default)]
 pub(super) struct Levels {
     parked: HashMap<Dim, Parked>,
+    forced_levels_initialized: bool,
+}
+
+#[cfg(feature = "ae2-lab")]
+impl Levels {
+    pub(super) fn ae2_world(&self, dim: Dim) -> Option<&World> { self.parked.get(&dim).map(|p| &p.world) }
+    pub(super) fn ae2_world_mut(&mut self, dim: Dim) -> Option<&mut World> { self.parked.get_mut(&dim).map(|p| &mut p.world) }
+    pub(super) fn ae2_dimensions(&self) -> impl Iterator<Item = Dim> + '_ { self.parked.keys().copied() }
+    pub(super) fn ae2_dropped(&self, dim: Dim) -> Option<&[ItemEntity]> { self.parked.get(&dim).map(|p| p.dropped.as_slice()) }
+    pub(super) fn ae2_dropped_mut(&mut self, dim: Dim) -> Option<&mut Vec<ItemEntity>> { self.parked.get_mut(&dim).map(|p| &mut p.dropped) }
 }
 
 impl Game<'_> {
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn ae2_open_anchor_level(&mut self, dim:Dim)->Result<()> {
+        if dim!=self.dim && !self.levels.parked.contains_key(&dim) {
+            let parked=self.open_level(dim)?;self.levels.parked.insert(dim,parked);
+        }
+        Ok(())
+    }
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn ae2_set_owned_chunks(&mut self,dim:Dim,chunks:std::collections::HashSet<(i32,i32)>) {
+        if dim==self.dim {self.streaming.owned_forced=chunks;}
+        else if let Some(parked)=self.levels.parked.get_mut(&dim) {parked.streaming.owned_forced=chunks;}
+    }
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn ae2_restore_extra_columns(&mut self,dim:Dim,columns:Vec<((i32,i32),i32)>)->bool {
+        if dim==self.dim {self.streaming.extra=columns;true}
+        else if let Some(parked)=self.levels.parked.get_mut(&dim) {parked.streaming.extra=columns;true}
+        else {false}
+    }
     /// A new level for `dim`, opened from the save (`MinecraftServer.createLevels`).
     fn open_level(&self, dim: Dim) -> Result<Parked> {
         let (streaming, save, locator) = super::world_loading::make_streaming(
@@ -122,6 +150,10 @@ impl Game<'_> {
             self.level.seed,
         )?;
         let mut world = World::new(self.res.facts().air, self.level.seed);
+        #[cfg(feature = "ae2-lab")]
+        world.block_entities.start_ae2_journal();
+        #[cfg(feature = "ae2-lab")]
+        world.block_entities.set_ae2_journal_clock(self.ae2_me_runtime.borrow().clock());
         world.fast_lava = dim == Dim::Nether;
         Ok(Parked {
             world,
@@ -299,6 +331,31 @@ impl Game<'_> {
     /// the next ones only their level. While `paused`, only the connections
     /// run.
     pub(super) fn tick_server(&mut self, paused: bool) -> Result<()> {
+        // The fixture barrier stops the whole server iteration, including
+        // parked levels and AE2 callbacks. Vanilla /tick freeze is separate.
+        if self.agent.hold_server { return Ok(()); }
+        #[cfg(feature = "ae2-lab")]
+        {
+            self.ae2_restore_anchor_tickets()?;
+            self.ae2_validate_anchor_owners()?;
+        }
+        // Persistent tickets are stored per dimension, even when no player
+        // has entered that dimension in this server session. Open those levels
+        // before choosing tick passes so their forced chunks can stream in.
+        if !self.levels.forced_levels_initialized {
+            for dim in [Dim::Overworld, Dim::Nether, Dim::End,
+                #[cfg(feature = "ae2-lab")] Dim::Spatial] {
+                if dim == self.dim || self.levels.parked.contains_key(&dim) {
+                    continue;
+                }
+                let dir = horizon_client::save::dimension_dir(&self.world_root, dim.id());
+                if !SaveDir::new(dir).load_forced_chunks().is_empty() {
+                    let parked = self.open_level(dim)?;
+                    self.levels.parked.insert(dim, parked);
+                }
+            }
+            self.levels.forced_levels_initialized = true;
+        }
         let dims = self.levels_to_tick();
         let n = dims.len();
         let mut result = Ok(());
@@ -319,7 +376,9 @@ impl Game<'_> {
             } else if k == 0 {
                 self.tick()
             } else {
-                let running = self.clock.world_runs();
+                // The first level already advanced TickRateManager for this
+                // server tick. Every dimension shares that latched decision.
+                let running = self.clock.runs_normally();
                 if running {
                     self.tick_weather_effects();
                 }
@@ -331,6 +390,8 @@ impl Game<'_> {
         }
         self.level_pass = Pass::default();
         result?;
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_validate_anchor_owners()?;
         self.close_idle_levels()
     }
 
@@ -402,16 +463,17 @@ impl Game<'_> {
             .lan
             .as_ref()
             .map_or(&[][..], |h| h.hub.guests.as_slice());
-        let mut dims: Vec<Dim> = [Dim::Overworld, Dim::Nether, Dim::End]
+        let mut dims: Vec<Dim> = [Dim::Overworld, Dim::Nether, Dim::End,
+            #[cfg(feature = "ae2-lab")] Dim::Spatial]
             .into_iter()
             .filter(|d| {
                 let forced = if *d == self.dim {
-                    !self.streaming.forced.is_empty()
+                    self.streaming.has_forced_chunks()
                 } else {
                     self.levels
                         .parked
                         .get(d)
-                        .is_some_and(|p| !p.streaming.forced.is_empty())
+                        .is_some_and(|p| p.streaming.has_forced_chunks())
                 };
                 guests.iter().any(|g| g.dimension == d.id())
                     || forced
@@ -447,6 +509,19 @@ impl Game<'_> {
             self.enter_level(None, dim)?;
             self.save_level(true)?;
             self.enter_level(None, back)?;
+            #[cfg(feature = "ae2-lab")]
+            {
+                // The level has already been saved. Emit its actual host
+                // block-entity removals while the journal is still reachable,
+                // then drain them before dropping the parked world.
+                let synchronized = self.ae2_sync_events();
+                if let Some(level) = self.levels.parked.get_mut(&dim) {
+                    level.world.block_entities.clear();
+                }
+                if !synchronized || !self.ae2_sync_events() {
+                    self.ae2_event_forget_level();
+                }
+            }
             self.levels.parked.remove(&dim);
         }
         Ok(())

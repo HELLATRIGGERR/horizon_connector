@@ -32,6 +32,10 @@ impl Default for ChunkMap {
     }
 }
 impl ChunkMap {
+    pub fn placement_snapshot(&self) -> Self {
+        Self { columns: self.columns.clone(), revision: next_revision() }
+    }
+
     pub fn membership_revision(&self) -> u64 {
         self.revision
     }

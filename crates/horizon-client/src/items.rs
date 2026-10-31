@@ -240,6 +240,7 @@ fn registry_order(root: &Path, order: &[Arc<str>]) -> Vec<Arc<str>> {
 }
 /// Item ids standing for a loot table's `minecraft:dynamic` entries.
 const DYNAMIC: &str = "#dynamic:";
+const LOOT_TAG: &str = "#loot-tag:";
 pub struct Items {
     pub items: HashMap<Arc<str>, ItemInfo>,
     pub order: Vec<Arc<str>>,
@@ -249,6 +250,8 @@ pub struct Items {
     /// Block tag name (without '#') -> member block names.
     pub block_tags: HashMap<String, HashSet<String>>,
     pub item_tags: HashMap<String, HashSet<String>>,
+    /// Default-state block items accepted by AE2's facade recipe.
+    pub facade_items: HashSet<Arc<str>>,
     /// Item tags in vanilla's order (`TagLoader`: file order, nested tags in
     /// place, first occurrence kept), the order `TagSlotDisplay` resolves.
     pub item_tag_order: HashMap<String, Vec<String>>,
@@ -379,7 +382,26 @@ fn entity_spec(tags: &HashMap<String, HashSet<String>>, spec: &str) -> HashSet<S
         None => HashSet::from([spec.to_owned()]),
     }
 }
+/// The maximum size of a physical ItemStack, including an explicit component
+/// patch. NBT numeric tags use Java Number.intValue; malformed values are
+/// clamped to 1..99 until the host applies component codec validation.
+/// AE2 logical counters must not use this cap until materializing a stack.
+pub fn stack_max_with_default(stack:&ItemStack,item_default:u32)->u32 {
+    use horizon_world::nbt::Tag;
+    // An absent patch uses the item prototype. A removed component leaves no
+    // value in the resolved map; ItemStack.getMaxStackSize falls back to one.
+    if stack.data().is_some_and(|data|data.other("!minecraft:max_stack_size").is_some()) {return 1;}
+    let value=stack.data().and_then(|data|data.other("minecraft:max_stack_size")).and_then(|tag|match tag {
+        Tag::Byte(n)=>Some(i32::from(*n)),Tag::Short(n)=>Some(i32::from(*n)),Tag::Int(n)=>Some(*n),
+        Tag::Long(n)=>Some(*n as i32),Tag::Float(n)=>Some(f32::from_bits(*n) as i32),
+        Tag::Double(n)=>Some(f64::from_bits(*n) as i32),_=>None,
+    });
+    value.map_or(item_default.max(1),|value|value.clamp(1,99) as u32)
+}
 impl Items {
+    pub fn stack_max(&self,stack:&ItemStack)->u32 {
+        stack_max_with_default(stack,self.get(&stack.item).map_or(64,|info|info.max_stack))
+    }
     pub fn resists_fire(&self, stack: &ItemStack, source: &str) -> bool {
         if let Some(data) = stack.data()
             && let Some((_, v)) = data
@@ -410,7 +432,18 @@ impl Items {
                     .or_insert(BlockStateId(i as u32));
             }
         }
-        Self::load_with(root, &block_for_item)
+        let mut loaded = Self::load_with(root, &block_for_item)?;
+        let whitelist = loaded.block_tags.get("ae2:whitelisted/facades");
+        for (item, id) in block_for_item {
+            let state = &facts.states[id.0 as usize];
+            let allowed = whitelist.is_some_and(|tags| tags.contains(state.name.as_ref()));
+            if state.render_shape == crate::blocks::RenderShape::Model
+                && (allowed || (state.full_collision && !state.block_entity))
+            {
+                loaded.facade_items.insert(Arc::from(item));
+            }
+        }
+        Ok(loaded)
     }
     /// Every item's default components and the tags, without the block <->
     /// item mapping (for headless tools that never place blocks).
@@ -666,6 +699,34 @@ impl Items {
                     attack_speed: modifier("minecraft:attack_speed"),
                 },
             );
+            #[cfg(feature = "ae2-lab")]
+            if matches!(
+                name.as_str(),
+                "ae2:fluix_axe"
+                    | "ae2:fluix_hoe"
+                    | "ae2:fluix_pickaxe"
+                    | "ae2:fluix_shovel"
+                    | "ae2:fluix_sword"
+            ) {
+                if let Some(info) = items.get_mut(&id).filter(|info| info.max_damage == 250) {
+                    // Compatibility for older overlays that cloned unmodified iron
+                    // components. New overlays already contain Fluix values.
+                    info.max_damage *= 3;
+                    for rule in &mut info.tool {
+                        if let Some(speed) = &mut rule.speed {
+                            if (*speed - 6.0).abs() < f32::EPSILON {
+                                *speed = 7.2;
+                            }
+                        }
+                    }
+                    info.attack_damage += 0.4;
+                    for (kind, _, amount, operation, _) in &mut info.modifiers {
+                        if kind == "minecraft:attack_damage" && operation == "add_value" {
+                            *amount += 0.4;
+                        }
+                    }
+                }
+            }
             order.push(id);
         }
         let mut loot = HashMap::new();
@@ -711,6 +772,7 @@ impl Items {
             registry_order,
             block_tags: load_tags(root, "block")?,
             item_tags: load_tags(root, "item")?,
+            facade_items: HashSet::new(),
             item_tag_order: load_tag_lists(root, "item")?,
             loot,
             songs: load_songs(root),
@@ -730,6 +792,7 @@ impl Items {
             registry_order: Vec::new(),
             block_tags: load_tags(root, "block")?,
             item_tags: load_tags(root, "item")?,
+            facade_items: HashSet::new(),
             item_tag_order: load_tag_lists(root, "item")?,
             loot: HashMap::new(),
             songs: HashMap::new(),
@@ -749,6 +812,7 @@ impl Items {
                 .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
                 .collect(),
             item_tags,
+            facade_items: HashSet::new(),
             loot: HashMap::new(),
             songs: HashMap::new(),
             enchantments: Arc::new(crate::enchant::Enchantments::default()),
@@ -1103,8 +1167,8 @@ impl LootContext<'_> {
                     &mut produced,
                 );
                 for mut stack in produced {
-                    ctx.modifiers(&pool["modifier"], &mut stack, random);
-                    ctx.modifiers(&table["modifier"], &mut stack, random);
+                    ctx.modifiers(Self::functions(pool), &mut stack, random);
+                    ctx.modifiers(Self::functions(table), &mut stack, random);
                     if stack.count > 0 {
                         out.push(stack);
                     }
@@ -1124,6 +1188,10 @@ struct LootContext<'a> {
     explosion_radius: Option<f32>,
 }
 impl LootContext<'_> {
+    /// 1.21 uses `functions`; newer data exports call this `modifier`.
+    fn functions(value: &Value) -> &Value {
+        value.get("modifier").or_else(||value.get("functions")).unwrap_or(&Value::Null)
+    }
     /// Level of an enchantment on the tool / killer's weapon.
     fn enchantment_level(&self, id: &str) -> u32 {
         self.held.map_or(0, |h| h.enchantment_level(id))
@@ -1179,7 +1247,7 @@ impl LootContext<'_> {
     fn condition<R: RandomSource>(&self, c: &Value, random: &mut R) -> bool {
         let (kind, c) = match c {
             Value::String(s) => (s.as_str(), &Value::Null),
-            Value::Object(o) => (o.get("type").and_then(Value::as_str).unwrap_or(""), c),
+            Value::Object(o) => (o.get("type").or_else(||o.get("condition")).and_then(Value::as_str).unwrap_or(""), c),
             _ => return true,
         };
         match kind {
@@ -1320,8 +1388,35 @@ impl LootContext<'_> {
                         damage: 0,
                         extra: None,
                     },
-                    e["modifier"].clone(),
+                    Self::functions(e).clone(),
                 ));
+                true
+            }
+            "minecraft:tag" => {
+                let tag = e["name"]
+                    .as_str()
+                    .or_else(|| e["items"].as_str())
+                    .unwrap_or("");
+                let Some(values) = self.items.item_tags.get(tag) else {
+                    return false;
+                };
+                let mut values: Vec<_> = values.iter().collect();
+                values.sort();
+                if e["expand"].as_bool().unwrap_or(false) {
+                    for value in values {
+                        out.push((
+                            e["weight"].as_i64().unwrap_or(1) as i32,
+                            ItemStack::new(value, 1),
+                            Self::functions(e).clone(),
+                        ));
+                    }
+                } else {
+                    out.push((
+                        e["weight"].as_i64().unwrap_or(1) as i32,
+                        ItemStack::new(&format!("{LOOT_TAG}{tag}"), 1),
+                        Self::functions(e).clone(),
+                    ));
+                }
                 true
             }
             "minecraft:alternatives" => {
@@ -1406,8 +1501,20 @@ impl LootContext<'_> {
             chosen
         };
         let (_, mut stack, modifiers) = candidates.swap_remove(pick);
-        self.modifiers(&modifiers, &mut stack, random);
-        produced.push(stack);
+        if let Some(tag) = stack.item.strip_prefix(LOOT_TAG) {
+            if let Some(values) = self.items.item_tags.get(tag) {
+                let mut values: Vec<_> = values.iter().collect();
+                values.sort();
+                for id in values {
+                    let mut item = ItemStack::new(id, 1);
+                    self.modifiers(&modifiers, &mut item, random);
+                    produced.push(item);
+                }
+            }
+        } else {
+            self.modifiers(&modifiers, &mut stack, random);
+            produced.push(stack);
+        }
     }
     /// An enchantment function's `options` (`HolderSet`): a tag, a list or
     /// one id; every enchantment when absent (`registryAccess().listElements`).
@@ -1668,6 +1775,72 @@ mod tests {
             killed_by_player: block.is_empty(),
             explosion_radius: None,
         }
+    }
+
+    #[test]
+    fn physical_stack_max_reads_numeric_component_and_catalog_default() {
+        use horizon_world::nbt::Tag;
+        let items=Items::for_tests(Default::default());let mut stack=ItemStack::new("minecraft:stone",1);
+        assert_eq!(items.stack_max(&stack),64);assert_eq!(stack_max_with_default(&stack,16),16);
+        for (tag,expected) in [(Tag::Byte(9),9),(Tag::Short(12),12),(Tag::Int(16),16),
+            (Tag::Long(4_294_967_298),2),(Tag::Float(31.75f32.to_bits()),31),(Tag::Double(44.9f64.to_bits()),44)] {
+            stack.data_mut().set_other("minecraft:max_stack_size",Some(tag));assert_eq!(items.stack_max(&stack),expected);
+        }
+        stack.data_mut().set_other("minecraft:max_stack_size",None);
+        stack.data_mut().set_other("!minecraft:max_stack_size",Some(Tag::compound([] as [(&str,Tag);0])));
+        assert_eq!(items.stack_max(&stack),1);
+        stack.data_mut().set_other("!minecraft:max_stack_size",None);
+        assert_eq!(items.stack_max(&stack),64);
+    }
+    #[test]
+    fn loot_tag_entries_expand_as_one_choice_or_as_all_items() {
+        let items = Items::for_tests(HashMap::from([(
+            "ae2:inscriber_presses".into(),
+            HashSet::from([
+                "ae2:logic_processor_press".into(),
+                "ae2:silicon_press".into(),
+                "ae2:engineering_processor_press".into(),
+                "ae2:calculation_processor_press".into(),
+            ]),
+        )]));
+        let props = BTreeMap::new();
+        let mut random = LegacyRandom::new(42);
+        for (expanded, expected) in [(false, 4), (true, 1)] {
+            let table = json!({"pools":[{"rolls":1,"entries":[{"type":"minecraft:tag", "name":"ae2:inscriber_presses", "expand":expanded}]}]});
+            let drops =
+                ctx(&items, None, &props, "ae2:mysterious_cube").evaluate(&table, &mut random);
+            assert_eq!(drops.len(), expected);
+            assert!(drops.iter().all(|item| item.item.ends_with("_press")));
+        }
+        // AE2's 1.21.1 datapack uses `condition` as the discriminator;
+        // Minecraft 26.3 data also uses `type` in the corresponding shape.
+        let table=json!({"pools":[{"rolls":1,"entries":[{"type":"minecraft:alternatives","children":[
+            {"type":"minecraft:item","name":"ae2:mysterious_cube","conditions":[{"condition":"minecraft:match_tool","predicate":{"predicates":{"minecraft:enchantments":[{"enchantments":"minecraft:silk_touch","levels":{"min":1}}]}}}]},
+            {"type":"minecraft:tag","name":"ae2:inscriber_presses","expand":false,"conditions":[{"condition":"minecraft:survives_explosion"}]}
+        ]}]},{"rolls":1,"conditions":[{"condition":"minecraft:inverted","term":{"condition":"minecraft:match_tool","predicate":{"predicates":{"minecraft:enchantments":[{"enchantments":"minecraft:silk_touch","levels":{"min":1}}]}}}}],"entries":[{"type":"minecraft:item","name":"ae2:guide"}]}]});
+        let mut plain=ItemStack::new("minecraft:diamond_pickaxe",1);
+        let drops=ctx(&items,Some(&plain),&props,"ae2:mysterious_cube").evaluate(&table,&mut random);
+        assert_eq!(drops.iter().filter(|s|s.item.ends_with("_press")).count(),4);
+        assert!(drops.iter().any(|s|s.item.as_ref()=="ae2:guide"));
+        assert!(!drops.iter().any(|s|s.item.as_ref()=="ae2:mysterious_cube"));
+        plain.enchant("minecraft:silk_touch",1);
+        let drops=ctx(&items,Some(&plain),&props,"ae2:mysterious_cube").evaluate(&table,&mut random);
+        assert_eq!(drops.len(),1);assert_eq!(drops[0].item.as_ref(),"ae2:mysterious_cube");
+    }
+
+    #[test]
+    fn legacy_loot_functions_apply_at_entry_pool_and_table_scope() {
+        let items=Items::for_tests(HashMap::new());let props=BTreeMap::new();
+        let pick=ItemStack::new("minecraft:diamond_pickaxe",1);let mut random=LegacyRandom::new(42);
+        let mut table=json!({"pools":[{"rolls":1,"entries":[{"type":"minecraft:alternatives","children":[
+            {"type":"minecraft:item","name":"ae2:quartz_cluster","conditions":[{"condition":"minecraft:match_tool","predicate":{"predicates":{"minecraft:enchantments":[{"enchantments":"minecraft:silk_touch","levels":{"min":1}}]}}}]},
+            {"type":"minecraft:item","name":"ae2:certus_quartz_crystal","functions":[{"function":"minecraft:set_count","count":4.0,"add":false},{"function":"minecraft:apply_bonus","enchantment":"minecraft:fortune","formula":"minecraft:uniform_bonus_count","parameters":{"bonusMultiplier":1}},{"function":"minecraft:explosion_decay"}]}
+        ]}]}]});
+        let drops=ctx(&items,Some(&pick),&props,"ae2:quartz_cluster").evaluate(&table,&mut random);
+        assert_eq!(drops[0].count,4);assert_eq!(drops[0].item.as_ref(),"ae2:certus_quartz_crystal");
+        table["pools"][0]["functions"]=json!([{"function":"minecraft:set_count","count":1,"add":true}]);
+        table["functions"]=json!([{"function":"minecraft:set_count","count":2,"add":true}]);
+        assert_eq!(ctx(&items,Some(&pick),&props,"ae2:quartz_cluster").evaluate(&table,&mut random)[0].count,7);
     }
 
     #[test]
@@ -1938,11 +2111,15 @@ pub fn take_held_drop(
         return None;
     }
     let count = if all { stack.count } else { 1 };
-    let thrown = ItemStack {
+    let mut thrown = ItemStack {
         count,
         ..stack.clone()
     };
+    #[cfg(feature = "ae2-lab")]
+    crate::ae2_stack_identity::detach_if_tracked(&mut thrown);
     stack.count -= count;
+    #[cfg(feature = "ae2-lab")]
+    crate::ae2_stack_identity::synchronize_tracked(stack);
     if stack.count == 0 {
         *slot = None;
     }
@@ -1972,5 +2149,26 @@ mod held_drop_tests {
                 if all { 4 } else { 1 }
             );
         }
+    }
+}
+
+#[cfg(all(test, feature = "ae2-lab"))]
+mod ae2_drop_identity_tests {
+    use super::*;
+    #[test]
+    fn native_drop_splits_a_new_stack_without_moving_the_original_reference() {
+        let mut value = ItemStack::new("minecraft:stone", 8);
+        let retained = crate::ae2_stack_identity::StackRef::capture(&mut value);
+        let mut slot = Some(value);
+        let drop = take_held_drop(&mut slot, false, false).unwrap();
+        assert!(!retained.tracks(&drop));
+        let original = slot.as_ref().unwrap();
+        assert!(retained.tracks(original));
+        assert_eq!(retained.read().count, 7);
+        assert!(drop.same_item_same_components(original));
+        let remainder = take_held_drop(&mut slot, true, false).unwrap();
+        assert!(!retained.tracks(&remainder));
+        assert!(slot.is_none());
+        assert_eq!(retained.read().count, 0);
     }
 }

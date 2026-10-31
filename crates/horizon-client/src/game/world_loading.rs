@@ -105,6 +105,8 @@ impl WorldRequest {
             make_streaming(res, pack, options, settings, &save_root, dim, level.seed)?;
         streaming.radius = settings.render_distance;
         let mut world = World::new(res.facts().air, level.seed);
+        #[cfg(feature = "ae2-lab")]
+        world.block_entities.start_ae2_journal();
         world.fast_lava = dim == Dim::Nether;
         world.game_time = level.time;
         world.day_time = options.time.unwrap_or(level.day_time);
@@ -206,7 +208,7 @@ pub(super) fn make_streaming(
         dim.id(),
     )));
     let mut locator = None;
-    let flat = (dim == Dim::Overworld)
+    let mut flat = (dim == Dim::Overworld)
         .then(|| horizon_client::save::world_gen_settings(world_root))
         .flatten()
         .and_then(|s| {
@@ -216,6 +218,11 @@ pub(super) fn make_streaming(
                 res.biomes(),
             )
         });
+    #[cfg(feature = "ae2-lab")]
+    if dim == Dim::Spatial {
+        let matrix = pack.assets.registry.default_state("ae2:matrix_frame").ok_or("missing Spatial Matrix Frame")?;
+        flat = Some(horizon_client::flatgen::FlatTerrain::filled_range(res.biomes().id("ae2:spatial_storage"), matrix, 0..256).ok_or("Spatial generator height is outside native world")?);
+    }
     let mut streaming = if let Some(inner) = flat {
         Streaming::new(
             Arc::new(Persistent {
@@ -246,6 +253,7 @@ pub(super) fn make_streaming(
         let inner = Arc::new(VanillaTerrain::for_world(&options.resources.join("worldgen"), pack.assets.registry, res.biomes(), seed, dim.id(), structures).map_err(|e| {
                 format!("{e}\nPrepare the worldgen bundle with the launcher, or: horizon-prepare --prepare")
             })?);
+        inner.set_saved_start_source(save.clone());
         if dim == Dim::Overworld && structures {
             inner.search_rings_behind();
         }
@@ -267,7 +275,7 @@ pub(super) fn make_streaming(
     streaming.smooth_lighting = settings.smooth_lighting;
     streaming.cutout_leaves = settings.cutout_leaves;
     streaming.biome_zoom = BiomeZoom::new(obfuscate_seed(seed));
-    streaming.sky_light = dim != Dim::Nether;
+    streaming.sky_light = horizon_client::save::LevelShape::for_dir(&horizon_client::save::dimension_dir(world_root, dim.id())).sky_light;
     streaming.nether_shading = dim == Dim::Nether;
     // A server draws nothing: neither the integrated server nor the
     // dedicated one meshes sections.

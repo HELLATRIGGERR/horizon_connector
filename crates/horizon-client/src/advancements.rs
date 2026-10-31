@@ -112,7 +112,7 @@ impl Tree {
             .into_iter()
             .flatten()
         {
-            match self.list[ai].criteria[ci].conditions["recipes"].as_str() {
+            match self.list[ai].criteria[ci].conditions.get("recipes").or_else(||self.list[ai].criteria[ci].conditions.get("recipe")).and_then(Value::as_str) {
                 Some(r) => self
                     .by_recipe
                     .entry(r.to_owned())
@@ -1166,6 +1166,36 @@ mod tests {
         );
         assert!(candidates < all / 10);
     }
+    /// Conformance check for the unmodified AE2 19.2.18 advancement data.
+    #[test]
+    #[ignore = "needs the pinned AE2 source data"]
+    fn ae2_source_tree_loads_all_progression_and_recipe_criteria() {
+        let root = std::env::var_os("AE2_ADVANCEMENT_DATA").expect("AE2_ADVANCEMENT_DATA");
+        let tree = Tree::load(Path::new(&root));
+        assert_eq!(tree.list.len(), 407);
+        assert_eq!(tree.list.iter().filter(|a| a.id.starts_with("ae2:main/")).count(), 26);
+        for (id, trigger) in [
+            ("network1", "ae2:network_apprentice"),
+            ("network2", "ae2:network_engineer"),
+            ("network3", "ae2:network_admin"),
+            ("recursive", "ae2:recursive_networking"),
+            ("spatial_explorer", "ae2:spatial_explorer"),
+        ] {
+            let advancement = tree.get(&format!("ae2:main/{id}")).unwrap();
+            assert!(advancement.criteria.iter().any(|c| c.trigger == trigger));
+        }
+        let mut checked = 0;
+        for (ai, a) in tree.list.iter().enumerate() {
+            for (ci, c) in a.criteria.iter().enumerate() {
+                if c.trigger != "minecraft:recipe_unlocked" { continue; }
+                let recipe = c.conditions["recipe"].as_str().unwrap();
+                assert!(tree.recipe_criteria(recipe).contains(&(ai, ci)));
+                assert!(!tree.recipe_criteria("minecraft:oak_planks").contains(&(ai, ci)));
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 381);
+    }
     struct Flat;
     impl World for Flat {
         fn dimension(&self) -> &str {
@@ -1323,6 +1353,7 @@ mod tests {
             serde_json::json!({"recipes": "minecraft:stick"}),
             serde_json::json!({}),
             serde_json::json!({"recipes": "minecraft:oak_planks"}),
+            serde_json::json!({"recipe": "ae2:network/blocks/charger"}),
         ]
         .into_iter()
         .enumerate()
@@ -1351,6 +1382,7 @@ mod tests {
         );
         assert_eq!(tree.recipe_criteria("minecraft:stick"), [(1, 0), (2, 0)]);
         assert_eq!(tree.recipe_criteria("minecraft:torch"), [(2, 0)]);
+        assert_eq!(tree.recipe_criteria("ae2:network/blocks/charger"), [(2, 0), (4, 0)]);
     }
     #[test]
     fn bucket_axolotl_block_advancements_require_the_placed_block() {

@@ -1,0 +1,282 @@
+[
+  {
+    "mode": 0,
+    "seed": 0,
+    "hash": "3cedfdd6b3f8bfb9",
+    "blocks": 18080,
+    "next": -591380029
+  },
+  {
+    "mode": 0,
+    "seed": 1,
+    "hash": "5e9026a5efeef0c5",
+    "blocks": 18067,
+    "next": -675857697
+  },
+  {
+    "mode": 0,
+    "seed": 13,
+    "hash": "5807dbfe957fb69e",
+    "blocks": 18127,
+    "next": -146844943
+  },
+  {
+    "mode": 0,
+    "seed": 123,
+    "hash": "3c84bf8236fd9f3f",
+    "blocks": 18101,
+    "next": -1952008802
+  },
+  {
+    "mode": 0,
+    "seed": 2026,
+    "hash": "cd9522630acfea89",
+    "blocks": 18107,
+    "next": 1799606395
+  },
+  {
+    "mode": 1,
+    "seed": 0,
+    "hash": "478d4e65f9dd0948",
+    "blocks": 28251,
+    "next": -535197749
+  },
+  {
+    "mode": 1,
+    "seed": 1,
+    "hash": "30b3643de9969968",
+    "blocks": 28231,
+    "next": -1558305854
+  },
+  {
+    "mode": 1,
+    "seed": 13,
+    "hash": "45400b3655cf4af2",
+    "blocks": 28229,
+    "next": 908239331
+  },
+  {
+    "mode": 1,
+    "seed": 123,
+    "hash": "2ed82c6dc85ce28f",
+    "blocks": 28247,
+    "next": 1537197662
+  },
+  {
+    "mode": 1,
+    "seed": 2026,
+    "hash": "dc1b6ea47b7717c1",
+    "blocks": 28245,
+    "next": 150612000
+  },
+  {
+    "mode": 2,
+    "seed": 0,
+    "hash": "4b75568e9955d79b",
+    "blocks": 28280,
+    "next": 1667630429
+  },
+  {
+    "mode": 2,
+    "seed": 1,
+    "hash": "3e20f59cf0cb7e46",
+    "blocks": 28284,
+    "next": 516291358
+  },
+  {
+    "mode": 2,
+    "seed": 13,
+    "hash": "3e2af8b892241142",
+    "blocks": 28278,
+    "next": 303631640
+  },
+  {
+    "mode": 2,
+    "seed": 123,
+    "hash": "7441a3799c69b291",
+    "blocks": 28291,
+    "next": -101278064
+  },
+  {
+    "mode": 2,
+    "seed": 2026,
+    "hash": "f4e3d1a6cdc237e",
+    "blocks": 28275,
+    "next": 65481493
+  },
+  {
+    "mode": 3,
+    "seed": 0,
+    "hash": "bbdbf668d8876536",
+    "blocks": 20205,
+    "next": -667888736
+  },
+  {
+    "mode": 3,
+    "seed": 1,
+    "hash": "530cc3d15e5b6294",
+    "blocks": 20205,
+    "next": 1769264733
+  },
+  {
+    "mode": 3,
+    "seed": 13,
+    "hash": "6bf9e15af2b52391",
+    "blocks": 20224,
+    "next": 2016956521
+  },
+  {
+    "mode": 3,
+    "seed": 123,
+    "hash": "4d8099ffa3dfb3cf",
+    "blocks": 20221,
+    "next": -426930985
+  },
+  {
+    "mode": 3,
+    "seed": 2026,
+    "hash": "3505497a8c48307",
+    "blocks": 20208,
+    "next": -429403685
+  },
+  {
+    "mode": 4,
+    "seed": 0,
+    "hash": "1c4b17b7602738b1",
+    "blocks": 23960,
+    "next": -252332814
+  },
+  {
+    "mode": 4,
+    "seed": 1,
+    "hash": "e4570921806144ca",
+    "blocks": 23960,
+    "next": 2092024379
+  },
+  {
+    "mode": 4,
+    "seed": 13,
+    "hash": "2934ae8169e7926a",
+    "blocks": 23960,
+    "next": 542392957
+  },
+  {
+    "mode": 4,
+    "seed": 123,
+    "hash": "439503ffc0b15194",
+    "blocks": 23960,
+    "next": -1708209621
+  },
+  {
+    "mode": 4,
+    "seed": 2026,
+    "hash": "98d840ce153216e",
+    "blocks": 23960,
+    "next": 1325580314
+  },
+  {
+    "mode": 5,
+    "seed": 0,
+    "hash": "7afd5554250f081f",
+    "blocks": 23960,
+    "next": -938301587
+  },
+  {
+    "mode": 5,
+    "seed": 1,
+    "hash": "7afd5554250f081f",
+    "blocks": 23960,
+    "next": -1242363800
+  },
+  {
+    "mode": 5,
+    "seed": 13,
+    "hash": "7afd5554250f081f",
+    "blocks": 23960,
+    "next": -596143067
+  },
+  {
+    "mode": 5,
+    "seed": 123,
+    "hash": "7afd5554250f081f",
+    "blocks": 23960,
+    "next": -1621910390
+  },
+  {
+    "mode": 5,
+    "seed": 2026,
+    "hash": "7afd5554250f081f",
+    "blocks": 23960,
+    "next": 19771957
+  },
+  {
+    "mode": 6,
+    "seed": 0,
+    "hash": "97b8eb58c312f969",
+    "blocks": 23960,
+    "next": -252332814
+  },
+  {
+    "mode": 6,
+    "seed": 1,
+    "hash": "725a6613a0bd39a2",
+    "blocks": 23960,
+    "next": 2092024379
+  },
+  {
+    "mode": 6,
+    "seed": 13,
+    "hash": "ae14520107ce767e",
+    "blocks": 23960,
+    "next": 542392957
+  },
+  {
+    "mode": 6,
+    "seed": 123,
+    "hash": "3847f27b213a433c",
+    "blocks": 23960,
+    "next": -1708209621
+  },
+  {
+    "mode": 6,
+    "seed": 2026,
+    "hash": "ac9320b43d6397b2",
+    "blocks": 23960,
+    "next": 1325580314
+  },
+  {
+    "mode": 7,
+    "seed": 0,
+    "hash": "54073ed45be9e3c7",
+    "blocks": 23960,
+    "next": -938301587
+  },
+  {
+    "mode": 7,
+    "seed": 1,
+    "hash": "54073ed45be9e3c7",
+    "blocks": 23960,
+    "next": -1242363800
+  },
+  {
+    "mode": 7,
+    "seed": 13,
+    "hash": "54073ed45be9e3c7",
+    "blocks": 23960,
+    "next": -596143067
+  },
+  {
+    "mode": 7,
+    "seed": 123,
+    "hash": "54073ed45be9e3c7",
+    "blocks": 23960,
+    "next": -1621910390
+  },
+  {
+    "mode": 7,
+    "seed": 2026,
+    "hash": "54073ed45be9e3c7",
+    "blocks": 23960,
+    "next": 19771957
+  }
+]

@@ -10,6 +10,13 @@ use horizon_core::{
 };
 use horizon_world::level::flags as level_flags;
 
+/// Native LAN spawn-data marker for the AE2 tiny variant; the compatible
+/// wire entity is TNT while this host retains distinct simulation and render.
+pub(super) const TINY_TNT_MARKER:i32=-0x414532;
+/// Live player reference, deliberately omitted from saved entity NBT like AE2's
+/// transient `placedBy` field. None inside Player denotes the host player.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum TinyTntOwner { Player(Option<u32>) }
 #[derive(Clone, Debug)]
 pub(super) struct PrimedTnt {
     /// The entity id a server tracks it by (0 until it is tracked).
@@ -19,16 +26,21 @@ pub(super) struct PrimedTnt {
     pub velocity: Vec3,
     pub fuse: i32,
     pub on_ground: bool,
+    pub tiny: bool,
+    pub in_water: bool,
+    pub saved_uuid: Option<[i32;4]>,
+    pub tiny_owner: Option<TinyTntOwner>,
 }
 impl PrimedTnt {
     const SIZE: f64 = 0.98;
     pub(super) fn bounds(&self) -> Aabb {
-        let h = Self::SIZE / 2.0;
+        let (width,height)=if self.tiny {(0.6,1.8)}else{(Self::SIZE,Self::SIZE)};
+        let h = width / 2.0;
         Aabb::new(
             Vec3::new(self.position.x - h, self.position.y, self.position.z - h),
             Vec3::new(
                 self.position.x + h,
-                self.position.y + Self::SIZE,
+                self.position.y + height,
                 self.position.z + h,
             ),
         )
@@ -40,6 +52,14 @@ impl PrimedTnt {
         assets: &horizon_client::assets::Assets,
         facts: &horizon_client::blocks::BlockFacts,
     ) -> Result<()> {
+        if self.tiny {
+            let mut fluids=horizon_world::entity_fluid::EntityFluidInteraction::new([WATER,LAVA]);
+            let mut fw=TntFluidWorld{tnt:self,world,assets,facts};
+            fluids.update(&mut fw,false,4096).map_err(|e|std::io::Error::other(e.to_string()))?;
+            fluids.apply_current(&mut fw,WATER,0.014)?;
+            let wet=fluids.is_in_fluid(&fw,WATER);
+            fw.tnt.in_water=wet;
+        }
         self.previous = self.position;
         self.velocity.y -= 0.04;
         let mut scene = SceneCollisions {
@@ -74,12 +94,12 @@ impl PrimedTnt {
         if self.on_ground {
             self.velocity = Vec3::new(
                 self.velocity.x * 0.7,
-                self.velocity.y * -0.5,
-                self.velocity.z * 0.7,
+                self.velocity.y * if self.tiny {0.7} else {-0.5},
+                self.velocity.z * if self.tiny {-0.5} else {0.7},
             );
         }
         self.fuse -= 1;
-        if self.fuse > 0 {
+        if self.fuse > 0 && !self.tiny {
             // PrimedTnt updates immersion after moving and decrementing its fuse.
             let mut fluids =
                 horizon_world::entity_fluid::EntityFluidInteraction::new([WATER, LAVA]);
@@ -134,6 +154,12 @@ impl Game<'_> {
         };
         self.add_primed_tnt(pos, rot, fuse);
     }
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn ae2_ignite_tiny_tnt(&mut self,pos:BlockPos,short:bool) {
+        self.spawn_primed_tnt(pos,short);
+        let owner=self.player.as_ref().map(|_|TinyTntOwner::Player(self.lan_acting));
+        if let Some(t)=self.tnts.last_mut(){t.tiny=true;t.tiny_owner=owner;}
+    }
     /// Adds primed TNT at the block's bottom centre, pushed along `rot`.
     pub(super) fn add_primed_tnt(&mut self, pos: BlockPos, rot: f64, fuse: i32) {
         let position = Vec3::new(
@@ -148,6 +174,7 @@ impl Game<'_> {
             velocity: Vec3::new(-rot.sin() * 0.02, f64::from(0.2f32), -rot.cos() * 0.02),
             fuse,
             on_ground: false,
+            tiny:false,in_water:false,saved_uuid:None,tiny_owner:None,
         });
     }
     /// `PrimedTnt.tick` for every primed TNT, in order; an expired fuse
@@ -170,7 +197,20 @@ impl Game<'_> {
                 &self.pack.assets,
                 self.res.facts(),
             )?;
-            if t.fuse <= 0 {
+            #[cfg(feature = "ae2-lab")]
+            if t.tiny && t.in_water {
+                let extinguished=self.tnts.remove(i);count-=1;
+                let p=extinguished.position;let v=extinguished.velocity;
+                self.spawn_item(ItemStack::new("ae2:tiny_tnt",1),[p.x,p.y,p.z],[v.x,v.y,v.z],0);
+                if let Some(item)=self.dropped.last_mut(){item.previous=extinguished.previous;}
+                continue;
+            }
+            #[cfg(feature = "ae2-lab")]
+            if t.tiny && t.fuse < 0 {
+                let pos=[t.position.x,t.position.y,t.position.z];let owner=t.tiny_owner;self.tnts.remove(i);count-=1;
+                self.ae2_explode_tiny_tnt(pos,owner)?;continue;
+            }
+            if !t.tiny && t.fuse <= 0 {
                 let center = [
                     t.position.x,
                     t.position.y + PrimedTnt::SIZE * 0.0625,
@@ -180,6 +220,10 @@ impl Game<'_> {
                 count -= 1;
                 self.server_explode(center, 4.0, BlockInteraction::Destroy, false)?;
             } else {
+                if t.tiny {
+                    let at=[t.position.x,t.position.y,t.position.z];
+                    self.particles.add(&horizon_client::particles::ParticleOptions::simple(horizon_client::particles::ParticleType::Smoke),at,[0.0;3]);
+                }
                 i += 1;
             }
         }
@@ -195,11 +239,14 @@ impl Game<'_> {
             return Ok(false);
         };
         let state = self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]);
-        if &*self.res.facts().get(state).name != "minecraft:tnt" {
+        let name=&*self.res.facts().get(state).name;
+        let tiny=cfg!(feature="ae2-lab") && name=="ae2:tiny_tnt";
+        if name != "minecraft:tnt" && !tiny {
             return Ok(false);
         }
         let pos = BlockPos::new(hit.pos[0], hit.pos[1], hit.pos[2]);
         self.spawn_primed_tnt(pos, false);
+        if tiny { let owner=self.player.as_ref().map(|_|TinyTntOwner::Player(self.lan_acting)); if let Some(t)=self.tnts.last_mut() {t.tiny=true;t.tiny_owner=owner;} }
         let air = self.world.air;
         self.with_level(|b, level, ticks| {
             b.set_block(level, ticks, pos, air, level_flags::UPDATE_ALL_IMMEDIATE)
@@ -288,6 +335,18 @@ impl Game<'_> {
                 t.position.z.floor() as i32,
             );
             let packed = (u32::from(light >> 4) * 16) | ((u32::from(light & 15) * 16) << 8);
+            if t.tiny {
+                if let Some(quads)=self.pack.render.model_library.as_ref().ok().and_then(|lib|lib.resolve("ae2:block/tiny_tnt").ok()).and_then(|model|horizon_assets::bake::bake_model(&model).ok()) {
+                    for q in quads {
+                        let key=q.material.sprite.strip_prefix("minecraft:").unwrap_or(&q.material.sprite);
+                        let Some(rect)=self.gui.atlas.sprites.get(key) else {continue};
+                        let points=q.positions.map(|p|o+(glam::Vec3::from_array(p)-glam::Vec3::splat(0.5))*scale);
+                        let normal=(points[1]-points[0]).cross(points[2]-points[0]).normalize_or_zero();
+                        for n in 0..4 {out.push(Vertex {pos:points[n].to_array(),uv:[rect.u0+q.uv[n][0]*(rect.u1-rect.u0),rect.v0+q.uv[n][1]*(rect.v1-rect.v0)],layer:if lit {5} else {0},color:0xffffffff,light:packed,normal:[(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127]});}
+                    }
+                }
+                continue;
+            }
             let v = |x: f32, y: f32, z: f32| o + glam::Vec3::new(x - 0.5, y - 0.5, z - 0.5) * scale;
             let faces = [
                 (
@@ -518,6 +577,7 @@ mod tests {
             velocity: Vec3::ZERO,
             fuse: 80,
             on_ground: false,
+            tiny:false,in_water:false,saved_uuid:None,tiny_owner:None,
         };
         tnt.tick(&world, &collision, &assets, &facts).unwrap();
         assert_eq!(

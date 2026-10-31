@@ -17,6 +17,8 @@ use crate::{
 use std::sync::Arc;
 
 mod bundle;
+#[cfg(feature = "ae2-lab")]
+mod ae2_network_tool;
 pub mod place;
 
 /// What a menu needs to know about items and recipes.
@@ -305,6 +307,28 @@ pub struct Menu {
     pub level_change: i32,
     /// `AnvilMenu`'s state besides its slots and its cost data slot.
     pub anvil: Anvil,
+    /// A server-authoritative quartz knife name-press menu using the anvil wire layout.
+    #[cfg(feature = "ae2-lab")]
+    pub quartz_knife_slot: Option<usize>,
+    /// Held Network Tool's player inventory index; its nine main slots accept cards.
+    #[cfg(feature = "ae2-lab")]
+    pub network_tool_slot: Option<usize>,
+    /// Optional prefix of MAIN that is the tool's card-only inventory.
+    /// None retains the standalone Network Tool menu's all-MAIN behavior.
+    #[cfg(feature = "ae2-lab")]
+    pub network_tool_main_limit: Option<usize>,
+    /// Standalone NetworkToolMenu source ordering, independent of wire layout.
+    #[cfg(feature = "ae2-lab")]
+    pub network_tool_source_order: bool,
+    /// One physical emitter upgrade slot within the server menu.
+    #[cfg(feature = "ae2-lab")]
+    pub emitter_upgrade_slot: Option<usize>,
+    #[cfg(feature = "ae2-lab")]
+    pub quartz_knife_used: bool,
+    /// Authoritative crafting operations temporarily carry the world's RNG;
+    /// client prediction and planner previews leave it absent.
+    #[cfg(feature = "ae2-lab")]
+    pub recipe_durability_rng: Option<horizon_core::random::LegacyRandom>,
     /// The anvil's or the smithing table's result was taken: the caller (with
     /// a level) runs the rest of its `onTake` (the anvil's wear and level
     /// event 1030 or 1029, the smithing table's 1044).
@@ -352,8 +376,12 @@ fn same_item(a: &ItemStack, b: &ItemStack) -> bool {
 fn split(stack: &mut ItemStack, amount: u32) -> ItemStack {
     let real = amount.min(stack.count);
     let mut out = stack.clone();
+    #[cfg(feature = "ae2-lab")]
+    crate::ae2_stack_identity::detach_if_tracked(&mut out);
     out.count = real;
     stack.count -= real;
+    #[cfg(feature = "ae2-lab")]
+    crate::ae2_stack_identity::synchronize_tracked(stack);
     out
 }
 
@@ -690,6 +718,20 @@ impl Menu {
             levels: 0,
             level_change: 0,
             anvil: Anvil::default(),
+            #[cfg(feature = "ae2-lab")]
+            quartz_knife_slot: None,
+            #[cfg(feature = "ae2-lab")]
+            network_tool_slot: None,
+            #[cfg(feature = "ae2-lab")]
+            network_tool_main_limit: None,
+            #[cfg(feature = "ae2-lab")]
+            network_tool_source_order: false,
+            #[cfg(feature = "ae2-lab")]
+            emitter_upgrade_slot: None,
+            #[cfg(feature = "ae2-lab")]
+            quartz_knife_used: false,
+            #[cfg(feature = "ae2-lab")]
+            recipe_durability_rng: None,
             combined: false,
             enchant_changed: false,
             enchant_button: None,
@@ -932,7 +974,11 @@ impl Menu {
                 );
             }
             Kind::CrafterBlock => self.crafter_result(env),
-            Kind::Anvil => self.anvil_result(env),
+            Kind::Anvil => {
+                #[cfg(feature = "ae2-lab")]
+                if self.quartz_knife_slot.is_some(){self.quartz_knife_result(env);return;}
+                self.anvil_result(env)
+            },
             Kind::Enchanting => self.enchant_changed(env),
             Kind::Smithing => {
                 self.smith_result(env);
@@ -1056,6 +1102,11 @@ impl Menu {
     }
 
     pub fn rename(&mut self, env: &Env, name: &str) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if self.quartz_knife_slot.is_some() {
+            let name:String=name.chars().filter(|&c|c!='\u{a7}' && c>=' ' && c!='\u{7f}').take(32).collect();
+            self.anvil.name=Some(name);self.quartz_knife_result(env);return true;
+        }
         // StringUtil.filterText, then validateName's length limit.
         let name: String = name
             .chars()
@@ -1076,6 +1127,15 @@ impl Menu {
         true
     }
 
+    /// Name-press output is virtual; only the ingot input and bound knife
+    /// are physical. Taking the output is the sole operation that consumes it.
+    #[cfg(feature = "ae2-lab")]
+    fn quartz_knife_result(&mut self,env:&Env) {
+        let valid=self.containers[MAIN][0].as_ref().is_some_and(|s|env.items.item_tags.get("ae2:metal_ingots").is_some_and(|t|t.contains(s.item.as_ref())));
+        let name=self.anvil.name.as_deref().filter(|v|!v.trim().is_empty());
+        self.containers[RESULT][0]=if valid {name.map(|name|{let mut out=ItemStack::new("ae2:name_press",1);out.data_mut().set_other("ae2:name_press_name",Some(horizon_world::nbt::Tag::String(name.into())));out})} else {None};
+        self.data[0]=if self.containers[RESULT][0].is_some(){1}else{0};
+    }
     /// `SmithingMenu.createResult`.
     fn smith_result(&mut self, env: &Env) {
         let [a, b, c] = [0, 1, 2].map(|i| self.containers[MAIN][i].as_ref());
@@ -1196,7 +1256,7 @@ impl Menu {
     // ---- item helpers ----
 
     fn max_stack(env: &Env, stack: &ItemStack) -> u32 {
-        env.items.get(&stack.item).map_or(64, |i| i.max_stack)
+        env.items.stack_max(stack)
     }
 
     fn damageable(env: &Env, stack: &ItemStack) -> bool {
@@ -1219,6 +1279,25 @@ impl Menu {
     // ---- Slot ----
 
     fn may_place(&self, env: &Env, s: usize, stack: &ItemStack) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if let Some(upgrade)=self.emitter_upgrade_slot {
+            let slot=self.slots[s];
+            if slot.container==MAIN {return slot.index==upgrade && matches!(stack.item.as_ref(),"ae2:fuzzy_card"|"ae2:crafting_card");}
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(source)=self.network_tool_slot {
+            let slot=self.slots[s];
+            if slot.container==PLAYER && slot.index==source {return false;}
+            if slot.container==MAIN && self.network_tool_main_limit.is_none_or(|end| slot.index < end) {
+                return crate::ae2_network_tool::is_card(&stack.item);
+            }
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(knife)=self.quartz_knife_slot {
+            let slot=self.slots[s];
+            if slot.container==PLAYER && slot.index==knife{return false;}
+            if slot.container==MAIN {return slot.index==0 && env.items.item_tags.get("ae2:metal_ingots").is_some_and(|t|t.contains(stack.item.as_ref()));}
+        }
         match self.slots[s].role {
             Role::Plain | Role::CreativeDisplay => true,
             Role::Armor(eq) => env
@@ -1302,6 +1381,23 @@ impl Menu {
     }
 
     fn may_pickup(&self, env: &Env, s: usize) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if let Some(upgrade)=self.emitter_upgrade_slot {
+            let slot=self.slots[s];if slot.container==MAIN && slot.index!=upgrade {return false;}
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(source)=self.network_tool_slot {
+            let slot=self.slots[s];
+            if slot.container==PLAYER && slot.index==source {return false;}
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(knife)=self.quartz_knife_slot {
+            let slot=self.slots[s];
+            if slot.container==PLAYER && slot.index==knife{return false;}
+            if slot.role==Role::CombineResult {
+                return self.containers[PLAYER].get(knife).and_then(Option::as_ref).is_some_and(|s|matches!(s.item.as_ref(),"ae2:certus_quartz_cutting_knife"|"ae2:nether_quartz_cutting_knife"));
+            }
+        }
         match self.slots[s].role {
             Role::Inert => false,
             // AnvilMenu.mayPickup: the levels to pay, and a price.
@@ -1331,6 +1427,10 @@ impl Menu {
 
     /// `Slot.getMaxStackSize(stack)`.
     fn slot_max(&self, env: &Env, s: usize, stack: &ItemStack) -> u32 {
+        #[cfg(feature = "ae2-lab")]
+        if self.emitter_upgrade_slot.is_some_and(|upgrade|self.slots[s].container==MAIN && self.slots[s].index==upgrade) {return 1;}
+        #[cfg(feature = "ae2-lab")]
+        if self.quartz_knife_slot.is_some() && self.slots[s].container==MAIN{return 1;}
         let own = match self.slots[s].role {
             Role::Armor(_)
             | Role::MountEquip(_)
@@ -1480,6 +1580,8 @@ impl Menu {
                 .filter(|a| a.count > repair)
                 .map(|mut a| {
                     a.count -= repair;
+                    #[cfg(feature = "ae2-lab")]
+                    crate::ae2_stack_identity::synchronize_tracked(&a);
                     a
                 });
             self.put(env, 1, addition);
@@ -1535,6 +1637,10 @@ impl Menu {
             return;
         }
         if self.slots[s].role == Role::CombineResult && self.kind == Kind::Anvil {
+            #[cfg(feature = "ae2-lab")]
+            if self.quartz_knife_slot.is_some() {
+                self.remove(env,0,1);self.quartz_knife_used=true;self.quartz_knife_result(env);return;
+            }
             self.anvil_take(env);
             return;
         }
@@ -1543,6 +1649,8 @@ impl Menu {
             for i in 0..3 {
                 if let Some(mut stack) = self.containers[MAIN][i].clone() {
                     stack.count -= 1;
+                    #[cfg(feature = "ae2-lab")]
+                    crate::ae2_stack_identity::synchronize_tracked(&stack);
                     self.put(env, i, Some(stack));
                 }
             }
@@ -1583,10 +1691,19 @@ impl Menu {
         if let Some((id, _)) = env.recipes.find(&grid, n) {
             self.crafted.push(format!("minecraft:{id}"));
         }
+        #[cfg(feature = "ae2-lab")]
+        let mut recipe_rng=self.recipe_durability_rng.take();
         let remaining = env
             .recipes
             .find(&grid, n)
-            .map(|(id, _)| env.recipes.remainders(id, &grid, n))
+            .map(|(id, _)| {
+                #[cfg(feature = "ae2-lab")]
+                if let Some(random)=recipe_rng.as_mut() {
+                    let mut loss=|stack:&ItemStack,amount:u32|crate::crafting::committed_durability_loss(env.enchantments,env.items,stack,random,amount);
+                    return env.recipes.remainders_with_durability(id,&grid,n,Some(&mut loss));
+                }
+                env.recipes.remainders(id,&grid,n)
+            })
             .unwrap_or_else(|| {
                 // CraftingRecipe.defaultCraftingReminder
                 grid.iter()
@@ -1600,10 +1717,14 @@ impl Menu {
                     })
                     .collect()
             });
+        #[cfg(feature = "ae2-lab")]
+        {self.recipe_durability_rng=recipe_rng;}
         for cell in 0..n * n {
             let mut here = self.containers[GRID][cell].take();
             if let Some(stack) = here.as_mut() {
                 stack.count -= 1;
+                #[cfg(feature = "ae2-lab")]
+                crate::ae2_stack_identity::synchronize_tracked(stack);
             }
             tidy(&mut here);
             self.containers[GRID][cell] = here;
@@ -1698,6 +1819,8 @@ impl Menu {
             Some(mut current) if current.same_item_same_components(stack) => {
                 stack.count -= transferable;
                 current.count += transferable;
+                #[cfg(feature = "ae2-lab")]
+                { crate::ae2_stack_identity::synchronize_tracked(stack); crate::ae2_stack_identity::synchronize_tracked(&current); }
                 self.set_by_player(env, s, Some(current));
             }
             Some(_) => {}
@@ -1732,12 +1855,16 @@ impl Menu {
         let Some(slot) = slot else { return stack.count };
         let cell = self.containers[PLAYER][slot].get_or_insert_with(|| {
             let mut empty = stack.clone();
+            #[cfg(feature = "ae2-lab")]
+            crate::ae2_stack_identity::detach_if_tracked(&mut empty);
             empty.count = 0;
             empty
         });
         let room = CONTAINER_MAX.min(Self::max_stack(env, cell)) - cell.count;
         let add = stack.count.min(room);
         cell.count += add;
+        #[cfg(feature = "ae2-lab")]
+        crate::ae2_stack_identity::synchronize_tracked(cell);
         tidy(&mut self.containers[PLAYER][slot]);
         stack.count - add
     }
@@ -1752,12 +1879,19 @@ impl Menu {
                 .iter()
                 .position(Option::is_none)
             {
-                self.containers[PLAYER][slot] = Some(stack.clone());
+                let mut copy = stack.clone();
+                #[cfg(feature = "ae2-lab")]
+                crate::ae2_stack_identity::detach_if_tracked(&mut copy);
+                self.containers[PLAYER][slot] = Some(copy);
                 stack.count = 0;
+                #[cfg(feature = "ae2-lab")]
+                crate::ae2_stack_identity::synchronize_tracked(stack);
                 return true;
             }
             if self.creative {
                 stack.count = 0;
+                #[cfg(feature = "ae2-lab")]
+                crate::ae2_stack_identity::synchronize_tracked(stack);
                 return true;
             }
             return false;
@@ -1765,9 +1899,13 @@ impl Menu {
         loop {
             let last = stack.count;
             stack.count = self.add_resource(env, stack);
+            #[cfg(feature = "ae2-lab")]
+            crate::ae2_stack_identity::synchronize_tracked(stack);
             if stack.count == 0 || stack.count >= last {
                 if stack.count == last && self.creative {
                     stack.count = 0;
+                    #[cfg(feature = "ae2-lab")]
+                    crate::ae2_stack_identity::synchronize_tracked(stack);
                     return true;
                 }
                 return stack.count < last;
@@ -1839,11 +1977,15 @@ impl Menu {
                 if total <= max {
                     stack.count = 0;
                     target.count = total;
+                    #[cfg(feature = "ae2-lab")]
+                    { crate::ae2_stack_identity::synchronize_tracked(target); crate::ae2_stack_identity::synchronize_tracked(stack); }
                     changed = true;
                     self.slot_changed(env, dest);
                 } else if target.count < max {
                     stack.count -= max - target.count;
                     target.count = max;
+                    #[cfg(feature = "ae2-lab")]
+                    { crate::ae2_stack_identity::synchronize_tracked(target); crate::ae2_stack_identity::synchronize_tracked(stack); }
                     changed = true;
                     self.slot_changed(env, dest);
                 }
@@ -1863,9 +2005,59 @@ impl Menu {
         changed
     }
 
+    /// AEBaseMenu tries filled destinations first, then empty ones, ordering
+    /// player main slots before hotbar and enforcing each destination's filter.
+    #[cfg(feature = "ae2-lab")]
+    fn quick_move_network_tool(&mut self, env: &Env, index: usize) {
+        let Some(original) = self.slot(index).cloned() else { return };
+        let mut remaining = Some(original.clone());
+        let destinations = if index < 9 { 9..45 } else { 0..9 };
+        for occupied in [true, false] {
+            for dest in destinations.clone() {
+                if self.has_item(dest) == occupied {
+                    let amount = remaining.as_ref().map_or(0, |stack| stack.count);
+                    self.safe_insert(env, dest, &mut remaining, amount);
+                    if remaining.is_none() { break; }
+                }
+            }
+            if remaining.is_none() { break; }
+        }
+        if remaining.as_ref() != Some(&original) {
+            self.set_by_player(env, index, remaining);
+        }
+    }
+
+    /// AEBaseMenu's single upgrade destination and main-before-hotbar player priority.
+    #[cfg(feature = "ae2-lab")]
+    fn quick_move_emitter(&mut self,env:&Env,index:usize,upgrade:usize) {
+        let Some(original)=self.slot(index).cloned() else{return};
+        let destinations=if index==upgrade {54..90}else if (54..90).contains(&index){upgrade..upgrade+1}else{return};
+        let mut remaining=Some(original.clone());
+        for occupied in [true,false] {
+            for dest in destinations.clone() {
+                if self.has_item(dest)==occupied {
+                    let amount=remaining.as_ref().map_or(0,|item|item.count);
+                    self.safe_insert(env,dest,&mut remaining,amount);
+                    if remaining.is_none(){break;}
+                }
+            }
+            if remaining.is_none(){break;}
+        }
+        if remaining.as_ref()!=Some(&original){self.set_by_player(env,index,remaining);}
+    }
+
     /// `quickMoveStack` of the menu's kind; the moved stack's original copy
     /// (None when nothing moved).
     fn quick_move(&mut self, env: &Env, index: usize) -> Option<ItemStack> {
+        #[cfg(feature = "ae2-lab")]
+        if let Some(upgrade)=self.emitter_upgrade_slot {
+            self.quick_move_emitter(env,index,upgrade);return None;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.network_tool_source_order {
+            self.quick_move_network_tool(env, index);
+            return None;
+        }
         let mut stack = self.slot(index)?.clone();
         let clicked = stack.clone();
         let total = self.slots.len();
@@ -2165,11 +2357,15 @@ impl Menu {
                     if self.containers[MAIN][0].is_some() {
                         return None;
                     }
-                    let single = ItemStack {
+                    let mut single = ItemStack {
                         count: 1,
                         ..stack.clone()
                     };
+                    #[cfg(feature = "ae2-lab")]
+                    crate::ae2_stack_identity::detach_if_tracked(&mut single);
                     stack.count -= 1;
+                    #[cfg(feature = "ae2-lab")]
+                    crate::ae2_stack_identity::synchronize_tracked(&stack);
                     // The source slot keeps the rest while the item slot changes.
                     let slot = self.slots[index];
                     self.containers[slot.container][slot.index] =
@@ -2445,11 +2641,15 @@ impl Menu {
                             let new_count = (each + have).min(max);
                             remaining -= i64::from(new_count) - i64::from(have);
                             let mut placed = source.clone();
+                            #[cfg(feature = "ae2-lab")]
+                            crate::ae2_stack_identity::detach_if_tracked(&mut placed);
                             placed.count = new_count;
                             self.set_by_player(env, s, Some(placed));
                         }
                     }
                     source.count = remaining.max(0) as u32;
+                    #[cfg(feature = "ae2-lab")]
+                    crate::ae2_stack_identity::synchronize_tracked(&source);
                     self.carried = Some(source);
                     tidy(&mut self.carried);
                 }
@@ -2518,6 +2718,8 @@ impl Menu {
             }
             if let Some(stack) = self.slot(slot_index as usize) {
                 let mut copy = stack.clone();
+                #[cfg(feature = "ae2-lab")]
+                crate::ae2_stack_identity::detach_if_tracked(&mut copy);
                 copy.count = Self::max_stack(env, stack);
                 // The cartography result's safeClone runs onCraftedBy.
                 if self.slots[slot_index as usize].role == Role::CartoResult {
@@ -2562,12 +2764,54 @@ impl Menu {
     /// The PICKUP branch of `doClick`: a bundle's override, else the
     /// plain click, ending with `slot.setChanged()`.
     fn pickup(&mut self, env: &Env, s: usize, primary: bool) {
-        if !self.bundle_click(env, s, primary) {
-            self.pickup_inner(env, s, primary);
+        #[cfg(feature = "ae2-lab")]
+        if self.network_tool_click(env, s, primary) {
+            self.slot_changed(env, s);
+            return;
         }
+        if self.bundle_click(env,s,primary) {
+            self.slot_changed(env,s);
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_wrapped_stack_click(env,s,primary) {
+            self.slot_changed(env,s);
+            return;
+        }
+        self.pickup_inner(env,s,primary);
         self.slot_changed(env, s);
     }
 
+    /// WrappedGenericStack.overrideOtherStackedOnMe: an encoded stack is not
+    /// picked up normally. The built-in bucket capability can take one bucket
+    /// of a component-free water or lava key without duplicating the wrapper.
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_wrapped_stack_click(&mut self, env: &Env, s:usize, primary:bool)->bool {
+        let Some(wrapper)=self.slot(s).cloned().filter(|item|item.item.as_ref()=="ae2:wrapped_generic_stack") else{return false;};
+        let decoded=crate::ae2_generic_stack::unwrap_item_stack_checked(&wrapper,&|id,fluid|fluid || env.items.get(id).is_some());
+        let value=match decoded {
+            Ok(Some(value))=>value,
+            Ok(None)|Err(_)=>{self.set_by_player(env,s,None);return true;},
+        };
+        if !primary || !value.fluid {return true;}
+        let Some(carried)=self.carried.clone().filter(|item|item.item.as_ref()=="minecraft:bucket" && item.same_item_same_components(&ItemStack::new("minecraft:bucket",1))) else{return true;};
+        if !value.key.components.is_empty() {return true;}
+        let Some(result)=crate::ae2_cell_codec::fluid_bucket(&value.key.item_id) else{return true;};
+        if value.amount<=0 {self.set_by_player(env,s,None);return true;}
+        if value.amount<1000 {return true;}
+        let remaining=value.amount-1000;
+        let replacement=if remaining==0 {None}else{
+            let next=crate::ae2_generic_stack::GenericStack{amount:remaining,..value};
+            let Ok(stack)=crate::ae2_generic_stack::wrap(&next) else{return true;};Some(stack)
+        };
+        self.set_by_player(env,s,replacement);
+        let mut filled=ItemStack::new(result,1);
+        if carried.count==1 {self.carried=Some(filled);} else {
+            let mut empty=carried;empty.count-=1;self.carried=Some(empty);
+            self.place_back(env,&mut filled);
+        }
+        true
+    }
     fn pickup_inner(&mut self, env: &Env, s: usize, primary: bool) {
         let clicked = self.slot(s).cloned();
         match clicked {
@@ -2627,6 +2871,8 @@ impl Menu {
                         if let Some(mut taken) = self.try_remove(env, s, clicked.count, room) {
                             if let Some(c) = self.carried.as_mut() {
                                 c.count += taken.count;
+                                #[cfg(feature = "ae2-lab")]
+                                crate::ae2_stack_identity::synchronize_tracked(c);
                             }
                             self.on_take(env, s);
                             if self.slots[s].role == Role::CartoResult {
@@ -2645,6 +2891,8 @@ impl Menu {
 
     /// The SWAP branch of `doClick`.
     fn swap(&mut self, env: &Env, target: usize, button: usize) {
+        #[cfg(feature = "ae2-lab")]
+        if self.quartz_knife_slot==Some(button) || self.network_tool_slot==Some(40) {return;}
         let inv_slot = button;
         let source = self.containers[PLAYER][inv_slot].clone();
         let target_stack = self.slot(target).cloned();
@@ -2814,15 +3062,22 @@ impl Menu {
         if self.has_item(s) && self.may_pickup(env, s) {
             return;
         }
-        let total = self.slots.len() as i32;
-        let (start, step) = if button == 0 { (0, 1) } else { (total - 1, -1) };
+        let mut order: Vec<usize> = (0..self.slots.len()).collect();
+        #[cfg(feature = "ae2-lab")]
+        if self.network_tool_source_order && self.slots.len() == 45 {
+            // AEBaseMenu adds the nine pocket slots, then player indices 0..35.
+            // The generic chest wire layout places player main before hotbar.
+            order = (0..9).chain(36..45).chain(9..36).collect();
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(upgrade)=self.emitter_upgrade_slot.filter(|_|self.slots.len()==90) {
+            order=std::iter::once(upgrade).chain(81..90).chain(54..81).collect();
+        }
+        if button != 0 { order.reverse(); }
         let carried_max = Self::max_stack(env, &carried);
         for pass in 0..2 {
-            let mut i = start;
-            while i >= 0 && i < total && self.carried.as_ref().map_or(0, |c| c.count) < carried_max
-            {
-                let t = i as usize;
-                i += step;
+            for &t in &order {
+                if self.carried.as_ref().map_or(0, |c| c.count) >= carried_max { break; }
                 let have = self.carried.clone().expect("some");
                 if self.has_item(t)
                     && self.quick_replace(t, &have, env)
@@ -2836,6 +3091,8 @@ impl Menu {
                             && let Some(c) = self.carried.as_mut()
                         {
                             c.count += removed.count;
+                            #[cfg(feature = "ae2-lab")]
+                            crate::ae2_stack_identity::synchronize_tracked(c);
                         }
                     }
                 }
@@ -3002,6 +3259,72 @@ pub(crate) mod tests {
             damage: 0,
             extra: None,
         })
+    }
+
+    #[cfg(feature = "ae2-lab")]
+    #[test]
+    fn wrapped_stack_refuses_pickup_and_pours_only_real_fluid_into_buckets() {
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
+        let items=Items::catalog(&root).unwrap();let recipes=Recipes::load(&root,&items).unwrap();let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root,&items);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
+        let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
+        let value=crate::ae2_generic_stack::GenericStack{key:crate::ae2_cell_codec::fluid_key("minecraft:water"),fluid:true,amount:1500};
+        let wrapper=crate::ae2_generic_stack::wrap(&value).unwrap();let mut menu=Menu::new(Kind::Chest(1));
+        menu.set_slot(&env,0,Some(wrapper.clone()));menu.click(&env,0,0,Input::Pickup).unwrap();
+        assert!(menu.carried.is_none());assert_eq!(menu.slot(0),Some(&wrapper));
+        menu.carried=Some(ItemStack::new("minecraft:bucket",1));menu.click(&env,0,1,Input::Pickup).unwrap();
+        assert_eq!(menu.carried.as_ref().unwrap().item.as_ref(),"minecraft:bucket");assert_eq!(menu.slot(0),Some(&wrapper));
+        menu.click(&env,0,0,Input::Pickup).unwrap();
+        assert_eq!(menu.carried.as_ref().unwrap().item.as_ref(),"minecraft:water_bucket");
+        assert_eq!(crate::ae2_generic_stack::unwrap_item_stack(menu.slot(0).unwrap()).unwrap().unwrap().amount,500);
+        let exact=crate::ae2_generic_stack::GenericStack{amount:1000,..value};menu.set_slot(&env,0,Some(crate::ae2_generic_stack::wrap(&exact).unwrap()));
+        menu.carried=Some(ItemStack::new("minecraft:bucket",2));menu.click(&env,0,0,Input::Pickup).unwrap();
+        assert!(menu.slot(0).is_none());assert_eq!(menu.carried.as_ref().unwrap().count,1);
+        assert!(menu.containers[PLAYER].iter().flatten().any(|item|item.item.as_ref()=="minecraft:water_bucket"));
+        menu.set_slot(&env,0,Some(ItemStack::new("ae2:wrapped_generic_stack",1)));menu.carried=None;menu.click(&env,0,0,Input::Pickup).unwrap();
+        assert!(menu.slot(0).is_none(),"degenerate wrapper is removed");
+    }
+    #[cfg(feature = "ae2-lab")]
+    #[test]
+    fn quartz_knife_menu_consumes_one_ingot_and_locks_the_physical_knife() {
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
+        let mut items=Items::catalog(&root).unwrap();items.item_tags.insert("ae2:metal_ingots".into(),std::collections::HashSet::from(["minecraft:iron_ingot".into()]));
+        let recipes=Recipes::load(&root,&items).unwrap();let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root,&items);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
+        let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
+        let mut menu=Menu::new(Kind::Anvil);menu.quartz_knife_slot=Some(0);menu.set_player_item(0,Some(ItemStack::new("ae2:certus_quartz_cutting_knife",1)));
+        menu.set_slot(&env,0,stack("iron_ingot",1));assert!(menu.slot(2).is_none());assert!(menu.rename(&env,"Hello"));
+        assert_eq!(menu.slot(2).unwrap().item.as_ref(),"ae2:name_press");
+        assert_eq!(menu.slot(2).unwrap().data().unwrap().other("ae2:name_press_name"),Some(&horizon_world::nbt::Tag::String("Hello".into())));
+        menu.click(&env,30,0,Input::Pickup).unwrap();assert!(menu.carried.is_none());assert!(menu.player_item(0).is_some());
+        menu.click(&env,2,0,Input::Pickup).unwrap();assert_eq!(menu.carried.as_ref().unwrap().item.as_ref(),"ae2:name_press");assert!(menu.slot(0).is_none());assert!(menu.quartz_knife_used);assert_eq!(menu.level_change,0);
+    }
+    #[test]
+    fn ae2_fresh_crafting_menus_preserve_player_output_across_refills() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../.local/resources/26.3");
+        if !root.join("items.json").exists() { return; }
+        let items = Items::catalog(&root).unwrap();
+        let recipes = Recipes::load(&root, &items).unwrap();
+        let brewing = Brewing::load(&root, &items);
+        let banners = Banners::load(&root);
+        let station_recipes = crate::stations::StationRecipes::load(&root, &items);
+        let enchantments = crate::enchant::Enchantments::default();
+        let names = crate::creative::Names::default();
+        let env = Env { items: &items, recipes: &recipes, brewing: &brewing,
+            banners: &banners, station_recipes: &station_recipes, enchantments: &enchantments,
+            names: &names, trade: None, maps: None };
+        let mut player = vec![None; 36];
+        player[1] = stack("oak_planks", 4);
+        for expected in [8, 12, 16] {
+            let mut menu = Menu::new(Kind::Crafting);
+            for (i, item) in player.iter().cloned().enumerate() { menu.set_player_item(i, item); }
+            menu.set_slot(&env, 1, stack("oak_log", 1));
+            assert_eq!(menu.slot(0).map(|s| s.count), Some(4));
+            menu.click(&env, 0, 0, Input::QuickMove).unwrap();
+            assert!(menu.slot(1).is_none());
+            player = (0..36).map(|i| menu.player_item(i).cloned()).collect();
+            let planks: u32 = player.iter().flatten().filter(|s| &*s.item == "minecraft:oak_planks").map(|s| s.count).sum();
+            assert_eq!(planks, expected);
+        }
     }
 
     /// An item tab's ItemPickerMenu: the 45 display slots show `shown`.
@@ -3210,5 +3533,72 @@ pub(crate) mod tests {
             assert_eq!(menu.player_item(0), None);
             assert_eq!(menu.slot(0), stack("dirt", 1).as_ref());
         });
+    }
+}
+
+#[cfg(all(test, feature = "ae2-lab"))]
+mod ae2_identity_tests {
+    use super::*;
+    #[test]
+    fn native_menu_swap_clone_and_pickup_preserve_source_object_rules() {
+        let Some(root) = std::env::var_os("HORIZON_TEST_RESOURCES") else { return };
+        let root = std::path::Path::new(&root);
+        let items = Items::catalog(root).unwrap();
+        let recipes = Recipes::load(root, &items).unwrap();
+        let brewing = Brewing::load(root, &items);
+        let banners = Banners::load(root);
+        let station_recipes = crate::stations::StationRecipes::load(root, &items);
+        let enchantments = crate::enchant::Enchantments::default();
+        let names = crate::creative::Names::default();
+        let env = Env { items: &items, recipes: &recipes, brewing: &brewing, banners: &banners,
+            station_recipes: &station_recipes, enchantments: &enchantments, names: &names, trade: None, maps: None };
+        let mut menu = Menu::new(Kind::Inventory);
+        menu.creative = true;
+        let mut value = ItemStack::new("minecraft:stone", 8);
+        let retained = crate::ae2_stack_identity::StackRef::capture(&mut value);
+        menu.set_slot(&env, 36, Some(value));
+        menu.click(&env, 36, 40, Input::Swap).unwrap();
+        assert!(retained.tracks(menu.slot(45).unwrap()));
+        menu.click(&env, 45, 0, Input::Clone).unwrap();
+        assert!(!retained.tracks(menu.carried.as_ref().unwrap()));
+        menu.carried = None;
+        menu.click(&env, 45, 0, Input::Pickup).unwrap();
+        assert!(!retained.tracks(menu.carried.as_ref().unwrap()));
+        assert_eq!(retained.read().count, 0);
+
+        let mut menu = Menu::new(Kind::Inventory);
+        let mut moving = ItemStack::new("minecraft:stone", 8);
+        let moving_ref = crate::ae2_stack_identity::StackRef::capture(&mut moving);
+        let mut existing = ItemStack::new("minecraft:stone", 60);
+        let existing_ref = crate::ae2_stack_identity::StackRef::capture(&mut existing);
+        menu.set_slot(&env, 9, Some(moving));
+        menu.set_slot(&env, 36, Some(existing));
+        menu.click(&env, 9, 0, Input::QuickMove).unwrap();
+        assert_eq!(existing_ref.read().count, 64);
+        assert_eq!(moving_ref.read().count, 0);
+        assert!(retained.read().count == 0);
+        let moved = (37..45).filter_map(|slot| menu.slot(slot)).find(|stack| stack.count == 4).unwrap();
+        assert!(!moving_ref.tracks(moved));
+
+        let mut crafting = Menu::new(Kind::Crafting);
+        let mut log = ItemStack::new("minecraft:oak_log", 1);
+        let log_ref = crate::ae2_stack_identity::StackRef::capture(&mut log);
+        crafting.set_slot(&env, 1, Some(log));
+        assert_eq!(crafting.slot(0).unwrap().item.as_ref(), "minecraft:oak_planks");
+        crafting.click(&env, 0, 0, Input::QuickMove).unwrap();
+        assert!(crafting.slot(1).is_none());
+        assert_eq!(log_ref.read().count, 0);
+    }
+    #[test]
+    fn native_menu_split_creates_a_new_object_and_keeps_original_identity() {
+        let mut stack = ItemStack::new("minecraft:stone", 8);
+        let retained = crate::ae2_stack_identity::StackRef::capture(&mut stack);
+        let part = split(&mut stack, 3);
+        assert!(retained.tracks(&stack));
+        assert!(!retained.tracks(&part));
+        assert_eq!(stack.count, 5);
+        assert_eq!(part.count, 3);
+        assert!(stack.same_item_same_components(&part));
+        assert_eq!(retained.read().count, 5);
     }
 }

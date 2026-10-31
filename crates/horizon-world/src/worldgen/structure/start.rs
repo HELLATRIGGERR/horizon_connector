@@ -67,6 +67,7 @@ pub struct JigsawDef {
 }
 #[derive(Debug)]
 pub enum StructureKind {
+    Extension(Arc<dyn super::extension::StructureExtension>),
     Jigsaw(JigsawDef),
     BuriedTreasure,
     Igloo,
@@ -741,6 +742,9 @@ pub struct StructureStart {
     pub pieces: Vec<Piece>,
     /// Piece union, inflated by 12 for terrain-adapting structures.
     pub bounding_box: BoundingBox,
+    /// Vanilla addReference count; persisted even when start pieces are opaque.
+    pub references: std::sync::atomic::AtomicI32,
+    pub saved_raw: Option<crate::nbt::Compound>,
 }
 impl StructureStart {
     /// `StructureStart.createTag` in its own chunk; None while one of its
@@ -753,11 +757,16 @@ impl StructureStart {
             .iter()
             .map(|p| p.save().map(Tag::Compound))
             .collect();
+        if let Some(raw) = &self.saved_raw {
+            let mut raw = raw.clone();
+            raw.insert("references".into(), Tag::Int(self.references.load(std::sync::atomic::Ordering::Relaxed)));
+            return Some(Tag::Compound(raw));
+        }
         Some(Tag::compound([
             ("id", Tag::String(self.name.as_str().into())),
             ("ChunkX", Tag::Int(self.chunk.x)),
             ("ChunkZ", Tag::Int(self.chunk.z)),
-            ("references", Tag::Int(0)),
+            ("references", Tag::Int(self.references.load(std::sync::atomic::Ordering::Relaxed))),
             ("Children", Tag::List(children?)),
         ]))
     }
@@ -902,6 +911,10 @@ fn try_generate(
     let mut random = WorldgenRandom::new(LegacyRandom::new(0));
     random.set_large_feature_seed(seed, chunk.x, chunk.z);
     let (position, pieces) = match &def.kind {
+        StructureKind::Extension(extension)=>{
+            let (position,pieces)=extension.generate(context,&mut random,chunk)?;
+            (position,pieces.into_iter().map(Piece::Legacy).collect())
+        }
         StructureKind::Jigsaw(jigsaw) => {
             let height = jigsaw
                 .start_height
@@ -1229,6 +1242,8 @@ impl StructureStart {
             chunk,
             pieces,
             bounding_box,
+            references: std::sync::atomic::AtomicI32::new(0),
+            saved_raw: None,
         }
     }
 }

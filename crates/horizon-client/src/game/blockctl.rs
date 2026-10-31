@@ -48,12 +48,49 @@ impl Game<'_> {
     }
     fn put_block(&mut self, pos: [i32; 3], state: BlockStateId) -> Result<()> {
         let name = self.res.facts().get(state).name.clone();
-        self.world.block_entities.remove(&(pos[0], pos[1], pos[2]));
+        #[cfg(feature = "ae2-lab")]
+        let old_state = self.world.block(pos[0], pos[1], pos[2]);
+        #[cfg(feature = "ae2-lab")]
+        let old_ae2 =
+            horizon_client::ae2_world::MachineKind::from_id(&self.res.facts().get(old_state).name)
+                .is_some();
+        #[cfg(feature = "ae2-lab")]
+        if self.world.block(pos[0], pos[1], pos[2]) == state
+            && horizon_client::ae2_world::Machine::for_block(&name).is_some()
+        {
+            return Ok(());
+        }
+        let key = (pos[0], pos[1], pos[2]);
+        #[cfg(feature = "ae2-lab")]
+        let ae2_before = matches!(
+            self.world.block_entities.get(&key),
+            Some(BlockEntity::Ae2(_))
+        );
+        #[cfg(not(feature = "ae2-lab"))]
+        let ae2_before = false;
+        // Keep the live AE2 entity until level_set invokes its removal hook.
+        if !ae2_before {
+            self.world.block_entities.remove(&key);
+        }
         self.level_set(pos, state)?;
+        #[cfg(feature = "ae2-lab")]
+        if old_ae2
+            && self.world.block(pos[0], pos[1], pos[2]) != old_state
+            && (matches!(
+                self.world.block_entities.get(&key),
+                Some(BlockEntity::Ae2(_))
+            ) || super::spill::saved_entity(&self.world, pos).is_some())
+        {
+            self.with_level(|_, level, _| {
+                level.remove_entity(
+                    horizon_core::position::BlockPos::new(pos[0], pos[1], pos[2]),
+                    old_state,
+                    true,
+                );
+            });
+        }
         if let Some(entity) = BlockEntity::for_block(&name) {
-            self.world
-                .block_entities
-                .insert((pos[0], pos[1], pos[2]), entity);
+            self.world.block_entities.get_or_insert_with(key, || entity);
         }
         Ok(())
     }

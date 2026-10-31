@@ -103,7 +103,8 @@ impl Game<'_> {
             }
             return;
         }
-        let hardware = self.pad.read();
+        let automated = horizon_client::clipboard::automated();
+        let hardware = if automated { PadState::default() } else { self.pad.read() };
         self.ui.options.pad_style = self.settings.controller.glyphs.resolve(self.pad.style);
         let state = hardware.merge(&self.pad.injected);
         self.pad.virtual_input = self.pad.injected != PadState::default();
@@ -117,7 +118,9 @@ impl Game<'_> {
             self.pad.in_use = true;
         }
         self.pad.state = state;
-        self.pad_output_frame();
+        if !automated {
+            self.pad_output_frame();
+        }
         // Damage from any source, here or on a server; nothing counts on
         // the title screen.
         let health = self
@@ -307,7 +310,9 @@ impl Game<'_> {
             return;
         };
         self.pad.last_rumble = Some((rumble.name(), pulse));
-        self.pad_vibrate(rumble, pulse);
+        if !horizon_client::clipboard::automated() {
+            self.pad_vibrate(rumble, pulse);
+        }
     }
 
     /// `horizon-ctl pad ...`.

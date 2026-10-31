@@ -40,6 +40,7 @@ pub struct Sounds {
 #[derive(Clone, Debug)]
 pub struct StateFacts {
     pub name: Arc<str>,
+    air: bool,
     pub emission: u8,
     pub dampening: u8,
     pub skylight_down: bool,
@@ -361,10 +362,8 @@ impl BlockFacts {
                 _ if prop("waterlogged") == Some("true") => (Fluid::Water, 8, false),
                 _ => (Fluid::None, 0, false),
             };
-            let air = matches!(
-                state.name.as_str(),
-                "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air"
-            );
+            // The exported isAir bit also covers modded air-like blocks.
+            let air = behaviour_states[index][1].as_u64().unwrap_or(0) & (1 << 1) != 0;
             let cube = move || {
                 if air {
                     Vec::new()
@@ -387,6 +386,7 @@ impl BlockFacts {
                 outline,
                 outline_edges,
                 name: intern(&state.name),
+                air,
                 emission: entry.emission.as_f64().unwrap_or(0.0) as u8,
                 dampening: entry.dampening.as_f64().unwrap_or(0.0) as u8,
                 skylight_down: entry.skylight_down,
@@ -445,10 +445,7 @@ impl BlockFacts {
         &self.states[id.0 as usize]
     }
     pub fn is_air(&self, id: BlockStateId) -> bool {
-        matches!(
-            &*self.states[id.0 as usize].name,
-            "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air"
-        )
+        self.states[id.0 as usize].air
     }
 }
 

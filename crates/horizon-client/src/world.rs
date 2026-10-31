@@ -68,6 +68,15 @@ pub struct World {
     pub modified: HashSet<(i32, i32)>,
     /// Block entities, and the order they tick in.
     pub block_entities: crate::block_entities::BlockEntities,
+    /// Runtime, state-tagged geometry for dynamic multipart blocks.
+    pub dynamic_shapes: HashMap<
+        (i32, i32, i32),
+        (
+            BlockStateId,
+            horizon_core::geometry::VoxelShape,
+            Vec<[f64; 6]>,
+        ),
+    >,
     /// Each chest's `ContainerOpenersCounter`: opener count and largest
     /// interaction range.
     pub chest_openers: HashMap<(i32, i32, i32), (i32, f64)>,
@@ -163,6 +172,33 @@ impl Weather {
     }
 }
 impl World {
+    pub fn placement_snapshot(&self) -> Self {
+        Self {
+            random: self.random.clone(),
+            health_rules: self.health_rules.clone(),
+            dirty_sections: self.dirty_sections.clone(),
+            dirty_light: self.dirty_light.clone(),
+            light_edits: self.light_edits.clone(),
+            loaded_entities: self.loaded_entities.clone(),
+            modified: self.modified.clone(),
+            dynamic_shapes: self.dynamic_shapes.clone(),
+            chest_openers: self.chest_openers.clone(),
+            block_names: self.block_names.clone(),
+            watched: self.watched.clone(),
+            watched_writes: self.watched_writes.clone(),
+            inhabited: self.inhabited.clone(),
+            block_log: self.block_log.clone(),
+            light_log: self.light_log.clone(),
+            moving_pistons: self.moving_pistons.clone(),
+            fast_lava: self.fast_lava, revision: self.revision, air: self.air,
+            game_time: self.game_time, day_time: self.day_time, weather: self.weather,
+            chunks: self.chunks.placement_snapshot(),
+            block_entities: self.block_entities.placement_snapshot(),
+            // Derived cache; a shadow edit must not invalidate the live cache.
+            pois: Default::default(),
+        }
+    }
+
     pub fn new(air: BlockStateId, seed: i64) -> Self {
         Self {
             chunks: Default::default(),
@@ -177,6 +213,7 @@ impl World {
             loaded_entities: Vec::new(),
             modified: HashSet::new(),
             block_entities: Default::default(),
+            dynamic_shapes: Default::default(),
             chest_openers: HashMap::new(),
             block_names: HashMap::new(),
             watched: Vec::new(),
@@ -260,6 +297,7 @@ impl World {
         }
         let previous = Arc::make_mut(chunk).set(x & 15, y, z & 15, state.0);
         if previous != state.0 {
+            self.dynamic_shapes.remove(&(x, y, z));
             self.block_entities
                 .state_changed((x, y, z), previous, state.0);
             let watches = |id: u32| self.watched.get(id as usize).copied().unwrap_or(false);

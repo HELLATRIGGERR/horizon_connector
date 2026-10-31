@@ -85,6 +85,10 @@ pub fn apply(guest: &mut Guest, level: &Level) {
         .map(|s| [s[0] + 0.5, s[1], s[2] + 0.5]);
     guest.respawn_elsewhere = level.respawn_elsewhere.clone();
     guest.saved = level.player_extra.clone();
+    guest.vehicle_to_restore = level.player_extra.as_ref().and_then(|tag| match tag.get("horizon:vehicle_uuid") {
+        Some(horizon_world::nbt::Tag::IntArray(v)) if v.len() == 4 => Some([v[0],v[1],v[2],v[3]]),
+        _ => None,
+    });
     guest.seen_credits = level.seen_credits;
     let extra = level.player_extra.as_ref();
     let short = |key: &str, default: i64| {
@@ -100,6 +104,8 @@ pub fn apply(guest: &mut Guest, level: &Level) {
     guest.recipe_book = level.recipe_book.clone();
     guest.dimension = match level.dimension.as_str() {
         d @ ("minecraft:the_nether" | "minecraft:the_end") => d.to_owned(),
+        #[cfg(feature = "ae2-lab")]
+        "ae2:spatial_storage" => "ae2:spatial_storage".to_owned(),
         _ => "minecraft:overworld".to_owned(),
     };
     if level.ender_items.len() == 27 {
@@ -169,6 +175,15 @@ pub fn store(guest: &Guest, level: &mut Level) {
     level.on_ground = guest.on_ground;
     level.seen_credits = guest.seen_credits;
     level.player_extra = guest.saved.clone();
+    // Horizon keeps each vehicle exactly once in entity-region storage. This
+    // native reference deliberately does not embed a second vehicle copy.
+    let extra = level.player_extra.get_or_insert_with(|| horizon_world::nbt::Tag::Compound(Default::default()));
+    if let horizon_world::nbt::Tag::Compound(map) = extra {
+        map.remove(&"horizon:vehicle_uuid".into());
+        if let Some(uuid) = guest.vehicle.filter(|_| !guest.dead).and(guest.vehicle_uuid).or(guest.vehicle_to_restore) {
+            map.insert("horizon:vehicle_uuid".into(), horizon_world::nbt::Tag::IntArray(uuid.to_vec()));
+        }
+    }
     // The live body's fire, air and fall distance (Entity.saveWithoutId),
     // or what the file had while the player has no body yet.
     let body = guest
@@ -236,6 +251,32 @@ mod tests {
             [0.0, 64.0, 0.0],
             8,
         )
+    }
+
+    #[test]
+    fn vehicle_reference_survives_restart_and_disappears_after_dismount() {
+        let mut g = guest();
+        g.vehicle = Some(901);
+        #[cfg(feature = "ae2-lab")]
+        {g.dimension="ae2:spatial_storage".into();}
+        g.vehicle_uuid = Some([1, -2, 3, -4]);
+        let mut level = Level::default();
+        store(&g, &mut level);
+        let tag = level.player_tag();
+        let mut read = Level::default();
+        read.read_player(&tag);
+        read.player_extra = Some(tag);
+        let mut back = guest();
+        apply(&mut back, &read);
+        assert_eq!(back.vehicle, None);
+        assert_eq!(back.dimension,g.dimension);
+        assert_eq!(back.vehicle_to_restore, Some([1, -2, 3, -4]));
+        // Saving before entity residency must not erase the pending reference.
+        store(&back, &mut level);
+        assert!(level.player_tag().get("horizon:vehicle_uuid").is_some());
+        back.vehicle_to_restore = None;
+        store(&back, &mut level);
+        assert!(level.player_tag().get("horizon:vehicle_uuid").is_none());
     }
 
     #[test]

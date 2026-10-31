@@ -558,7 +558,7 @@ impl Game<'_> {
             ],
         });
         self.chat_capture = Some(Vec::new());
-        let used = self.use_item_as_player();
+        let used = self.use_item_as_player(None);
         self.forced_hit = None;
         let messages = self.chat_capture.take().unwrap_or_default();
         used?;

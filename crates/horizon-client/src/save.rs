@@ -553,6 +553,19 @@ pub fn encode_block_entity(
         ("components", Tag::Compound(components)),
     ];
     match e {
+        #[cfg(feature = "ae2-lab")]
+        BlockEntity::Ae2(m) => {
+            entries.push(("Items", encode_items(if m.kind == crate::ae2_world::MachineKind::DebugItemGenerator { &[] } else { &m.slots })));
+            entries.push(("ae2_lab_upgrades", encode_items(&m.upgrades)));
+            entries.push(("ae2_lab_energy", Tag::Double(m.energy.to_bits())));
+            entries.push((
+                "ae2_lab_burn_remaining",
+                Tag::Double(m.burn_remaining.to_bits()),
+            ));
+            entries.push(("ae2_lab_burn_rate", Tag::Double(m.burn_rate.to_bits())));
+            entries.push(("ae2_lab_progress", Tag::Double((if m.kind == crate::ae2_world::MachineKind::DebugItemGenerator { 0.0 } else { m.progress }).to_bits())));
+            entries.push(("ae2_lab_config", Tag::Compound(m.config.clone())));
+        }
         BlockEntity::Chest(items) => entries.push(("Items", encode_items(items))),
         BlockEntity::Furnace(f) => {
             entries.push(("Items", encode_items(&f.items)));
@@ -662,6 +675,34 @@ fn merge_block_entity(original: &Tag, loaded: &Tag, current: &Tag) -> Tag {
     }
     merged
 }
+/// Current modeled data plus the raw components attached to this incarnation.
+/// A rich source name is retained only while its plain value still matches.
+#[cfg(feature = "ae2-lab")]
+pub fn live_vanilla_block_entity(
+    pos:(i32,i32,i32),
+    entity:&crate::containers::BlockEntity,
+    block:&str,
+    name:Option<&str>,
+    original:Option<&Tag>,
+) -> Tag {
+    let mut current=encode_block_entity(pos,entity,block);
+    let original=original.filter(|tag|crate::block_entity_nbt::id(tag)==crate::block_entity_nbt::id(&current));
+    if let (Some(name),Tag::Compound(map))=(name,&mut current) {
+        let source=original.and_then(|tag|tag.get("CustomName"))
+            .filter(|raw|crate::entity_nbt::name_text(raw).plain()==name);
+        map.insert("CustomName".into(),source.cloned().unwrap_or_else(||Tag::String(name.into())));
+    }
+    let Some(original)=original else{return current};
+    let loaded=decode_block_entity(original).map_or_else(
+        ||current.clone(),
+        |(saved_pos,saved)|encode_block_entity(saved_pos,&saved,block),
+    );
+    let mut merged=merge_block_entity(original,&loaded,&current);
+    if name.is_none() && let Tag::Compound(map)=&mut merged {
+        map.remove(&"CustomName".into());
+    }
+    merged
+}
 /// `BannerBlockEntity.loadAdditional` (and the `components` a block entity keeps).
 pub fn decode_banner(tag: &Tag) -> crate::containers::Banner {
     crate::containers::Banner {
@@ -765,6 +806,34 @@ pub fn decode_block_entity(tag: &Tag) -> Option<((i32, i32, i32), crate::contain
     };
     let mut entity = BlockEntity::for_block(block)?;
     match &mut entity {
+        #[cfg(feature = "ae2-lab")]
+        BlockEntity::Ae2(m) => {
+            m.slots = decode_items(tag.get("Items"), m.kind.physical_slots());
+            m.upgrades = decode_items(tag.get("ae2_lab_upgrades"), m.kind.upgrade_slots());
+            let state = |key: &str, default: f64| -> Option<f64> {
+                match tag.get(key) {
+                    None => Some(default),
+                    Some(t) => float(Some(t)).filter(|v| v.is_finite() && *v >= 0.0),
+                }
+            };
+            let energy = if m.source_energy_capacity().is_some() {
+                match tag.get("ae2_lab_energy") {
+                    None => 0.0,
+                    Some(t) => float(Some(t)).filter(|v| v.is_finite())?,
+                }
+            } else {
+                state("ae2_lab_energy", 0.0)?
+            };
+            m.set_saved_energy(energy);
+            m.burn_remaining = state("ae2_lab_burn_remaining", 0.0)?;
+            m.burn_rate = state("ae2_lab_burn_rate", 1.0)?;
+            m.progress = state("ae2_lab_progress", 0.0)?;
+            m.config = match tag.get("ae2_lab_config") {
+                None => Compound::new(),
+                Some(Tag::Compound(c)) => c.clone(),
+                _ => return None,
+            };
+        }
         BlockEntity::Chest(items) => *items = decode_items(tag.get("Items"), items.len()),
         BlockEntity::Furnace(f) => {
             let items = decode_items(tag.get("Items"), 3);
@@ -977,11 +1046,18 @@ impl LevelShape {
         min_y: 0,
         height: 256,
     };
+    pub const SPATIAL: Self = Self {
+        sky_light: false,
+        min_y: 0,
+        height: 256,
+    };
     /// The shape of a dimension folder (`dimensions/minecraft/<name>`, or the
     /// old `DIM-1` and `DIM1`).
     pub fn for_dir(root: &Path) -> Self {
         if root.ends_with("the_nether") || root.ends_with("DIM-1") {
             Self::NETHER
+        } else if root.ends_with("spatial_storage") {
+            Self::SPATIAL
         } else if root.ends_with("the_end") || root.ends_with("DIM1") {
             Self::END
         } else {
@@ -1227,7 +1303,17 @@ pub fn encode_with(
                 .filter(|tag| {
                     crate::block_entity_nbt::id(tag) == crate::block_entity_nbt::id(&current)
                 });
-            let merged = match source {
+            #[cfg(feature = "ae2-lab")]
+            if let (Some((_,name)),Some(raw),Tag::Compound(map))=(
+                chunk.block_names.iter().find(|(q,_)|q==p),
+                source.and_then(|tag|tag.get("CustomName")),
+                &mut current,
+            ) {
+                if crate::entity_nbt::name_text(raw).plain()==name.as_str() {
+                    map.insert("CustomName".into(),raw.clone());
+                }
+            }
+            let mut merged = match source {
                 Some(original) => {
                     let loaded = decode_block_entity(original).map_or_else(
                         || current.clone(),
@@ -1237,6 +1323,14 @@ pub fn encode_with(
                 }
                 None => current,
             };
+            #[cfg(feature = "ae2-lab")]
+            if matches!(e,crate::containers::BlockEntity::Chest(_) | crate::containers::BlockEntity::Furnace(_)
+                | crate::containers::BlockEntity::Brewing(_) | crate::containers::BlockEntity::Crafter(_)
+                | crate::containers::BlockEntity::Beacon(_))
+                && !chunk.block_names.iter().any(|(q,_)|q==p)
+                && let Tag::Compound(map)=&mut merged {
+                map.remove(&"CustomName".into());
+            }
             let mut saved = crate::block_entity_nbt::canonical(&merged).unwrap_or(merged);
             if let Some(r) = extras.and_then(|x| x.rolled_loot.iter().find(|r| r.pos == *p))
                 && let Tag::Compound(map) = &mut saved
@@ -1321,7 +1415,9 @@ pub fn encode_with(
         if !starts.is_empty()
             && let Some(Tag::Compound(s)) = map.get_mut(&"structures".into())
         {
-            s.insert("starts".into(), Tag::Compound(starts));
+            // Preserve opaque/unknown saved starts while updating recognized ones.
+            let entry = s.entry("starts".into()).or_insert_with(|| Tag::Compound(Compound::new()));
+            if let Tag::Compound(existing) = entry { existing.extend(starts); }
         }
         map.entry("PostProcessing".into())
             .or_insert_with(|| Tag::List(vec![Tag::List(Vec::new()); shape.section_count()]));
@@ -1496,7 +1592,11 @@ fn decode_column(
             }
             match decode_block_entity(e) {
                 Some(mut be) => {
-                    if let Some(name) = text(e.get("CustomName")) {
+                    #[cfg(feature = "ae2-lab")]
+                    let name=e.get("CustomName").map(|raw|crate::entity_nbt::name_text(raw).plain());
+                    #[cfg(not(feature = "ae2-lab"))]
+                    let name=text(e.get("CustomName"));
+                    if let Some(name) = name {
                         chunk.block_names.push((be.0, name));
                     }
                     if let Some(rolled) = roll_loaded_loot(&chunk, biomes, e, &mut be) {
@@ -2002,6 +2102,27 @@ pub struct SaveDir {
 fn is_forced_ticket(ticket: &Tag) -> bool {
     matches!(ticket.get("type"), Some(Tag::String(t)) if *t == JavaString::from("minecraft:forced"))
 }
+impl std::fmt::Debug for SaveDir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str("SaveDir") }
+}
+impl horizon_world::worldgen::structure::extension::SavedStartSource for SaveDir {
+    fn read_starts(&self, chunk: ChunkPos) -> std::result::Result<Option<Compound>, String> {
+        let pending = self.pending.lock().map_err(|_| "pending writes poisoned".to_owned())?
+            .get(&(Folder::Region, chunk.x, chunk.z)).map(|(_, r)| r.clone());
+        let root = match pending {
+            Some(record) => record.tag().map(|tag| (*tag).clone()),
+            None => read_region_record(&self.root, &self.regions, "region", chunk.x, chunk.z).map_err(|e| e.to_string())?,
+        };
+        let Some(root) = root else { return Ok(None); };
+        let status = root.tag.get("Status").ok_or("saved chunk lacks status")?;
+        let status = ChunkStatus::from_nbt(status).map_err(|e| e.to_string())?;
+        if status < ChunkStatus::StructureStarts { return Ok(None); }
+        match root.tag.get("structures").and_then(|s| s.get("starts")) {
+            Some(Tag::Compound(starts)) => Ok(Some(starts.clone())),
+            _ => Err("saved chunk lacks structure starts".into()),
+        }
+    }
+}
 impl SaveDir {
     pub fn new(root: PathBuf) -> Self {
         let shape = LevelShape::for_dir(&root);
@@ -2066,28 +2187,32 @@ impl SaveDir {
         region_path(&self.root, folder, rx, rz)
     }
     fn read_record(&self, folder: &str, x: i32, z: i32) -> Option<NamedTag> {
-        let pending = self
-            .pending
-            .lock()
-            .ok()?
-            .get(&(Folder::of(folder), x, z))
-            .map(|(_, r)| r.clone());
+        self.read_record_checked(folder, x, z).ok().flatten()
+    }
+    /// Distinguish an absent region record from a record that cannot be read.
+    fn read_record_checked(&self, folder: &str, x: i32, z: i32) -> Result<Option<NamedTag>> {
+        let pending = self.pending.lock().map_err(|_| "pending writes poisoned")?
+            .get(&(Folder::of(folder), x, z)).map(|(_, r)| r.clone());
         if let Some(record) = pending {
-            return record.tag().map(|t| (*t).clone());
+            return Ok(record.tag().map(|t| (*t).clone()));
         }
         let cache = match Folder::of(folder) {
             Folder::Region => &self.regions,
             Folder::Entities => &self.entity_regions,
             Folder::Poi => &self.poi_regions,
         };
-        read_region_record(&self.root, cache, folder, x, z).ok()?
+        read_region_record(&self.root, cache, folder, x, z)
     }
     pub fn load(&self, x: i32, z: i32, registry: &BlockRegistry, biomes: &Biomes) -> Option<Chunk> {
-        let root = self.read_record("region", x, z)?;
+        self.load_checked(x, z, registry, biomes).ok().flatten()
+    }
+    /// Transactional callers may create a new empty chunk only for Ok(None).
+    pub fn load_checked(&self, x: i32, z: i32, registry: &BlockRegistry, biomes: &Biomes) -> Result<Option<Chunk>> {
+        let Some(root) = self.read_record_checked("region", x, z)? else { return Ok(None); };
         let tables = self.tables.get().map(|t| &**t);
-        let mut chunk = decode_with(&root, registry, biomes, tables)?;
+        let mut chunk = decode_with(&root, registry, biomes, tables).ok_or("saved full chunk could not be decoded")?;
         load_light(&root.tag, &mut chunk, self.shape.sky_light);
-        Some(chunk)
+        Ok(Some(chunk))
     }
     /// A proto chunk saved before it became final (`decode_proto`).
     pub fn load_proto(
@@ -2120,13 +2245,15 @@ impl SaveDir {
     /// Entities saved for a chunk (`entities/`; older chunks may still keep
     /// them in the chunk's own `entities` list).
     pub fn load_entities(&self, x: i32, z: i32) -> Vec<Tag> {
-        let mut out = Vec::new();
-        if let Some(root) = self.read_record("entities", x, z)
-            && let Some(Tag::List(list)) = root.tag.get("Entities")
-        {
-            out.extend(list.iter().cloned());
+        self.load_entities_checked(x, z).unwrap_or_default()
+    }
+    /// Preserve errors for callers that must not overwrite unread entity data.
+    pub fn load_entities_checked(&self, x: i32, z: i32) -> Result<Vec<Tag>> {
+        let Some(root) = self.read_record_checked("entities", x, z)? else { return Ok(Vec::new()); };
+        match root.tag.get("Entities") {
+            Some(Tag::List(list)) if list.iter().all(|e| matches!(e,Tag::Compound(_))) => Ok(list.clone()),
+            _ => Err("saved entity chunk has no valid Entities compound list".into()),
         }
-        out
     }
     /// Queue `records` for the writer thread; with `wait`, return once
     /// they and every earlier write are on disk.
@@ -3836,6 +3963,26 @@ impl<G: ChunkGenerator> ChunkGenerator for Persistent<G> {
         }
         proto
     }
+    fn proto_checked(&self, worker: &mut G::Worker, x: i32, z: i32) -> std::result::Result<crate::streaming::Proto, String> {
+        // A saved record that cannot be decoded must never be regenerated and
+        // overwritten as a new terrain column.
+        let pending = self.save.pending.lock().map_err(|_| "pending writes poisoned".to_owned())?
+            .get(&(Folder::Region,x,z)).map(|(_,r)|r.clone());
+        let record = match pending {
+            Some(record) => record.tag().map(|tag|(*tag).clone()),
+            None => read_region_record(&self.save.root, &self.save.regions, "region", x, z).map_err(|e|e.to_string())?,
+        };
+        let saved = if let Some(record) = record {
+            let status = ChunkStatus::from_nbt(record.tag.get("Status").ok_or("saved chunk lacks status")?).map_err(|e|e.to_string())?;
+            if status == ChunkStatus::Full { return Err("saved full chunk could not be decoded".into()); }
+            if status >= ChunkStatus::Terrain {
+                Some(decode_proto(&record, self.registry.registry, &self.biomes, self.save.tables.get().map(|t|&**t)).ok_or("saved proto chunk could not be decoded")?)
+            } else { None }
+        } else { None };
+        let mut proto = self.inner.proto_checked(worker,x,z)?;
+        if let Some(saved) = saved { self.inner.restore_proto(&mut proto,saved); }
+        Ok(proto)
+    }
     fn is_decorated(&self, proto: &crate::streaming::Proto) -> bool {
         self.inner.is_decorated(proto)
     }
@@ -3881,6 +4028,92 @@ impl<G: ChunkGenerator> ChunkGenerator for Persistent<G> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "ae2-lab")]
+    #[test]
+    fn vanilla_block_entity_raw_components_follow_live_name_changes() {
+        use super::*;
+        use crate::containers::BlockEntity;
+        let p=(2,64,3);
+        let styled=Tag::compound([("text",Tag::String("Vault".into())),("color",Tag::String("red".into()))]);
+        let lock=Tag::compound([("sentinel",Tag::Int(7))]);
+        let source=Tag::compound([
+            ("id",Tag::String("minecraft:shulker_box".into())),
+            ("x",Tag::Int(p.0)),("y",Tag::Int(p.1)),("z",Tag::Int(p.2)),
+            ("CustomName",styled.clone()),("lock",lock.clone()),
+        ]);
+        let entity=BlockEntity::Chest(vec![None;27]);
+        let same=live_vanilla_block_entity(p,&entity,"minecraft:shulker_box",Some("Vault"),Some(&source));
+        assert_eq!(same.get("CustomName"),Some(&styled));
+        assert_eq!(same.get("lock"),Some(&lock));
+        let renamed=live_vanilla_block_entity(p,&entity,"minecraft:shulker_box",Some("New"),Some(&source));
+        assert_eq!(renamed.get("CustomName"),Some(&Tag::String("New".into())));
+        let cleared=live_vanilla_block_entity(p,&entity,"minecraft:shulker_box",None,Some(&source));
+        assert_eq!(cleared.get("CustomName"),None);
+        assert_eq!(cleared.get("lock"),Some(&lock));
+        let replacement=live_vanilla_block_entity(p,&entity,"minecraft:shulker_box",None,None);
+        assert_eq!(replacement.get("lock"),None);
+    }
+
+    #[test]
+    fn corrupt_saved_start_fails_neighbor_generation_without_disk_writes_then_recovers() {
+        use super::*;
+        use horizon_world::worldgen::generator::{GeneratorData, OverworldGenerator};
+        let Some(resources) = std::env::var_os("HORIZON_RESOURCES").map(PathBuf::from) else { eprintln!("skipping: HORIZON_RESOURCES absent"); return; };
+        let registry = Box::leak(Box::new(horizon_world::level::data::load_registry(&resources).unwrap()));
+        let data = GeneratorData::load(&resources.join("worldgen"),registry).unwrap();
+        let root = std::env::temp_dir().join(format!("horizon-failed-start-{}",std::process::id()));
+        let save = Arc::new(SaveDir::new(root.clone()));
+        let malformed = NamedTag { name:"".into(), tag:Tag::compound([("Status",Tag::String("minecraft:full".into()))]) };
+        save.write_records("region",vec![((0,0),Some(malformed))],true).unwrap();
+        let path = root.join("region/r.0.0.mca"); let before = fs::read(&path).unwrap();
+        let generator = OverworldGenerator::new(data,1234).unwrap(); generator.set_saved_start_source(save.clone());
+        let error = generator.worker().generate_proto(ChunkPos::new(1,0));
+        assert!(error.is_err(),"corrupt owner must stop neighboring terrain generation");
+        assert_eq!(fs::read(&path).unwrap(),before,"failed generation changed the existing region");
+        let repaired = NamedTag { name:"".into(), tag:Tag::compound([("Status",Tag::String("minecraft:full".into())),("structures",Tag::compound([("starts",Tag::Compound(Compound::new()))]))]) };
+        save.write_records("region",vec![((0,0),Some(repaired))],true).unwrap();
+        assert!(generator.worker().generate_proto(ChunkPos::new(1,0)).is_ok(),"repair must allow retry without restarting the generator");
+    }
+    #[test]
+    fn saved_start_source_distinguishes_missing_empty_and_persisted_worlds() {
+        use super::*;
+        use horizon_world::worldgen::structure::extension::SavedStartSource;
+        let root = std::env::temp_dir().join(format!("horizon-saved-start-source-{}",std::process::id()));
+        let first = SaveDir::new(root.join("first"));
+        let second = SaveDir::new(root.join("second"));
+        let chunk = ChunkPos::new(0,0);
+        assert_eq!(first.read_starts(chunk).unwrap(),None);
+        let starts: Compound = [("ae2:meteorite".into(), Tag::compound([("id",Tag::String("INVALID".into()))]))].into_iter().collect();
+        let record = |status: &str, starts: Compound| NamedTag { name: "".into(), tag: Tag::compound([
+            ("Status",Tag::String(status.into())), ("structures",Tag::compound([("starts",Tag::Compound(starts))]))
+        ]) };
+        first.write_records("region",vec![((0,0),Some(record("minecraft:full",starts.clone())))],true).unwrap();
+        second.write_records("region",vec![((0,0),Some(record("minecraft:full",Compound::new())))],true).unwrap();
+        let reopened = SaveDir::new(root.join("first"));
+        assert_eq!(reopened.read_starts(chunk).unwrap(),Some(starts));
+        assert_eq!(second.read_starts(chunk).unwrap(),Some(Compound::new()));
+        first.write_records("region",vec![((1,0),Some(record("minecraft:empty",Compound::new())))],true).unwrap();
+        assert_eq!(first.read_starts(ChunkPos::new(1,0)).unwrap(),None);
+        first.write_records("region",vec![((2,0),Some(NamedTag{name:"".into(),tag:Tag::compound([("Status",Tag::String("minecraft:full".into()))])}))],true).unwrap();
+        assert!(first.read_starts(ChunkPos::new(2,0)).is_err());
+    }
+    #[test]
+    fn checked_entity_reads_preserve_malformed_records_and_see_pending_writes() {
+        let root = std::env::temp_dir().join(format!("horizon-checked-entity-read-{}",std::process::id()));
+        let save = SaveDir::new(root.clone());
+        assert!(save.load_entities_checked(0,0).unwrap().is_empty());
+        let bad = NamedTag{name:"".into(),tag:Tag::compound([("Entities",Tag::Int(8))])};
+        save.write_records("entities",vec![((0,0),Some(bad.clone()))],true).unwrap();
+        let before = std::fs::read(save.region_path("entities",0,0)).unwrap();
+        assert!(save.load_entities_checked(0,0).is_err());
+        assert_eq!(before,std::fs::read(save.region_path("entities",0,0)).unwrap());
+        assert_eq!(save.read_record_checked("entities",0,0).unwrap().unwrap(),bad);
+        let entity = Tag::compound([("id",Tag::String("minecraft:oak_boat".into()))]);
+        save.write_records("entities",vec![((0,0),Some(NamedTag{name:"".into(),tag:Tag::compound([("Entities",Tag::List(vec![entity.clone()]))])}))],false).unwrap();
+        assert_eq!(save.load_entities_checked(0,0).unwrap(),vec![entity]);
+        save.flush().unwrap();
+    }
+
     #[test]
     fn points_of_interest_save_as_poi_sections() {
         let Some(root) = std::env::var_os("HORIZON_TEST_RESOURCES") else {

@@ -58,6 +58,23 @@ fn menu_of(kind: StationKind) -> Option<(&'static str, Kind, std::ops::Range<usi
 }
 
 impl Game<'_> {
+    /// Open the quartz knife's physical one-ingot name-press operation.
+    /// The existing anvil wire layout supplies a text field; the server menu
+    /// retains distinct source behavior and protects the bound knife slot.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn lan_open_quartz_knife(&mut self,host:&mut LanHost,conn:u32,hand:i32)->bool {
+        let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else{return false};
+        if g.spectator(){return false;}
+        let slot=if hand==1 {40} else {g.selected};
+        let held=if slot==40 {g.offhand.as_ref()} else {g.inventory.get(slot).and_then(Option::as_ref)};
+        if !held.is_some_and(|s|matches!(s.item.as_ref(),"ae2:certus_quartz_cutting_knife"|"ae2:nether_quartz_cutting_knife")){return false;}
+        let pos=g.position.map(|v|v.floor() as i32);
+        self.lan_station_closed(host,conn,None);self.lan_crafting_closed(host,conn,None);self.guest_container_closed(host,conn);
+        let Some(window)=host.hub.open_window(conn,"minecraft:anvil",horizon_protocol::text::literal("Quartz Cutting Knife")) else{return true};
+        let mut menu=Box::new(Menu::new(Kind::Anvil));menu.quartz_knife_slot=Some(slot);
+        host.play.entry(conn).or_default().station=Some(GuestStation{window,state:0,kind:StationKind::Anvil,pos,menu,sent_data:Vec::new(),last_sound:0});
+        self.lan_send_station(host,conn);true
+    }
     /// A workstation a guest's use opened (`ServerPlayer.openMenu`); false
     /// when guests can't use that one yet.
     pub(super) fn lan_open_station(
@@ -124,6 +141,19 @@ impl Game<'_> {
             && !host.hub.guests[gi].spectator()
         {
             self.guest_menu_op(host, gi, &mut gs.menu, op);
+            #[cfg(feature = "ae2-lab")]
+            if std::mem::take(&mut gs.menu.quartz_knife_used) {
+                if let Some(slot)=gs.menu.quartz_knife_slot {
+                    let current=if slot==40 {host.hub.guests[gi].offhand.clone()} else {host.hub.guests[gi].inventory.get(slot).cloned().flatten()};
+                    if let Some(mut knife)=current {
+                        let loss=self.durability_loss(&knife,1);let max=self.res.items().get(&knife.item).map_or(0,|i|i.max_damage);
+                        knife.damage=knife.damage.saturating_add(loss);
+                        let kept=(max==0 || knife.damage<max).then_some(knife);
+                        if slot==40 {host.hub.guests[gi].offhand=kept;} else if let Some(place)=host.hub.guests[gi].inventory.get_mut(slot) {*place=kept;}
+                        host.hub.send_inventory(gi);
+                    }
+                }
+            }
             self.lan_station_sounds(&mut gs);
             if let Some(amount) = gs.menu.ground.take() {
                 self.grindstone_taken(gs.pos, amount);
@@ -480,8 +510,12 @@ impl Game<'_> {
         // AbstractContainerMenu.removed: the carried stack first, then the inputs.
         let mut back: Vec<ItemStack> = host.hub.guests[gi].carried.take().into_iter().collect();
         let inputs = station_inputs(&gs);
-        if gs.kind == StationKind::Beacon {
-            // BeaconMenu.removed drops the payment (player.drop).
+        #[cfg(feature = "ae2-lab")]
+        let drop_inputs=gs.kind==StationKind::Beacon || gs.menu.quartz_knife_slot.is_some();
+        #[cfg(not(feature = "ae2-lab"))]
+        let drop_inputs=gs.kind==StationKind::Beacon;
+        if drop_inputs {
+            // Beacon and QuartzKnifeMenu return their input via player.drop.
             if !back.is_empty() {
                 self.lan_place_back(host, gi, std::mem::take(&mut back));
             }
@@ -588,7 +622,13 @@ impl Game<'_> {
             let [x, y, z] = gs.pos;
             let name = &self.res.facts().get(self.world.block(x, y, z)).name;
             let block = StationKind::from_block(name) == Some(gs.kind);
-            if !(block && g.within_block_range(gs.pos, 4.0)) {
+            let mut valid=block && g.within_block_range(gs.pos,4.0);
+            #[cfg(feature = "ae2-lab")]
+            if let Some(slot)=gs.menu.quartz_knife_slot {
+                let knife=if slot==40 {g.offhand.as_ref()} else {g.inventory.get(slot).and_then(Option::as_ref)};
+                valid=knife.is_some_and(|s|matches!(s.item.as_ref(),"ae2:certus_quartz_cutting_knife"|"ae2:nether_quartz_cutting_knife"));
+            }
+            if !valid {
                 let window = gs.window;
                 self.lan_station_closed(host, conn, Some(window));
                 host.hub.send_to(

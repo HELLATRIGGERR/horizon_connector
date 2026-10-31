@@ -61,6 +61,7 @@ enum Update {
     Simple {
         pos: BlockPos,
         block: BlockId,
+        source: Option<BlockPos>,
     },
     Full {
         state: BlockStateId,
@@ -90,10 +91,11 @@ enum Step {
         pos: BlockPos,
         block: BlockId,
         moved: bool,
+        source: Option<BlockPos>,
     },
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct NeighborUpdater {
     stack: Vec<Update>,
     added: Vec<Update>,
@@ -122,12 +124,13 @@ impl Update {
                 },
                 false,
             ),
-            Self::Simple { pos, block } => (
+            Self::Simple { pos, block, source } => (
                 Step::Neighbor {
                     state: None,
                     pos,
                     block,
                     moved: false,
+                    source,
                 },
                 false,
             ),
@@ -142,6 +145,7 @@ impl Update {
                     pos,
                     block,
                     moved,
+                    source: None,
                 },
                 false,
             ),
@@ -162,6 +166,7 @@ impl Update {
                         pos: rel(source, direction),
                         block,
                         moved: false,
+                        source: Some(source),
                     },
                     *index < UPDATE_ORDER.len(),
                 )
@@ -187,7 +192,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     /// from the level random, then the primed sound and `prime_fuse` event.
     pub fn prime_tnt(&mut self, pos: BlockPos) {
         let rot = self.random().next_double() * f64::from(std::f32::consts::TAU);
-        self.emit(LevelEvent::PrimeTnt { pos, rot });
+        let state = self.state(pos);
+        self.emit(LevelEvent::PrimeTnt { pos, rot, state });
         self.sound(
             pos,
             &std::sync::Arc::from("minecraft:entity.tnt.primed"),
@@ -471,7 +477,11 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         });
     }
     pub fn neighbor_changed_at(&mut self, pos: BlockPos, block: BlockId) {
-        self.add_and_run(Update::Simple { pos, block });
+        self.add_and_run(Update::Simple { pos, block, source: None });
+    }
+    /// Preserve an explicitly known source without changing queue ordering.
+    pub fn neighbor_changed_at_from(&mut self, pos: BlockPos, block: BlockId, source: BlockPos) {
+        self.add_and_run(Update::Simple { pos, block, source: Some(source) });
     }
     pub fn neighbor_changed_full(
         &mut self,
@@ -571,9 +581,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 pos,
                 block,
                 moved,
+                source,
             } => {
                 let state = state.unwrap_or_else(|| self.state(pos));
-                self.neighbor_changed(state, pos, block, moved);
+                self.neighbor_changed(state, pos, block, moved, source);
             }
         }
     }
@@ -595,5 +606,30 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod source_position_tests {
+    use super::*;
+    #[test]
+    fn queued_multi_neighbors_retain_the_actual_changed_position() {
+        let source=BlockPos::new(12,70,-8);
+        let mut update=Update::Multi{source,block:BlockId(1),skip:Some(Direction::East),index:0};
+        let mut visited=Vec::new();
+        loop {
+            let (step,more)=update.next();
+            let Step::Neighbor{pos,source:Some(actual),..}=step else {panic!("missing source")};
+            assert_eq!(actual,source);
+            visited.push(pos);
+            if !more {break}
+        }
+        let expected:Vec<_>=UPDATE_ORDER.into_iter().filter(|d|*d!=Direction::East).map(|d|rel(source,d)).collect();
+        assert_eq!(visited,expected);
+        let (direct,_)=Update::Simple{pos:source,block:BlockId(1),source:None}.next();
+        assert!(matches!(direct,Step::Neighbor{source:None,..}));
+        let target=rel(source,Direction::North);
+        let (direct,_)=Update::Simple{pos:target,block:BlockId(1),source:Some(source)}.next();
+        assert!(matches!(direct,Step::Neighbor{pos,source:Some(actual),..} if pos==target && actual==source));
     }
 }

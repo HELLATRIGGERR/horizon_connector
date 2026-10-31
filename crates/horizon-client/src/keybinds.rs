@@ -74,13 +74,19 @@ pub const MAPPINGS: &[(&str, &str, &str)] = &[
     ("key.debug.networkCharts", "key.keyboard.3", "debug"),
     ("key.debug.lightmapTexture", "key.keyboard.4", "debug"),
     ("key.debug.improvedTransparency", "key.keyboard.x", "debug"),
+    #[cfg(feature = "ae2-lab")]
+    ("key.ae2.wireless_terminal", "key.keyboard.unknown", "ae2"),
+    #[cfg(feature = "ae2-lab")]
+    ("key.ae2.portable_item_cell", "key.keyboard.unknown", "ae2"),
+    #[cfg(feature = "ae2-lab")]
+    ("key.ae2.portable_fluid_cell", "key.keyboard.unknown", "ae2"),
 ];
 /// Mappings Options builds as `ToggleKeyMapping` (hold or toggle by option).
 pub fn is_toggle(name: &str) -> bool {
     matches!(name, "key.sneak" | "key.sprint" | "key.use" | "key.attack")
 }
 /// KeyMapping.Category sort order.
-pub const CATEGORIES: [&str; 8] = [
+pub const CATEGORIES: [&str; 8 + (cfg!(feature = "ae2-lab") as usize)] = [
     "movement",
     "misc",
     "multiplayer",
@@ -89,6 +95,8 @@ pub const CATEGORIES: [&str; 8] = [
     "creative",
     "spectator",
     "debug",
+    #[cfg(feature = "ae2-lab")]
+    "ae2",
 ];
 
 /// InputConstants key names <-> winit physical keys.

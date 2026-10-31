@@ -3,7 +3,30 @@
 use crate::Result;
 use horizon_core::{noise::SimplexNoise, random::LegacyRandom};
 use serde_json::Value;
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, fs, path::{Path, PathBuf}};
+
+/// Match synchronized registry ordering: vanilla first, then namespaces and
+/// recursive entry paths. Appending a mod must not renumber vanilla biomes.
+fn biome_files(root: &Path) -> Result<Vec<(String, PathBuf)>> {
+    fn walk(dir: &Path, namespace: &str, prefix: &str, out: &mut Vec<(String,PathBuf)>) -> Result<()> {
+        if !dir.is_dir() { return Ok(()); }
+        let mut entries=fs::read_dir(dir)?.collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort_by_key(|entry|entry.file_name());
+        for entry in entries {
+            let path=entry.path();let name=entry.file_name().to_string_lossy().into_owned();
+            if path.is_dir() {walk(&path,namespace,&format!("{prefix}{name}/"),out)?;}
+            else if let Some(stem)=name.strip_suffix(".json") {out.push((format!("{namespace}:{prefix}{stem}"),path));}
+        }
+        Ok(())
+    }
+    let mut namespaces=fs::read_dir(root.join("data"))?.collect::<std::io::Result<Vec<_>>>()?
+        .into_iter().filter(|e|e.path().is_dir()).map(|e|e.file_name().to_string_lossy().into_owned()).collect::<Vec<_>>();
+    namespaces.sort_by(|a,b|(a!="minecraft",a).cmp(&(b!="minecraft",b)));
+    let mut files=Vec::new();
+    for namespace in namespaces {walk(&root.join("data").join(&namespace).join("worldgen/biome"),&namespace,"",&mut files)?;}
+    files.sort_by(|a,b|(!a.0.starts_with("minecraft:"),&a.0).cmp(&(!b.0.starts_with("minecraft:"),&b.0)));
+    Ok(files)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GrassModifier {
@@ -87,19 +110,7 @@ impl Biomes {
         let foliage = colormap(root, "foliage")?;
         let dry = colormap(root, "dry_foliage")?;
         let mut list = Vec::new();
-        let mut names: Vec<_> = fs::read_dir(root.join("data/minecraft/worldgen/biome"))?
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "json"))
-            .collect();
-        names.sort();
-        for path in names {
-            let name = format!(
-                "minecraft:{}",
-                path.file_stem()
-                    .and_then(|s| s.to_str())
-                    .ok_or("bad biome")?
-            );
+        for (name,path) in biome_files(root)? {
             let v: Value = serde_json::from_slice(&fs::read(&path)?)?;
             let effects = &v["effects"];
             let attributes = &v["attributes"];

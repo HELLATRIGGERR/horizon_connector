@@ -311,6 +311,7 @@ impl Game<'_> {
         for t in self.tnts.iter().filter(|t| t.id != 0) {
             let mut e = state(t.id, "minecraft:tnt", at(t.position), 0.0, t.on_ground);
             e.velocity = at(t.velocity);
+            if t.tiny {e.data=super::tnt::TINY_TNT_MARKER;}
             // PrimedTnt.DATA_FUSE_ID, 80 by default; requiresPrecisePosition
             // while it touches a block.
             if t.fuse != 80 {

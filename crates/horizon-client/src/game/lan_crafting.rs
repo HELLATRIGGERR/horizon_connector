@@ -27,6 +27,20 @@ pub(super) struct GuestCrafting {
     machine: Option<(i32, Box<Menu>)>,
 }
 
+/// Effects that must happen only after the caller commits the menu's owner.
+#[derive(Default)]
+pub(super) struct GuestMenuEffects {
+    dropped: Vec<ItemStack>,
+    equipped: Vec<(&'static str, Option<ItemStack>)>,
+}
+
+impl GuestMenuEffects {
+    pub(super) fn append(&mut self, other: Self) {
+        self.dropped.extend(other.dropped);
+        self.equipped.extend(other.equipped);
+    }
+}
+
 /// ServerboundContainerClickPacket's input.
 pub(super) fn input(id: i32) -> Input {
     match id {
@@ -106,6 +120,20 @@ impl Game<'_> {
         menu: &mut Menu,
         op: impl FnOnce(&mut Menu, &Env) -> R,
     ) -> R {
+        let (result, effects) = self.guest_menu_op_deferred(host, gi, menu, op);
+        self.apply_guest_menu_effects(host, gi, effects);
+        result
+    }
+
+    /// Run the menu and copy player state back, but leave world-visible effects
+    /// to the caller after its own physical inventory transaction commits.
+    pub(super) fn guest_menu_op_deferred<R>(
+        &mut self,
+        host: &mut LanHost,
+        gi: usize,
+        menu: &mut Menu,
+        op: impl FnOnce(&mut Menu, &Env) -> R,
+    ) -> (R, GuestMenuEffects) {
         // The cartography table reads and makes the host level's maps.
         let maps = (menu.kind() == Kind::Cartography).then(|| {
             let g = &host.hub.guests[gi];
@@ -121,25 +149,39 @@ impl Game<'_> {
             ..self.menu_env()
         };
         load_player(menu, &host.hub.guests[gi]);
+        #[cfg(feature = "ae2-lab")]
+        {menu.recipe_durability_rng=Some(self.world.random.clone());}
         let result = op(menu, &env);
+        #[cfg(feature = "ae2-lab")]
+        if let Some(random)=menu.recipe_durability_rng.take(){self.world.random=random;}
         if let Some(maps) = maps {
             self.register_made_maps(maps);
         }
-        let dropped = std::mem::take(&mut menu.dropped);
-        let equipped = std::mem::take(&mut menu.equipped);
+        let effects = GuestMenuEffects {
+            dropped: std::mem::take(&mut menu.dropped),
+            equipped: std::mem::take(&mut menu.equipped),
+        };
         menu.drops.clear();
         menu.crafted.clear();
         store_player(menu, &mut host.hub.guests[gi]);
-        if !equipped.is_empty() {
+        (result, effects)
+    }
+
+    pub(super) fn apply_guest_menu_effects(
+        &mut self,
+        host: &mut LanHost,
+        gi: usize,
+        effects: GuestMenuEffects,
+    ) {
+        if !effects.equipped.is_empty() {
             let conn = host.hub.guests[gi].conn;
             self.as_guest(host, conn, |g| {
-                for (slot, stack) in equipped {
+                for (slot, stack) in effects.equipped {
                     g.player_equipped(slot, stack.as_ref());
                 }
             });
         }
-        self.drop_guest_items(host, gi, dropped);
-        result
+        self.drop_guest_items(host, gi, effects.dropped);
     }
 
     /// A click on the guest's inventory menu (window 0): `InventoryMenu`,
@@ -579,6 +621,12 @@ impl Game<'_> {
         let play = host.play.remove(&g.conn);
         let mut grid: Vec<ItemStack> = g.craft_grid.iter_mut().filter_map(Option::take).collect();
         g.craft_result = None;
+        // A terminal's cursor is real player property, not a virtual slot.
+        // Returning it before saving prevents loss on disconnect or shutdown.
+        #[cfg(feature = "ae2-lab")]
+        if play.as_ref().is_some_and(|p| p.ae2_terminal.is_some() || p.ae2_machine.is_some() || p.ae2_portable.is_some() || p.ae2_network_tool.is_some() || p.ae2_bus.is_some() || p.ae2_pattern_access.is_some() || p.ae2_anchor.is_some()) {
+            if let Some(carried) = g.carried.take() { grid.push(carried); }
+        }
         if let Some(play) = play {
             if let Some((_, _, menu, _)) = play.crafting.table {
                 grid.extend((1..10).filter_map(|s| menu.slot(s).cloned()));

@@ -33,6 +33,7 @@ pub(super) struct StructureState {
     /// Structure indices of each decoration step, in registry order.
     pub(super) by_step: Vec<Vec<usize>>,
     starts: StartCache,
+    saved_source: RwLock<Option<Arc<dyn super::structure::extension::SavedStartSource>>>,
     start_work: ChunkWork,
     /// Concentric ring positions, computed on first use and shared with
     /// later generators of the same seed and dimension.
@@ -175,6 +176,38 @@ fn biome_set(data: &GeneratorData, value: &Value) -> Result<BTreeSet<BiomeId>, s
     }
     Ok(out)
 }
+#[derive(Debug)]
+struct OpaqueSavedPiece { raw: crate::nbt::Compound, bounds: super::structure::BoundingBox }
+impl OpaqueSavedPiece {
+    fn new(raw: crate::nbt::Compound) -> Result<Self, String> {
+        let Some(crate::nbt::Tag::IntArray(bb)) = raw.get(&"BB".into()) else { return Err("opaque structure piece lacks bounding box".into()); };
+        if bb.len() != 6 { return Err("invalid opaque structure bounding box".into()); }
+        let bounds = super::structure::BoundingBox::new([bb[0],bb[1],bb[2]], [bb[3],bb[4],bb[5]]);
+        Ok(Self { raw, bounds })
+    }
+}
+impl super::structure::legacy::LegacyPiece for OpaqueSavedPiece {
+    fn bounding_box(&self) -> super::structure::BoundingBox { self.bounds }
+    fn type_name(&self) -> &'static str { "horizon:opaque_saved_piece" }
+    fn save(&self) -> Option<crate::nbt::Compound> { Some(self.raw.clone()) }
+    fn post_process(&self, _: &mut super::structure::legacy::PieceContext<'_>) -> Result<(), super::placement::PlacementQueryError> {
+        Err(super::placement::PlacementQueryError::Failed("cannot generate an unsupported saved structure piece".into()))
+    }
+}
+fn saved_piece_json(tag: &crate::nbt::Tag) -> Value {
+    use crate::nbt::Tag;
+    match tag {
+        Tag::End => Value::Null, Tag::Byte(n) => Value::from(*n), Tag::Short(n) => Value::from(*n), Tag::Int(n) => Value::from(*n), Tag::Long(n) => Value::from(*n),
+        Tag::Float(n) => Value::from(f64::from(f32::from_bits(*n))), Tag::Double(n) => Value::from(f64::from_bits(*n)),
+        Tag::String(s) => Value::from(s.to_string_lossy()),
+        Tag::List(v) => Value::Array(v.iter().map(saved_piece_json).collect()),
+        Tag::Compound(v) => Value::Object(v.iter().map(|(k,v)| (k.to_string_lossy(),saved_piece_json(v))).collect()),
+        Tag::ByteArray(v) => Value::Array(v.iter().map(|n| Value::from(*n)).collect()),
+        Tag::IntArray(v) => Value::Array(v.iter().map(|n| Value::from(*n)).collect()),
+        Tag::LongArray(v) => Value::Array(v.iter().map(|n| Value::from(*n)).collect()),
+    }
+}
+
 impl StructureState {
     pub(super) fn new(
         data: &Arc<GeneratorData>,
@@ -184,10 +217,16 @@ impl StructureState {
         let (Some(resources), Some(raw)) = (&data.structures, &data.structure_resources) else {
             return Ok(None);
         };
-        let registry =
+        let mut registry =
             StructureRegistry::new(&raw.structures, &raw.sets, raw.pools.clone(), &|value| {
                 biome_set(data, value)
             })?;
+        for def in &mut registry.structures {
+            if let super::structure::start::StructureKind::Unsupported(id)=&def.kind
+                && let Some(extension)=data.structure_extensions.get(id) {
+                def.kind=super::structure::start::StructureKind::Extension(extension.clone());
+            }
+        }
         let possible_sets = registry
             .sets
             .iter()
@@ -225,6 +264,7 @@ impl StructureState {
             possible_sets,
             by_step,
             starts: StartCache::new(),
+            saved_source: RwLock::new(None),
             start_work: ChunkWork::new(),
             rings,
             ring_work: OnceLock::new(),
@@ -291,9 +331,9 @@ impl StructureState {
         &self,
         context: &mut impl super::structure::start::StartContext,
         chunk: ChunkPos,
-    ) -> Starts {
+    ) -> Result<Starts, String> {
         if let Some(found) = self.starts.get((chunk.x, chunk.z)) {
-            return found;
+            return Ok(found);
         }
         // Ring searches enlist other workers and wait for them: never hold a
         // chunk-work lock while helping, even when this chunk has no starts.
@@ -301,7 +341,17 @@ impl StructureState {
         let work = self.start_work.at((chunk.x, chunk.z));
         let _work = work.lock().unwrap();
         if let Some(found) = self.starts.get((chunk.x, chunk.z)) {
-            return found;
+            return Ok(found);
+        }
+        if let Some(source) = self.saved_source.read().unwrap().clone() {
+            match source.read_starts(chunk) {
+                Ok(Some(raw)) => {
+                    let starts = self.restore_starts(chunk, &raw)?;
+                    return Ok(self.starts.insert_first((chunk.x, chunk.z), Arc::new(starts)));
+                }
+                Ok(None) => {},
+                Err(e) => return Err(format!("reading saved structure starts at {chunk:?}: {e}")),
+            }
         }
         let starts: Starts = Arc::new(
             create_starts(
@@ -317,7 +367,44 @@ impl StructureState {
             .map(Arc::new)
             .collect(),
         );
-        self.starts.insert_first((chunk.x, chunk.z), starts)
+        Ok(self.starts.insert_first((chunk.x, chunk.z), starts))
+    }
+    pub(super) fn set_saved_start_source(&self, source: Arc<dyn super::structure::extension::SavedStartSource>) {
+        *self.saved_source.write().unwrap() = Some(source);
+        self.starts.clear();
+    }
+    fn restore_starts(&self, chunk: ChunkPos, raw: &crate::nbt::Compound) -> Result<Vec<Arc<StructureStart>>, String> {
+        use crate::nbt::Tag;
+        let mut starts = Vec::new();
+        for (name, value) in raw {
+            let Tag::Compound(saved) = value else { return Err("invalid start compound".into()); };
+            let id = match saved.get(&"id".into()) { Some(Tag::String(id)) => id.to_string_lossy(), _ => return Err("missing start id".into()) };
+            if id == "INVALID" || id == "minecraft:invalid" { continue; }
+            let name = name.to_string_lossy();
+            let Some(index) = self.registry.structures.iter().position(|def| def.name == name) else { continue; };
+            if id != name { return Err(format!("saved start {name} has unexpected id {id}")); }
+            let Some(Tag::List(children)) = saved.get(&"Children".into()) else { return Err(format!("saved start {name} has no children")); };
+            let mut pieces = Vec::new();
+            for child in children {
+                let Tag::Compound(raw_piece) = child else { return Err(format!("saved start {name} has malformed piece")); };
+                let json = saved_piece_json(child);
+                let piece_id = json["id"].as_str().unwrap_or("");
+                let parsed = if piece_id == "minecraft:jigsaw" {
+                    PoolPiece::from_saved(&json, &self.resources, &self.bindings).ok().map(Piece::Pool)
+                } else if let super::structure::start::StructureKind::Extension(extension) = &self.registry.structures[index].kind {
+                    extension.read_piece(&json).ok().map(Piece::Legacy)
+                } else { None };
+                pieces.push(match parsed { Some(piece) => piece, None => Piece::Legacy(Box::new(OpaqueSavedPiece::new(raw_piece.clone())?)) });
+            }
+            if pieces.is_empty() { continue; }
+            let def = &self.registry.structures[index];
+            let mut start = StructureStart::new(index, def, chunk, pieces);
+            let refs = match saved.get(&"references".into()) { Some(Tag::Int(n)) if *n >= 0 => *n, None => 0, _ => return Err("invalid structure reference count".into()) };
+            start.references.store(refs, Ordering::Relaxed);
+            start.saved_raw = Some(saved.clone());
+            starts.push(Arc::new(start));
+        }
+        Ok(starts)
     }
     /// Puts a saved start of `structure` in `chunk`, in place of the one
     /// this generator builds there from the same structure sets (a set
@@ -334,7 +421,10 @@ impl StructureState {
             .position(|s| s.name == structure)
             .ok_or_else(|| format!("unknown structure {structure}"))?;
         let pieces = (pieces.iter())
-            .map(|p| PoolPiece::from_saved(p, &self.resources, &self.bindings).map(Piece::Pool))
+            .map(|p| match &self.registry.structures[index].kind {
+                super::structure::start::StructureKind::Extension(extension)=>extension.read_piece(p).map(Piece::Legacy),
+                _=>PoolPiece::from_saved(p, &self.resources, &self.bindings).map(Piece::Pool).map_err(|e|e.to_string()),
+            })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("{structure} at {chunk:?}: {e}"))?;
         if pieces.is_empty() {
@@ -350,7 +440,7 @@ impl StructureState {
                     .iter()
                     .any(|set| set.structures.iter().any(|(t, _)| *t == s))
         };
-        let mut starts: Vec<_> = (self.starts_at(context, chunk).iter())
+        let mut starts: Vec<_> = (self.starts_at(context, chunk)?.iter())
             .filter(|s| !same_set(s.structure))
             .cloned()
             .collect();
@@ -378,10 +468,10 @@ impl StructureState {
         };
         let mut best: Option<(f64, String, [i32; 3])> = None;
         let found_at = |this: &Self, context: &mut _, chunk: ChunkPos| -> Option<String> {
-            this.starts_at(context, chunk)
-                .iter()
-                .find(|s| wanted(s.structure))
-                .map(|s| s.name.clone())
+            match this.starts_at(context, chunk) {
+                Ok(starts) => starts.iter().find(|s| wanted(s.structure)).map(|s| s.name.clone()),
+                Err(error) => { eprintln!("Horizon: structure locate failed at {chunk:?}: {error}"); None }
+            }
         };
         for &si in &self.possible_sets {
             let set = &self.registry.sets[si];
@@ -457,12 +547,12 @@ impl StructureState {
         &self,
         context: &mut impl super::structure::start::StartContext,
         chunk: ChunkPos,
-    ) -> Vec<Arc<StructureStart>> {
+    ) -> Result<Vec<Arc<StructureStart>>, String> {
         let (bx, bz) = (chunk.x * 16, chunk.z * 16);
         let mut out = Vec::new();
         for sx in chunk.x - 8..=chunk.x + 8 {
             for sz in chunk.z - 8..=chunk.z + 8 {
-                for start in self.starts_at(context, ChunkPos::new(sx, sz)).iter() {
+                for start in self.starts_at(context, ChunkPos::new(sx, sz))?.iter() {
                     let b = start.bounding_box;
                     if b.max[0] >= bx
                         && b.min[0] <= bx + 15
@@ -494,7 +584,7 @@ impl StructureState {
                 out[slot] = original[slots[from]].clone();
             }
         }
-        out
+        Ok(out)
     }
     pub(super) fn beardifier(
         &self,
@@ -508,6 +598,33 @@ impl StructureState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn saved_piece_bytes_and_reference_counts_roundtrip_without_type_loss() {
+        use crate::nbt::{Compound, Tag};
+        use super::super::structure::legacy::LegacyPiece;
+        let raw: Compound = [
+            ("id".into(), Tag::String("ae2:ae2mtrt".into())),
+            ("BB".into(), Tag::IntArray(vec![-64, 20, -64, 79, 20, 79])),
+            ("r".into(), Tag::Float(6.25_f32.to_bits())),
+            ("t".into(), Tag::Byte(6)), ("f".into(), Tag::Byte(3)),
+        ].into_iter().collect();
+        let json = saved_piece_json(&Tag::Compound(raw.clone()));
+        assert_eq!(json["t"].as_i64(), Some(6));
+        assert_eq!(json["f"].as_i64(), Some(3));
+        assert_eq!(json["r"].as_f64(), Some(6.25));
+        let piece = OpaqueSavedPiece::new(raw.clone()).unwrap();
+        assert_eq!(piece.save(), Some(raw.clone()));
+        let saved: Compound = [
+            ("id".into(), Tag::String("ae2:meteorite".into())),
+            ("references".into(), Tag::Int(7)),
+            ("Children".into(), Tag::List(vec![Tag::Compound(raw)])),
+        ].into_iter().collect();
+        let start = StructureStart { structure: 0, name: "ae2:meteorite".into(), chunk: ChunkPos::new(0,0), pieces: vec![Piece::Legacy(Box::new(piece))], bounding_box: super::super::structure::BoundingBox::new([-64,20,-64],[79,20,79]), references: std::sync::atomic::AtomicI32::new(7), saved_raw: Some(saved.clone()) };
+        assert_eq!(start.save(), Some(Tag::Compound(saved)));
+        start.references.store(8, Ordering::Relaxed);
+        assert_eq!(start.save().unwrap().get("references"), Some(&Tag::Int(8)));
+    }
+
     use crate::worldgen::structure::stronghold::{ring_positions, ring_searches};
 
     /// The start cache keeps the first starts built for a chunk, spreads a

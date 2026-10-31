@@ -4,6 +4,8 @@
 //! comparator signals (`AbstractContainerMenu.getRedstoneSignalFromContainer`).
 use super::Game;
 
+#[cfg(feature = "ae2-lab")]
+mod ae2_capabilities;
 mod crafter;
 use horizon_client::{
     Result,
@@ -140,10 +142,7 @@ impl Containers<'_> {
         self.registry.state(state).map_or("", |s| s.name.as_str())
     }
     fn max_stack(&self, stack: &ItemStack) -> u32 {
-        self.items
-            .get(&stack.item)
-            .map_or(64, |i| i.max_stack)
-            .max(1)
+        self.items.stack_max(stack)
     }
     /// `HopperBlockEntity.getBlockContainer` (double chests combined, right half
     /// first). `blocked_chests`: `ChestBlock.getContainer(.., false)` returns
@@ -159,6 +158,15 @@ impl Containers<'_> {
             });
         }
         let entity = self.world.block_entities.get(&pos)?;
+        // The Workbench's cell and Quantum Ring's internal singularity slot
+        // are not exposed on any side. Automation must not bypass them using
+        // the generic container view.
+        #[cfg(feature = "ae2-lab")]
+        if matches!(entity, BlockEntity::Ae2(machine)
+            if matches!(machine.kind, horizon_client::ae2_world::MachineKind::CellWorkbench | horizon_client::ae2_world::MachineKind::QuantumRing))
+        {
+            return None;
+        }
         // A beehive keeps bees, not items, and a campfire cooks its own: neither
         // is a `Container` (HopperBlockEntity.getContainerAt), so a dropper drops
         // in front of them and a hopper leaves them alone.
@@ -240,6 +248,12 @@ impl Containers<'_> {
     }
     /// `Container.canPlaceItem` (+ `canPlaceItemThroughFace` for furnaces).
     fn can_place(&self, view: &View, slot: usize, stack: &ItemStack) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if let Some((pos, index)) = view.locate(slot) {
+            if matches!(self.world.block_entities.get(&pos), Some(BlockEntity::Ae2(machine)) if machine.kind == horizon_client::ae2_world::MachineKind::QuantumLink) {
+                return index == 0 && crate::game::ae2_quantum::frequency(stack).is_some();
+            }
+        }
         if view.kind == Kind::Crafter {
             return match self.world.block_entities.get(&view.parts[0].0) {
                 Some(BlockEntity::Crafter(c)) => {
@@ -425,6 +439,10 @@ impl Game<'_> {
             return;
         }
         for &(pos, _) in &view.parts {
+            #[cfg(feature = "ae2-lab")]
+            if matches!(self.world.block_entities.get(&pos), Some(BlockEntity::Ae2(machine)) if machine.kind == horizon_client::ae2_world::MachineKind::QuantumLink) {
+                self.ae2_quantum_inventory_changed(pos);
+            }
             self.container_changed(pos);
         }
     }
@@ -457,7 +475,14 @@ impl Game<'_> {
             return Some(stack);
         }
         let was_empty = c.is_empty(view);
-        let max = c.max_stack(&stack);
+        let max = {
+            #[cfg(feature = "ae2-lab")]
+            if view.locate(slot).is_some_and(|(pos, _)| matches!(c.world.block_entities.get(&pos), Some(BlockEntity::Ae2(machine)) if machine.kind == horizon_client::ae2_world::MachineKind::QuantumLink)) {
+                1
+            } else { c.max_stack(&stack) }
+            #[cfg(not(feature = "ae2-lab"))]
+            { c.max_stack(&stack) }
+        };
         let mut success = false;
         let target = self.slot_mut_at(view, slot)?;
         match target {
@@ -598,10 +623,61 @@ impl Game<'_> {
     /// `HopperBlockEntity.ejectItems`.
     fn hopper_eject(&mut self, pos: Pos, hopper: &View) -> bool {
         let state = self.world.block(pos.0, pos.1, pos.2);
-        let c = self.containers();
-        let Some(facing) = c.prop(state, "facing").and_then(dir_from_name) else {
+        let Some(facing) = self
+            .containers()
+            .prop(state, "facing")
+            .and_then(dir_from_name)
+        else {
             return false;
         };
+        #[cfg(feature = "ae2-lab")]
+        if let Some(address) = self.ae2_local_address(offset(pos, facing)) {
+            let mut handled = false;
+            for slot in 0..hopper.len() {
+                let Some(stack) = self.containers().get(hopper, slot).cloned() else {
+                    continue;
+                };
+                let one = ItemStack { count: 1, ..stack };
+                let provider = matches!(self.ae2_block_entity(address), Some(BlockEntity::Ae2(m)) if matches!(m.kind,horizon_client::ae2_world::MachineKind::PatternProvider|horizon_client::ae2_world::MachineKind::Condenser|horizon_client::ae2_world::MachineKind::Charger|horizon_client::ae2_world::MachineKind::VibrationChamber|horizon_client::ae2_world::MachineKind::Inscriber|horizon_client::ae2_world::MachineKind::MolecularAssembler|horizon_client::ae2_world::MachineKind::QuantumLink))
+                    || self
+                        .ae2_provider_part_at(address, facing.opposite())
+                        .is_some()
+                    || self
+                        .ae2_interface_item_candidates(address, facing.opposite())
+                        .is_some();
+                let accepted =
+                    match self.ae2_item_p2p_insert(address, facing.opposite(), &one, true) {
+                        Some(n) => n,
+                        None if provider => {
+                            self.ae2_native_item_insert(address, facing.opposite(), &one, 1, true)
+                        }
+                        None => break,
+                    };
+                handled = true;
+                if accepted == 0 {
+                    continue;
+                }
+                let before = self.ae2_snapshot_blocks();
+                let mut formation = crate::game::ae2_buses::FormationPlan::default();
+                let Some(one) = self.take_one(hopper, slot) else {
+                    continue;
+                };
+                let accepted = match self.ae2_item_p2p_insert_staged(address, facing.opposite(), &one, false, &mut formation) {
+                    Some(n) => n,
+                    None if provider => self.ae2_native_item_insert_staged(address, facing.opposite(), &one, 1, false, &mut formation),
+                    None => 0,
+                };
+                if accepted == 1 && self.ae2_commit_formation(formation).is_ok() {
+                    self.view_changed(hopper);
+                    return true;
+                }
+                self.ae2_restore_blocks(before);
+            }
+            if handled {
+                return false;
+            }
+        }
+        let c = self.containers();
         let Some(target) = c.view(offset(pos, facing), false) else {
             return false;
         };
@@ -626,6 +702,61 @@ impl Game<'_> {
     /// `HopperBlockEntity.suckInItems`: from the container above, or item entities.
     fn hopper_suck(&mut self, pos: Pos, hopper: &View) -> bool {
         let above = (pos.0, pos.1 + 1, pos.2);
+        #[cfg(feature = "ae2-lab")]
+        if let Some(address) = self.ae2_local_address(above) {
+            // AE2 exposes the provider's return inventory to automation;
+            // its canExtract is false. Do not fall back to the generic view
+            // of the provider's physical pattern slots.
+            if matches!(self.ae2_block_entity(address), Some(BlockEntity::Ae2(m))
+                if m.kind == horizon_client::ae2_world::MachineKind::PatternProvider) {
+                return false;
+            }
+            let p2p = self.ae2_item_p2p_candidates(address, Direction::Down);
+            let interface = if p2p.is_none() {
+                self.ae2_interface_item_candidates(address, Direction::Down)
+            } else {
+                None
+            };
+            let condenser=matches!(self.ae2_block_entity(address),Some(BlockEntity::Ae2(m)) if matches!(m.kind,horizon_client::ae2_world::MachineKind::Condenser|horizon_client::ae2_world::MachineKind::Charger|horizon_client::ae2_world::MachineKind::VibrationChamber|horizon_client::ae2_world::MachineKind::Inscriber|horizon_client::ae2_world::MachineKind::MolecularAssembler|horizon_client::ae2_world::MachineKind::QuantumLink));
+            let condenser_choices=condenser.then(||self.ae2_native_item_candidates(address,Direction::Down));
+            if let Some(choices) = p2p.or(interface).or(condenser_choices) {
+                for candidate in choices {
+                    let one = ItemStack {
+                        count: 1,
+                        ..candidate
+                    };
+                    let c = self.containers();
+                    let fits = (0..hopper.len()).any(|slot| {
+                        c.can_place(hopper, slot, &one)
+                            && c.get(hopper, slot).is_none_or(|s| {
+                                s.same_item_same_components(&one) && s.count < c.max_stack(s)
+                            })
+                    });
+                    if !fits {
+                        continue;
+                    }
+                    let before = self.ae2_snapshot_blocks();
+                    let mut formation = crate::game::ae2_buses::FormationPlan::default();
+                    let taken = match self.ae2_item_p2p_extract_staged(address, Direction::Down, 1, Some(&one), false, &mut formation) {
+                        Some(taken) => Some(taken),
+                        None => match self.ae2_interface_item_extract_staged(address, Direction::Down, 1, Some(&one), false, &mut formation) {
+                            Some(taken) => Some(taken),
+                            None if condenser => Some(self.ae2_native_item_extract_staged(address, Direction::Down, 1, Some(&one), false, &mut formation)),
+                            None => None,
+                        },
+                    };
+                    if let Some(Some(taken)) = taken {
+                        if taken.count == 1 && self.add_item(None, hopper, taken, None).is_none()
+                            && self.ae2_commit_formation(formation).is_ok() {
+                            self.view_changed(hopper);
+                            return true;
+                        }
+                    }
+                    self.ae2_restore_blocks(before);
+                }
+                return false;
+            }
+        }
         let c = self.containers();
         if let Some(source) = c.view(above, false) {
             if let Kind::Composter(level) = source.kind {
@@ -839,6 +970,18 @@ impl Game<'_> {
     }
     /// `imageHeight` of the open screen (HopperScreen is 133 tall).
     pub(super) fn screen_height(&self) -> f32 {
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_pattern_access_screen() {return 224.0;}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()!=0 {return match self.ae2_craft_screen(){1=>107.0,3=>185.0,_=>206.0};}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_tool_screen() {return 168.0;}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_status_screen() {return 157.0;}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_crafting_terminal_screen() {return 251.0;}
+        #[cfg(feature="ae2-lab")]
+        if self.station.as_ref().is_some_and(|s|s.quartz_knife) {return 186.0;}
         if self
             .station
             .as_ref()

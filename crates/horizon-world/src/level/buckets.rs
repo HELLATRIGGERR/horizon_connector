@@ -128,6 +128,62 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         self.empty_sound(pos, sound, mob);
         true
     }
+    /// AE2 FluidPlacementStrategy.canPlace for the four vanilla flowing-fluid
+    /// registry entries. Source caches failures at the owning plane, not here.
+    fn formation_fluid_can_place(&self, pos: BlockPos, fluid: FluidKind) -> bool {
+        if fluid == FluidKind::Empty {return false;}
+        let b=self.b;
+        let state=self.state(pos);
+        // `Fluid.defaultFluidState`: flowing fluids default to level 1 and
+        // FALLING=true; source fluids have amount 8 and become legacy level 0.
+        let amount=if matches!(fluid,FluidKind::FlowingWater|FluidKind::FlowingLava) {1} else {8};
+        let legacy=b.legacy_block(FluidState::new(fluid,amount,true));
+        if state==legacy {return false;}
+        if b.is_air(state) {return true;}
+        let replaceable=!b.instance_of(state,Class::EndPortal)
+            && !b.instance_of(state,Class::EndGateway)
+            && (b.is_replaceable(state) || !b.is_solid(state));
+        replaceable || (self.is_liquid_container(state) && self.can_place_liquid(state,fluid))
+    }
+    /// AE2 FluidPlacementStrategy.placeInWorld MODULATE after canPlace. Effects
+    /// are emitted separately, after callbacks and the plane's throttle check.
+    fn formation_fluid_place(&mut self,pos:BlockPos,fluid:FluidKind)->bool {
+        if !self.formation_fluid_can_place(pos,fluid) {return false;}
+        let b=self.b;let state=self.state(pos);let old_fluid=self.fluid_at(pos);
+        let water=matches!(fluid,FluidKind::Water|FluidKind::FlowingWater);
+        if water && self.level.dimension()==Dimension::Nether {
+            return true;
+        }
+        if self.is_liquid_container(state) && fluid==FluidKind::Water {
+            // Source ignores placeLiquid's result, including an already-filled
+            // waterloggable block, and still consumes one full bucket.
+            self.place_liquid(pos,state,FluidState::new(FluidKind::Water,8,false));
+            return true;
+        }
+        let replaceable=!b.instance_of(state,Class::EndPortal)
+            && !b.instance_of(state,Class::EndGateway)
+            && (b.is_replaceable(state) || !b.is_solid(state));
+        if replaceable && !b.instance_of(state,Class::Liquid) {
+            self.destroy_block(pos,true,super::flags::UPDATE_LIMIT);
+        }
+        let amount=if matches!(fluid,FluidKind::FlowingWater|FluidKind::FlowingLava) {1} else {8};
+        let legacy=b.legacy_block(FluidState::new(fluid,amount,true));
+        if !self.set_block(pos,legacy,super::flags::UPDATE_ALL_IMMEDIATE) && !old_fluid.is_source() {
+            return false;
+        }
+        true
+    }
+    fn formation_fluid_effect(&mut self,pos:BlockPos,fluid:FluidKind) {
+        let water=matches!(fluid,FluidKind::Water|FluidKind::FlowingWater);
+        if water && self.level.dimension()==Dimension::Nether {
+            let pitch=2.6+(self.random().next_float()-self.random().next_float())*0.8;
+            self.emit(super::LevelEvent::Sound {pos,sound:"minecraft:block.fire.extinguish".into(),volume:0.5,pitch});
+            // Source calls Level.addParticle eight times on ServerLevel;
+            // the 1.21.1 server inherits Level's no-op addParticle.
+        } else {
+            self.empty_sound(pos,if water {"minecraft:item.bucket.empty"} else {"minecraft:item.bucket.empty_lava"},false);
+        }
+    }
     /// `playEmptySound`: `MobBucketItem` overrides it without the game event.
     fn empty_sound(&mut self, pos: BlockPos, sound: &str, mob: bool) {
         let sound: Arc<str> = sound.into();
@@ -139,6 +195,24 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
 }
 
 impl Behaviours {
+    /// Query AE2's source fluid placement check without mutating the world.
+    pub fn formation_fluid_can_place<L: LevelAccess + ?Sized>(
+        &self, level:&mut L, ticks:&mut Ticks, pos:BlockPos, fluid:FluidKind,
+    )->bool {
+        self.sim(level,ticks).formation_fluid_can_place(pos,fluid)
+    }
+    /// Execute an already-authorized AE2 fluid placement without effects.
+    pub fn formation_fluid_place<L: LevelAccess + ?Sized>(
+        &self, level:&mut L, ticks:&mut Ticks, pos:BlockPos, fluid:FluidKind,
+    )->bool {
+        self.sim(level,ticks).formation_fluid_place(pos,fluid)
+    }
+    /// Emit the source sound and game event after the owning plane's throttle.
+    pub fn formation_fluid_effect<L: LevelAccess + ?Sized>(
+        &self, level:&mut L, ticks:&mut Ticks, pos:BlockPos, fluid:FluidKind,
+    ) {
+        self.sim(level,ticks).formation_fluid_effect(pos,fluid)
+    }
     /// `BucketPickup.pickupBlock` by a dispenser: the filled bucket item.
     pub fn bucket_pickup<L: LevelAccess + ?Sized>(
         &self,

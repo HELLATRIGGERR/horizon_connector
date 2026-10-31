@@ -121,6 +121,13 @@ impl Game<'_> {
             horizon_world::level::flags::UPDATE_CLIENTS,
         );
         // The remainders come from the grid as it was before anything moved.
+        #[cfg(feature = "ae2-lab")]
+        let remainders = {
+            let items=self.res.items();let enchantments=&self.res.stations().enchantments;let random=&mut self.world.random;
+            let mut loss=|stack:&horizon_client::items::ItemStack,amount:u32|horizon_client::crafting::committed_durability_loss(enchantments,items,stack,random,amount);
+            self.res.recipes().remainders_with_durability(&recipe,&grid,3,Some(&mut loss))
+        };
+        #[cfg(not(feature = "ae2-lab"))]
         let remainders = self.res.recipes().remainders(&recipe, &grid, 3);
         self.crafter_eject(key, facing, result, &recipe);
         for rest in remainders.into_iter().flatten() {

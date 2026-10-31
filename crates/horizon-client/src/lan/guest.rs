@@ -100,8 +100,15 @@ pub struct Guest {
     pub input: u8,
     /// The boat or minecart the player rides (`Entity.getVehicle`).
     pub vehicle: Option<u32>,
+    /// Stable identity of the current mount, saved as a reference to its entity-region record.
+    pub vehicle_uuid: Option<[i32; 4]>,
+    /// Loaded reference awaiting the entity chunk; runtime entity IDs never survive restart.
+    pub vehicle_to_restore: Option<[i32; 4]>,
     /// `ServerGamePacketListenerImpl.lastGoodX/Y/Z` of the vehicle it controls.
     pub vehicle_good: Option<[f64; 3]>,
+    /// Reject origin-level movement until this relocated vehicle has supplied
+    /// one plausible destination-level packet. Never serialized with a player.
+    pub vehicle_relocated: bool,
     pub sprinting: bool,
     pub fall_flying: bool,
     pub flying: bool,
@@ -289,7 +296,10 @@ impl Guest {
             sneaking: false,
             input: 0,
             vehicle: None,
+            vehicle_uuid: None,
+            vehicle_to_restore: None,
             vehicle_good: None,
+            vehicle_relocated: false,
             sprinting: false,
             fall_flying: false,
             flying: false,
@@ -485,6 +495,53 @@ pub fn firework_components(
     out
 }
 
+/// A Horizon peer's complete modeled component patch, including transient
+/// map processing and component-bearing nested stack templates. Vanilla's
+/// persistent codec intentionally omits the former.
+#[cfg(feature = "ae2-lab")]
+fn wire_components(stack: &ItemStack) -> Option<horizon_world::nbt::Tag> {
+    use horizon_world::nbt::Tag;
+    let mut patch = match crate::item_data::encode_components(stack) {
+        Some(Tag::Compound(patch)) => patch,
+        _ => Default::default(),
+    };
+    if let Some(data) = stack.data() {
+        if let Some(mode) = data.map_post_processing {
+            patch.insert("minecraft:map_post_processing".into(), Tag::Int(i32::from(mode)));
+        }
+        if !data.container.is_empty() {
+            patch.insert("minecraft:container".into(), Tag::List(data.container.iter().map(|(slot,item)|
+                Tag::compound([("slot",Tag::Int(i32::from(*slot))), ("item",wire_template(item,true))])
+            ).collect()));
+        }
+        if !data.bundle_contents.is_empty() {
+            patch.insert("minecraft:bundle_contents".into(),Tag::List(data.bundle_contents.iter()
+                .map(|item|wire_template(item,true)).collect()));
+        }
+        if !data.charged.is_empty() {
+            patch.insert("minecraft:charged_projectiles".into(),Tag::List(data.charged.iter()
+                .map(|item|wire_template(item,false)).collect()));
+        }
+        if let Some(sides) = &data.pot_decorations {
+            let mut decorations = horizon_world::nbt::Compound::new();
+            for (name,item) in ["back","left","right","front"].iter().zip(sides.iter()) {
+                if let Some(item) = item { decorations.insert((*name).into(),wire_template(item,true)); }
+            }
+            patch.insert("minecraft:pot_decorations".into(),Tag::Compound(decorations));
+        }
+    }
+    (!patch.is_empty()).then_some(Tag::Compound(patch))
+}
+#[cfg(feature = "ae2-lab")]
+fn wire_template(stack: &ItemStack, omit_single_count: bool) -> horizon_world::nbt::Tag {
+    use horizon_world::nbt::Tag;
+    let mut item = horizon_world::nbt::Compound::new();
+    item.insert("id".into(),Tag::String(stack.item.as_ref().into()));
+    if !omit_single_count || stack.count != 1 { item.insert("count".into(),Tag::Int(stack.count as i32)); }
+    if let Some(components) = wire_components(stack) { item.insert("components".into(),components); }
+    Tag::Compound(item)
+}
+
 /// The off hand slot is conventionally 40 in saves and 45 in the menu.
 /// `synced_id` names an entry of a synced registry (enchantments, trim
 /// materials and patterns) by its id on this connection.
@@ -532,6 +589,66 @@ fn network_stack(
         ));
     }
     if let Some(d) = s.data() {
+        // CUSTOM_DATA is an NBT compound on the wire. It may contain storage
+        // cells' real contents; omitting it silently changes item identity.
+        let mut custom_data = d.other("minecraft:custom_data").cloned();
+        // Horizon peers exchange a collision-safe copy of the complete
+        // persistent component patch, in addition to the usual vanilla codecs.
+        // The original custom-data body stays outside the wrapper, avoiding a
+        // second copy of large storage-cell payloads.
+        #[cfg(feature = "ae2-lab")]
+        {
+            use horizon_world::nbt::Tag;
+            let mut patch = match wire_components(s) {
+                Some(Tag::Compound(patch)) => patch,
+                _ => Default::default(),
+            };
+            patch.remove(&"minecraft:custom_data".into());
+            let key = "horizon:wire_ae2_components";
+            let occupied = matches!(&custom_data, Some(Tag::Compound(map)) if map.contains_key(&key.into()));
+            let noncompound = custom_data.as_ref().is_some_and(|v| !matches!(v, Tag::Compound(_)));
+            if !patch.is_empty() || occupied || noncompound {
+                let had_custom_data = matches!(&custom_data, Some(Tag::Compound(_)));
+                let mut outer = match custom_data.take() {
+                    Some(Tag::Compound(map)) => map,
+                    _ => Default::default(),
+                };
+                let previous = outer.remove(&key.into());
+                let mut wrapped = horizon_world::nbt::Compound::new();
+                wrapped.insert("version".into(), Tag::Byte(2));
+                wrapped.insert("had_custom_data".into(), Tag::Byte(i8::from(had_custom_data)));
+                wrapped.insert("components".into(), Tag::Compound(patch));
+                if let Some(previous) = previous { wrapped.insert("previous".into(), previous); }
+                if noncompound {
+                    if let Some(value) = d.other("minecraft:custom_data").cloned() {
+                        wrapped.insert("noncompound_custom_data".into(), value);
+                    }
+                }
+                // The raid banner constructor represents its generated layers
+                // by a flag; preserve that equivalent native representation.
+                if d.ominous_banner && d.banner_patterns.is_empty() {
+                    wrapped.insert("ominous_layers_implicit".into(), Tag::Byte(1));
+                }
+                outer.insert(key.into(), Tag::Compound(wrapped));
+                custom_data = Some(Tag::Compound(outer));
+            }
+        }
+        if let Some(tag @ horizon_world::nbt::Tag::Compound(_)) = custom_data {
+            stack.added.push((
+                horizon_protocol::item::component::CUSTOM_DATA,
+                horizon_protocol::item::Component::Nbt(tag),
+            ));
+        }
+        if let Some(horizon_world::nbt::Tag::Int(max)) = d.other("minecraft:max_stack_size") {
+            stack.added.push((horizon_protocol::item::component::MAX_STACK_SIZE,
+                horizon_protocol::item::Component::Int(*max)));
+        }
+        if let Some(horizon_world::nbt::Tag::List(lines)) = d.other("minecraft:lore") {
+            stack.added.push((
+                horizon_protocol::item::component::LORE,
+                horizon_protocol::item::Component::Lore(lines.clone()),
+            ));
+        }
         if let Some(rgb) = d.dyed_color {
             stack.added.push((
                 horizon_protocol::item::component::DYED_COLOR,
@@ -616,6 +733,15 @@ fn network_stack(
                 horizon_protocol::item::Component::Stacks(contents),
             ));
         }
+        // ItemContainerContents preserves slot indices via empty templates.
+        if let Some(last) = d.container.iter().map(|(slot, _)| *slot).max() {
+            let mut contents = vec![None; usize::from(last) + 1];
+            for (slot, item) in &d.container {
+                contents[usize::from(*slot)] = network_stack(item_id, synced_id, &Some(item.clone()));
+            }
+            stack.added.push((horizon_protocol::item::component::CONTAINER,
+                horizon_protocol::item::Component::Container(contents)));
+        }
         // The books a lectern shows and a guest reads.
         if !d.writable_pages.is_empty() {
             stack.added.push((
@@ -645,7 +771,8 @@ fn network_stack(
     if let Some(name) = s.custom_name() {
         stack.added.push((
             horizon_protocol::item::component::CUSTOM_NAME,
-            horizon_protocol::item::Component::Text(horizon_protocol::text::literal(name)),
+            horizon_protocol::item::Component::Text(s.custom_name_component().cloned()
+                .unwrap_or_else(|| horizon_protocol::text::literal(name))),
         ));
     }
     // The component as loaded, so a translatable name stays one.

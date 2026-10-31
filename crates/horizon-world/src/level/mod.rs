@@ -139,7 +139,7 @@ pub use data::{BlockData, ItemBinding, ItemKind, Named, Props, PushReaction, Sta
 pub use falling::Landing;
 pub use interact::{InteractionResult, PlayerContext, PlayerEffect};
 pub use pistons::{BlockEventData, MovingPiston};
-pub use place::{PlaceContext, PlaceOutcome};
+pub use place::{PlaceContext, PlaceOutcome, PendingPlacement};
 pub use states::{BlockId, PropKey, StateTable};
 pub use tick::{Precipitation, PrecipitationKind};
 pub use ticks::Ticks;
@@ -253,7 +253,7 @@ pub enum LevelEvent {
     /// `TntBlock.prime`: spawn primed TNT pushed along `rot` (radians, drawn
     /// from the level random by `new PrimedTnt`). The primed sound and game
     /// event follow as their own events; the caller removes the block.
-    PrimeTnt { pos: BlockPos, rot: f64 },
+    PrimeTnt { pos: BlockPos, rot: f64, state: BlockStateId },
     /// Block-entity or entity side effects the caller implements: `"dispense"`
     /// (dispenser/dropper/crafter scheduled tick), `"hatch"` (frogspawn
     /// hatched into tadpoles; the block is already destroyed), `"portal_spawn"`
@@ -291,11 +291,30 @@ pub enum LevelEvent {
 
 /// The world as seen by block behaviour. Implemented by the game and tests.
 pub trait LevelAccess {
+    /// Host custom block orientation, resolved during getStateForPlacement.
+    /// Returning None keeps the vanilla block-class implementation.
+    fn custom_placement_state(&self,_default:BlockStateId,_face:Direction,_yaw:f32,_pitch:f32,_plane:Option<Direction>,_water:bool)->Option<BlockStateId> {None}
+    /// Whether this state uses a six-way, center-supported fixture placement.
+    fn custom_center_fixture(&self, _state: BlockStateId) -> bool { false }
+    /// Optional host-provided, side-sensitive crank capability.
+    fn custom_crank(&self, _state: BlockStateId) -> bool { false }
+    fn custom_crankable(&self, _pos: BlockPos, _side: Direction) -> bool { false }
+    /// Update a host-owned sensor after a neighbor change; true asks the
+    /// engine to notify this sensor's neighbors about a changed output.
+    fn custom_sensor_neighbor_changed(&mut self, _pos: BlockPos, _state: BlockStateId) -> bool { false }
+    /// Observe the actual source position when the queued neighbor updater
+    /// retained it. Direct legacy calls may not supply one.
+    fn custom_neighbor_event(&mut self, _pos: BlockPos, _state: BlockStateId, _source: Option<BlockPos>) {}
+    /// Observe the neighbor direction of an actual updateShape callback.
+    fn custom_shape_event(&mut self, _pos: BlockPos, _state: BlockStateId, _neighbor: BlockPos) {}
     /// `Level.isClientSide`: this level is a client's copy (false on a
     /// server, a host or the test harness).
     fn is_client_side(&self) -> bool {
         false
     }
+    /// Optional host-defined per-face redstone signal, including 0 for an
+    /// installed but inactive dynamic source. Default preserves vanilla behavior.
+    fn custom_signal(&self, _pos: BlockPos, _state: BlockStateId, _direction: Direction, _direct: bool) -> Option<i32> { None }
     /// `getBlockState`. Unloaded or out-of-bounds positions read as air.
     fn block_state(&self, pos: BlockPos) -> BlockStateId;
     /// Storage write (`LevelChunkSection.setBlockState`). Returns the previous
@@ -414,6 +433,9 @@ pub trait LevelAccess {
         true
     }
     fn emit(&mut self, _event: LevelEvent) {}
+    /// Native content's random-tick behavior. Returning true replaces the
+    /// template's behavior for this sampled position; ordinary blocks return false.
+    fn custom_random_tick(&mut self, _pos: BlockPos, _state: BlockStateId) -> bool { false }
     /// `LevelChunk.setBlockState` replaced a block that had a block entity by
     /// another block: run `BlockEntity.preRemoveSideEffects` when
     /// `side_effects` (containers spill their contents, a jukebox pops its
@@ -750,7 +772,7 @@ impl Behaviours {
     ) {
         let mut sim = self.sim(level, ticks);
         let state = sim.state(pos);
-        sim.neighbor_changed(state, pos, changed, false);
+        sim.neighbor_changed(state, pos, changed, false, None);
     }
     /// Entity collision with a block (`entityInside`) for the entity-sensing
     /// blocks: pressure plates, tripwires and buttons hit by arrows are
@@ -777,6 +799,17 @@ impl Behaviours {
             .big_dripleaf_entity_inside(pos, on_ground, feet_y);
     }
     /// Redstone signal queries (`SignalGetter`).
+    /// Directional block-state signal, without conductor aggregation.
+    pub fn block_signal<L: LevelAccess + ?Sized>(
+        &self,
+        level: &mut L,
+        ticks: &mut Ticks,
+        pos: BlockPos,
+        direction: Direction,
+    ) -> i32 {
+        let sim = self.sim(level, ticks);
+        sim.state_signal(sim.state(pos), pos, direction)
+    }
     pub fn has_neighbor_signal<L: LevelAccess + ?Sized>(
         &self,
         level: &mut L,

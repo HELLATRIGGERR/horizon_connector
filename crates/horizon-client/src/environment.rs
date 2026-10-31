@@ -143,6 +143,19 @@ pub struct Sky {
     pub cloud_fog_end: f32,
 }
 impl Environment {
+    /// AE2 19.2.18 InitDimensionTypes / SpatialStorageSkyProperties:
+    /// constant full ambient light, black fog, no daylight or celestial cycle.
+    #[cfg(feature = "ae2-lab")]
+    pub fn ae2_spatial() -> Self {
+        let mut base=HashMap::new();
+        for name in ["minecraft:visual/block_light_tint","minecraft:visual/sky_light_color","minecraft:visual/ambient_light_color"] {
+            base.insert(name.into(),[1.0,1.0,1.0,1.0]);
+        }
+        for name in ["minecraft:visual/sky_color","minecraft:visual/fog_color","minecraft:visual/sky_light_factor","minecraft:gameplay/sky_light_level"] {
+            base.insert(name.into(),[0.0,0.0,0.0,1.0]);
+        }
+        Self{period:24000,tracks:HashMap::new(),base}
+    }
     pub fn load(root: &Path) -> Result<Self> {
         Self::load_dimension(root, "overworld", true)
     }

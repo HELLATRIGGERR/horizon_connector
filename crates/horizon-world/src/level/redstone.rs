@@ -40,6 +40,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         pos: BlockPos,
         direction: Direction,
     ) -> i32 {
+        if let Some(signal) = self.level.custom_signal(pos, state, direction, false) { return signal.clamp(0,15); }
         let b = self.b;
         if !b.has_flag(state, state_flags::SIGNAL_SOURCE) {
             return 0;
@@ -67,6 +68,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         pos: BlockPos,
         direction: Direction,
     ) -> i32 {
+        if let Some(signal) = self.level.custom_signal(pos, state, direction, true) { return signal.clamp(0,15); }
         let b = self.b;
         if !b.has_flag(state, state_flags::SIGNAL_SOURCE) {
             return 0;
@@ -178,7 +180,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             15
         } else if b.is_block(state, b.named.redstone_wire) {
             b.table.int(state, b.props.power)
-        } else if self.is_signal_source(state) {
+        } else if self.is_signal_source(state) || self.level.custom_signal(pos,state,direction,true).is_some() {
             self.direct_signal(pos, direction)
         } else {
             0
@@ -187,7 +189,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
 
     // ---- redstone wire ----
 
-    fn should_wire_connect_to(&self, state: BlockStateId, direction: Option<Direction>) -> bool {
+    fn should_wire_connect_to(&self, state: BlockStateId, pos: BlockPos, direction: Option<Direction>) -> bool {
+        if let Some(dir) = direction { if self.level.custom_signal(pos,state,dir,false).is_some() { return true; } }
         let b = self.b;
         match b.data(state).class {
             Class::RedstoneWire => true,
@@ -214,7 +217,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         if can_connect_up {
             let placeable_above =
                 b.instance_of(relative, Class::TrapDoor) || self.wire_can_survive_on(relative);
-            if placeable_above && self.should_wire_connect_to(self.state(above(relative_pos)), None)
+            if placeable_above && self.should_wire_connect_to(self.state(above(relative_pos)), above(relative_pos), None)
             {
                 return if b.is_face_sturdy(relative, direction.opposite()) {
                     "up"
@@ -223,9 +226,9 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 };
             }
         }
-        if !self.should_wire_connect_to(relative, Some(direction))
+        if !self.should_wire_connect_to(relative, relative_pos, Some(direction))
             && (self.is_redstone_conductor(relative, relative_pos)
-                || !self.should_wire_connect_to(self.state(below(relative_pos)), None))
+                || !self.should_wire_connect_to(self.state(below(relative_pos)), below(relative_pos), None))
         {
             "none"
         } else {
@@ -519,7 +522,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let direction = self.b.facing(state);
         let opposite_pos = rel(pos, direction.opposite());
         let block = self.b.block(state);
-        self.neighbor_changed_at(opposite_pos, block);
+        self.neighbor_changed_at_from(opposite_pos, block, pos);
         self.update_neighbors_at_except(opposite_pos, block, direction);
     }
     fn comparator_calculate_output(&self, pos: BlockPos, state: BlockStateId) -> i32 {
@@ -750,7 +753,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let direction = self.b.facing(state);
         let opposite = rel(pos, direction.opposite());
         let block = self.b.block(state);
-        self.neighbor_changed_at(opposite, block);
+        self.neighbor_changed_at_from(opposite, block, pos);
         self.update_neighbors_at_except(opposite, block, direction);
     }
     pub(crate) fn observer_tick(&mut self, pos: BlockPos, state: BlockStateId) {

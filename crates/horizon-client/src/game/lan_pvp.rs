@@ -32,6 +32,8 @@ pub(super) enum Victim {
 
 /// The attacker's side of the hit.
 pub(super) struct Strike {
+    #[cfg(feature = "ae2-lab")]
+    ae2_tool: Option<bool>,
     /// The attacking guest, kept after their turn through `as_guest` ends.
     attacker: Option<u32>,
     amount: f32,
@@ -121,6 +123,8 @@ impl Game<'_> {
         }
         self.swing_arm();
         Some(Strike {
+            #[cfg(feature = "ae2-lab")]
+            ae2_tool: self.ae2_pvp_tool(),
             attacker: self.lan_acting,
             amount,
             scale,
@@ -241,6 +245,10 @@ impl Game<'_> {
         // attacker), then causeExtraKnockback along the attacker's yaw.
         let land = |g: &mut Self| {
             let hurt = g.mob_hits_player(s.amount, s.from, "minecraft:player_attack");
+            #[cfg(feature = "ae2-lab")]
+            if hurt && let Some(staff) = s.ae2_tool {
+                g.ae2_pvp_effect(staff);
+            }
             let (strength, xd, zd) = s.knockback;
             if hurt && strength > 0.0 {
                 g.knock_back_player(f64::from(strength), xd, zd);
@@ -257,6 +265,13 @@ impl Game<'_> {
         } else {
             Default::default()
         };
+        #[cfg(feature = "ae2-lab")]
+        if hurt && let Some(staff) = s.ae2_tool {
+            match s.attacker {
+                None => self.ae2_pvp_spend(staff),
+                Some(conn) => { self.as_guest(host, conn, |g| g.ae2_pvp_spend(staff)); }
+            }
+        }
         if hurt && s.crit {
             let target = match victim {
                 Victim::Host => self.player.as_ref().map(|p| (host.host_entity, p)),

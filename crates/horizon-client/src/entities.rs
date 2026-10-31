@@ -377,6 +377,9 @@ pub fn merge_with_neighbours(
 /// ExperienceOrb: gravity 0.03, homing towards the player within 8 blocks.
 #[derive(Clone, Debug)]
 pub struct ExperienceOrb {
+    /// Native ExperienceOrb health, persisted as Health (default 5).
+    pub health: i32,
+    pub invulnerable: bool,
     /// The entity id servers track it by.
     pub id: u32,
     pub position: Vec3,
@@ -387,6 +390,16 @@ pub struct ExperienceOrb {
     pub on_ground: bool,
 }
 impl ExperienceOrb {
+    /// Native hurtServer truncates the remaining float health to an int.
+    /// The caller removes the orb when this returns true.
+    pub fn hurt(&mut self, amount: f32) -> bool {
+        if self.invulnerable { return false; }
+        self.health = (self.health as f32 - amount) as i32;
+        self.health <= 0
+    }
+    pub fn bounds(&self) -> Aabb {
+        Aabb::new(Vec3::new(self.position.x-0.25,self.position.y,self.position.z-0.25), Vec3::new(self.position.x+0.25,self.position.y+0.5,self.position.z+0.25))
+    }
     /// ExperienceOrb.getExperienceValue: the largest orb size not above `value`.
     pub fn split(value: u32) -> u32 {
         [2477, 1237, 617, 307, 149, 73, 37, 17, 7, 3, 1]

@@ -278,7 +278,7 @@ impl Game<'_> {
         // Window.updateFullscreenIfChanged: only a changed option asks the
         // window to change, so applying settings never undoes a fullscreen
         // the compositor set up.
-        if let Some(w) = &self.window
+        if !self.options.offscreen && let Some(w) = &self.window
             && let Some(want) = self.fullscreen.request(s.fullscreen)
         {
             w.set_fullscreen(want.then_some(Fullscreen::Borderless(None)));
@@ -306,6 +306,7 @@ impl Game<'_> {
     /// `Window.updateFullscreenState`: a fullscreen change made by the window
     /// system is adopted by the option (`Minecraft.fullscreenStateChanged`).
     pub(super) fn observe_fullscreen(&mut self) {
+        if self.options.offscreen { return; }
         let Some(w) = &self.window else { return };
         if let Some(now) = self.fullscreen.observe(w.fullscreen().is_some())
             && self.settings.fullscreen != now

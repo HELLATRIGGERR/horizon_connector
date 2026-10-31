@@ -79,6 +79,13 @@ impl Game<'_> {
             Owner::Block(p) => {
                 let size = match self.world.block_entities.get(&(p[0], p[1], p[2])) {
                     Some(horizon_client::containers::BlockEntity::Chest(items)) => items.len(),
+                    #[cfg(feature = "ae2-lab")]
+                    Some(horizon_client::containers::BlockEntity::Ae2(machine))
+                        if machine.kind == horizon_client::ae2_world::MachineKind::CellWorkbench => 0,
+                    #[cfg(feature = "ae2-lab")]
+                    Some(horizon_client::containers::BlockEntity::Ae2(machine)) => {
+                        machine.slots.len()
+                    }
                     _ => 0,
                 };
                 for i in 0..size {
@@ -194,12 +201,20 @@ impl Game<'_> {
                 Some(horizon_client::containers::BlockEntity::Chest(items)) => {
                     items.get(*i).cloned().flatten()
                 }
+                #[cfg(feature = "ae2-lab")]
+                Some(horizon_client::containers::BlockEntity::Ae2(machine)) => {
+                    machine.slots.get(*i).cloned().flatten()
+                }
                 _ => None,
             },
         }
     }
     /// Put a stack (or nothing) in a slot; false when the slot cannot take it.
     pub(in crate::game) fn slot_set(&mut self, s: &Slot, stack: Option<ItemStack>) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if let Some(old) = self.slot_get(s) {
+            horizon_client::ae2_stack_identity::mark_detached_by_replacement(&old, stack.as_ref());
+        }
         match s {
             Slot::Inv(i) => match self.inventory.get_mut(*i) {
                 Some(slot) => {
@@ -274,6 +289,20 @@ impl Game<'_> {
                             true
                         }
                         None => false,
+                    }
+                }
+                #[cfg(feature = "ae2-lab")]
+                Some(horizon_client::containers::BlockEntity::Ae2(machine)) => {
+                    if let Some(slot) = machine.slots.get_mut(*i) {
+                        let quantum = machine.kind == horizon_client::ae2_world::MachineKind::QuantumLink && *i == 0;
+                        let provider = machine.kind == horizon_client::ae2_world::MachineKind::PatternProvider && *slot != stack;
+                        *slot = stack;
+                        self.world.modified.insert((p[0] >> 4, p[2] >> 4));
+                        if quantum { self.ae2_quantum_inventory_changed((p[0],p[1],p[2])); }
+                        if provider { self.ae2_provider_events_fault("unsupported direct provider item mutation".into()); }
+                        true
+                    } else {
+                        false
                     }
                 }
                 _ => false,

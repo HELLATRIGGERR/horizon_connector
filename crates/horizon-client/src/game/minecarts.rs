@@ -93,6 +93,28 @@ pub(super) struct Minecart {
 }
 pub(super) const WIDTH: f64 = 0.98;
 pub(super) const HEIGHT: f64 = 0.7;
+/// Insert physical item entities into a hopper cart without exceeding the
+/// incoming stack's component-defined maximum. Return any uninserted quantity.
+fn merge_hopper_cart_items(slots: &mut [Option<ItemStack>], mut stack: ItemStack, max: u32) -> Option<ItemStack> {
+    if stack.count == 0 { return None; }
+    for slot in slots {
+        match slot {
+            None => {
+                let moved = stack.count.min(max);
+                *slot = Some(ItemStack { count: moved, ..stack.clone() });
+                stack.count -= moved;
+            }
+            Some(current) if current.same_item_same_components(&stack) => {
+                let moved = stack.count.min(max.saturating_sub(current.count));
+                current.count += moved;
+                stack.count -= moved;
+            }
+            _ => {}
+        }
+        if stack.count == 0 { return None; }
+    }
+    Some(stack)
+}
 /// AbstractMinecart.getDefaultDisplayOffset, in sixteenths of a block.
 fn display_offset(kind: CartKind) -> f64 {
     if kind == CartKind::Hopper { 1.0 } else { 6.0 }
@@ -663,30 +685,13 @@ impl Game<'_> {
                 i += 1;
                 continue;
             }
-            let mut stack = e.stack.clone();
-            for slot in c.items.iter_mut() {
-                match slot {
-                    None => {
-                        *slot = Some(stack.clone());
-                        stack.count = 0;
-                    }
-                    Some(s) if s.same_item_same_components(&stack) => {
-                        let max = self.res.items().get(&s.item).map_or(64, |i| i.max_stack);
-                        let moved = stack.count.min(max.saturating_sub(s.count));
-                        s.count += moved;
-                        stack.count -= moved;
-                    }
-                    _ => {}
-                }
-                if stack.count == 0 {
-                    break;
-                }
-            }
-            if stack.count == 0 {
-                self.dropped.remove(i);
-            } else {
-                self.dropped[i].stack = stack;
+            let stack = e.stack.clone();
+            let max = self.res.items().stack_max(&stack);
+            if let Some(rest) = merge_hopper_cart_items(&mut c.items, stack, max) {
+                self.dropped[i].stack = rest;
                 i += 1;
+            } else {
+                self.dropped.remove(i);
             }
         }
     }
@@ -1573,6 +1578,18 @@ impl Minecart {
 mod tests {
     use super::*;
 
+    #[test]
+    fn hopper_cart_keeps_component_limited_physical_stacks_separate() {
+        use horizon_world::nbt::Tag;
+        let mut source=ItemStack::new("minecraft:stone",20);
+        source.data_mut().set_other("minecraft:max_stack_size",Some(Tag::Int(16)));
+        let mut partial=source.clone();partial.count=12;
+        let mut slots=vec![Some(partial),None,Some(ItemStack::new("minecraft:dirt",1))];
+        assert!(merge_hopper_cart_items(&mut slots,source.clone(),16).is_none());
+        assert_eq!(slots[0].as_ref().unwrap().count,16);
+        assert_eq!(slots[1].as_ref().unwrap().count,16);
+        assert_eq!(merge_hopper_cart_items(&mut slots,source,16).unwrap().count,20);
+    }
     #[test]
     fn display_offset_matches_vanilla_for_each_cart_kind() {
         assert_eq!(display_offset(CartKind::Hopper), 1.0);
