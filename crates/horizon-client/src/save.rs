@@ -932,6 +932,37 @@ fn decode_mod_block_entity(id: String, tag: &Tag) -> Option<crate::containers::M
         data: Vec::new(),
     })
 }
+/// State AE2's loadTag does not read back. InscriberBlockEntity keeps
+/// processingTime, smash and finalStep in plain fields, and
+/// MolecularAssemblerBlockEntity its progress, so a reload starts them over.
+/// VibrationChamberBlockEntity.saveAdditional keeps burnSpeed only as a whole
+/// percent of the max fuel rate of its last tick, and loadTag scales it by
+/// the max of its constructor, which ran before the upgrades loaded (no
+/// cards), clamped to that constructor's range.
+#[cfg(feature = "ae2-lab")]
+fn ae2_reset_unsaved(m: &mut crate::ae2_world::Machine) {
+    use crate::ae2_world::MachineKind;
+    match m.kind {
+        MachineKind::Inscriber => {
+            m.progress = 0.0;
+            m.config.remove(&"ae2_smash".into());
+        }
+        MachineKind::MolecularAssembler => m.progress = 0.0,
+        MachineKind::VibrationChamber => {
+            let config = crate::ae2_common_config::processing();
+            let cards = |id: &str| m.upgrades.iter().flatten().filter(|s| s.count == 1 && s.item.as_ref() == id).count() as f64;
+            // getEnergyPerFuelTick and getMaxFuelTicksPerTick with the cards.
+            let energy_per_fuel = config.fuel_energy * (1.0 + cards("ae2:energy_card") / 2.0);
+            let last_max = (config.vibration_max + config.vibration_max * cards("ae2:speed_card") / 2.0) / energy_per_fuel;
+            let burn_speed = (m.burn_rate * 100.0 / last_max) as i32;
+            let (min, max) = (config.vibration_min / config.fuel_energy, config.vibration_max / config.fuel_energy);
+            let rate = f64::from(burn_speed) * max / 100.0;
+            // Mth.clamp
+            m.burn_rate = if rate < min { min } else { rate.min(max) };
+        }
+        _ => {}
+    }
+}
 pub fn decode_block_entity(tag: &Tag) -> Option<((i32, i32, i32), crate::containers::BlockEntity)> {
     use crate::containers::BlockEntity;
     let int = |k: &str| number(tag.get(k)).map(|v| v as i32);
@@ -1036,6 +1067,7 @@ pub fn decode_block_entity(tag: &Tag) -> Option<((i32, i32, i32), crate::contain
                 Some(Tag::Compound(c)) => c.clone(),
                 _ => return None,
             };
+            ae2_reset_unsaved(m);
         }
         BlockEntity::Chest(items) => *items = decode_items(tag.get("Items"), items.len()),
         BlockEntity::Furnace(f) => {

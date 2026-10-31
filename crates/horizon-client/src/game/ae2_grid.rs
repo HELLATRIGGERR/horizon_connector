@@ -198,23 +198,7 @@ impl Game<'_> {
                             .slots
                             .iter()
                             .flatten()
-                            .filter_map(|s| {
-                                if matches!(
-                                    s.item.as_ref(),
-                                    "ae2:matter_cannon" | "ae2:color_applicator"
-                                ) {
-                                    Some(0.5)
-                                } else {
-                                    s.item.rsplit('_').next().and_then(|tier| match tier {
-                                        "1k" => Some(0.5),
-                                        "4k" => Some(1.0),
-                                        "16k" => Some(1.5),
-                                        "64k" => Some(2.0),
-                                        "256k" => Some(2.5),
-                                        _ => None,
-                                    })
-                                }
-                            })
+                            .filter_map(super::ae2_storage_devices::cell_idle_drain)
                             .sum::<f64>();
                         d.idle_override = Some(
                             if m.kind == MachineKind::Drive {

@@ -18,6 +18,15 @@ struct ProcessorOwner {
     input: String,
     service: Option<u64>,
 }
+impl ProcessorOwner {
+    /// TickManagerService for one processor: a changed inventory wakes a
+    /// sleeping device (onChangeInventory, wakeDevice), then its tracker
+    /// decides. When due, gives ticksSinceLastCall.
+    fn due(&mut self, now: u64, input: String) -> Option<u64> {
+        if self.input != input { self.input = input; self.tracker.wake(); }
+        self.tracker.due(now).then(|| now.saturating_sub(self.tracker.last()))
+    }
+}
 #[derive(Default)]
 pub(super) struct ProcessorTicks {
     owners: std::collections::BTreeMap<u64, ProcessorOwner>,
@@ -284,7 +293,8 @@ fn live_inscriber_recipe(machine:&Machine, items:&Items, recipes:&horizon_client
         if !json_ingredient(items,ingredients.get("middle"),middle.as_ref()) { return None; }
         let t=ingredients.get("top");let b=ingredients.get("bottom");
         if !(json_ingredient(items,t,top.as_ref()) && json_ingredient(items,b,bottom.as_ref()) || json_ingredient(items,t,bottom.as_ref()) && json_ingredient(items,b,top.as_ref())) { return None; }
-        let mode=match v.get("mode")?.as_str()? { "press"=>true,"inscribe"=>false,_=>return None };
+        // InscriberRecipe.MODE_CODEC reads every mode but "press" as INSCRIBE.
+        let mode=v.get("mode")?.as_str()?=="press";
         Some((inscriber_result(v.get("result")?)?,mode))
     })
 }
@@ -459,6 +469,67 @@ fn run_inscriber_step(m: &mut Machine, items: &Items, recipes: &horizon_client::
         }
     }
     *m != prior
+}
+/// InscriberBlockEntity.tickingRequest up to pushOutResult: a smash step, or
+/// a powered step of 10 x speedFactor AE taken from the Inscriber's own
+/// buffer when it holds enough, else from the grid (`grid(amount, simulate)`
+/// gives what the grid would give or gave). Returns whether `m` changed.
+fn inscriber_tick(m: &mut Machine, items: &Items, recipes: &horizon_client::crafting::Recipes, mut grid: impl FnMut(f64, bool) -> f64) -> bool {
+    let smash = count_config(m, "ae2_smash", 0);
+    let valid = live_inscriber_recipe(m, items, recipes).is_some_and(|(out, _)| {
+        items.get(&out.item).is_some() && fits(&m.slots[3], &out, items)
+    });
+    let speed = match m.installed_speed_cards().min(4) {
+        0 => 2,
+        1 => 3,
+        2 => 5,
+        3 => 10,
+        _ => 50,
+    };
+    let cost = f64::from(speed) * 10.0;
+    let usage = horizon_client::ae2_common_config::gameplay().usage_multiplier;
+    let power = if smash != 0 || !valid {
+        false
+    } else if m.private_energy_extract(cost * usage, false) / usage > cost - 0.01 {
+        m.private_energy_extract(cost * usage, true);
+        true
+    } else {
+        grid(cost, true) > cost - 0.01 && grid(cost, false) > cost - 0.01
+    };
+    run_inscriber_step(m, items, recipes, power)
+}
+/// The TickRateModulation InscriberBlockEntity.tickingRequest returns:
+/// URGENT after a push or with craft work, SLOWER with only export work.
+fn inscriber_modulation(m: &Machine, items: &Items, recipes: &horizon_client::crafting::Recipes, pushed: bool) -> Modulation {
+    if pushed || count_config(m, "ae2_smash", 0) > 0
+        || live_inscriber_recipe(m, items, recipes).is_some_and(|(out, _)| fits(&m.slots[3], &out, items)) {
+        Modulation::Urgent
+    } else if inscriber_auto_export_work(m) {
+        Modulation::Slower
+    } else {
+        Modulation::Sleep
+    }
+}
+/// VibrationChamberBlockEntity.tickingRequest once fuel burns: the fuel
+/// burned since the last call at the current rate, then the rate stepped
+/// within `range` (setCurrentFuelTicksPerTick clamps). A rate outside the
+/// range of the installed cards, as after a reload, burns once as it is.
+/// `power` takes the AE made and gives what the grid accepted; when nothing
+/// burned it is asked (None) for the grid's free room instead.
+fn vibration_burn(m: &mut Machine, elapsed: u64, energy_per_fuel: f64, (min, max): (f64, f64), mut power: impl FnMut(Option<f64>) -> f64) -> Modulation {
+    let spent=(elapsed as f64*m.burn_rate).min(m.burn_remaining);
+    m.burn_remaining=(m.burn_remaining-spent).max(0.0);
+    let step=elapsed as f64*(max-min)/100.0;
+    if spent.abs()<0.01 {
+        // Source injectPower(..., SIMULATE) returns overflow.
+        if power(None)>=1.0 {m.burn_rate=(m.burn_rate+step).clamp(min,max);Modulation::Faster}
+        else {Modulation::Idle}
+    } else {
+        let generated=spent*energy_per_fuel;
+        let overflow=generated-power(Some(generated));
+        m.burn_rate=(m.burn_rate+if overflow>0.0 {-step}else{step}).clamp(min,max);
+        if overflow>0.0 {Modulation::Slower}else{Modulation::Faster}
+    }
 }
 fn assembler_recipe_grid(
     m: &Machine,
@@ -666,7 +737,7 @@ impl Game<'_> {
                 }
                 let input=processing_input(&m);
                 let sleeping=match m.kind {
-                    MachineKind::Inscriber=>!live_inscriber_recipe(&m,self.res.items(),self.res.recipes()).is_some_and(|(out,_)|fits(&m.slots[3],&out,self.res.items())) && count_config(&m,"ae2_smash",0)==0 && !inscriber_auto_export_work(&m),
+                    MachineKind::Inscriber=>inscriber_modulation(&m,self.res.items(),self.res.recipes(),false)==Modulation::Sleep,
                     MachineKind::VibrationChamber=>m.burn_remaining<=0.0 && !m.slots.first().and_then(Option::as_ref).is_some_and(|fuel|self.res.providers().burn_time(self.res.items(),fuel,false)>0),
                     _=>false,
                 };
@@ -676,41 +747,21 @@ impl Game<'_> {
                 let owner=self.ae2_processor_ticks.owners.entry(incarnation).or_insert_with(||ProcessorOwner{tracker:Tracker::new(now,min,max,sleeping),input:input.clone(),service});
                 if owner.service.zip(service).is_some_and(|(a,b)|a!=b) {owner.tracker=Tracker::new(now,min,max,sleeping);}
                 owner.service=service.or(owner.service);
-                if owner.input!=input { owner.input=input; owner.tracker.wake(); }
-                if !owner.tracker.due(now) {continue;}
-                elapsed=now.saturating_sub(owner.tracker.last());
+                let Some(ticks)=owner.due(now,input) else {continue};
+                elapsed=ticks;
                 tracking=Some(incarnation);
             }
             let mut modulation=Modulation::Same;
             let changed = match m.kind {
                 MachineKind::Inscriber => {
-                    let smash = count_config(&m, "ae2_smash", 0);
-                    let valid = live_inscriber_recipe(&m, self.res.items(), self.res.recipes()).is_some_and(|(out, _)| {
-                        self.res.items().get(&out.item).is_some()
-                            && fits(&m.slots[3], &out, self.res.items())
+                    let res = self.res.clone();
+                    let mut online = None;
+                    let changed = inscriber_tick(&mut m, res.items(), res.recipes(), |amount, simulate| {
+                        if !*online.get_or_insert_with(|| self.ae2_online(pos)) { return 0.0; }
+                        self.ae2_take_power(pos, amount, simulate)
                     });
-                    let speed = match m.installed_speed_cards().min(4) {
-                        0 => 2,
-                        1 => 3,
-                        2 => 5,
-                        3 => 10,
-                        _ => 50,
-                    };
-                    let cost = f64::from(speed) * 10.0;
-                    let usage = horizon_client::ae2_common_config::gameplay().usage_multiplier;
-                    let power = if smash != 0 || !valid {
-                        false
-                    } else if m.private_energy_extract(cost * usage, false) / usage > cost - 0.01 {
-                        m.private_energy_extract(cost * usage, true);
-                        true
-                    } else {
-                        self.ae2_online(pos)
-                            && self.ae2_take_power(pos, cost, true) > cost - 0.01
-                            && self.ae2_take_power(pos, cost, false) > cost - 0.01
-                    };
-                    let changed=run_inscriber_step(&mut m, self.res.items(), self.res.recipes(), power);
                     let pushed=self.ae2_inscriber_push_output(pos,&mut m,&original_machine,&mut formation);
-                    modulation=if pushed || count_config(&m,"ae2_smash",0)>0 || live_inscriber_recipe(&m,self.res.items(),self.res.recipes()).is_some_and(|(out,_)|fits(&m.slots[3],&out,self.res.items())) {Modulation::Urgent} else if inscriber_auto_export_work(&m) {Modulation::Slower} else {Modulation::Sleep};
+                    modulation=inscriber_modulation(&m,res.items(),res.recipes(),pushed);
                     changed||pushed
                 }
                 MachineKind::Chest => {
@@ -719,15 +770,7 @@ impl Game<'_> {
                     // when network power is unavailable, and only with a cell.
                     if !self.ae2_online(pos) {
                         if let Some(stack) = m.slots.first().and_then(Option::as_ref) {
-                            let cell_idle = if matches!(stack.item.as_ref(), "ae2:matter_cannon" | "ae2:color_applicator") {
-                                Some(0.5)
-                            } else {
-                                stack.item.rsplit('_').next().and_then(|tier| match tier {
-                                    "1k" => Some(0.5), "4k" => Some(1.0), "16k" => Some(1.5),
-                                    "64k" => Some(2.0), "256k" => Some(2.5), _ => None,
-                                })
-                            };
-                            if let Some(idle) = cell_idle { m.private_energy_extract((1.0 + idle) * horizon_client::ae2_common_config::gameplay().usage_multiplier, true); }
+                            if let Some(idle) = super::ae2_storage_devices::cell_idle_drain(stack) { m.private_energy_extract((1.0 + idle) * horizon_client::ae2_common_config::gameplay().usage_multiplier, true); }
                         }
                     }
                     m.energy != old
@@ -836,22 +879,10 @@ impl Game<'_> {
                         if m.burn_remaining>0.0 {modulation=Modulation::Urgent;}
                         else {m.burn_rate=settings.fuel_energy.clamp(settings.vibration_min,settings.vibration_max.max(settings.vibration_min))/energy_per_fuel;modulation=Modulation::Sleep;}
                     } else {
-                        m.burn_rate=m.burn_rate.clamp(min,max);
-                        let spent=(elapsed as f64*m.burn_rate).min(m.burn_remaining);
-                        m.burn_remaining=(m.burn_remaining-spent).max(0.0);
-                        let step=elapsed as f64*(max-min)/100.0;
-                        if spent.abs()<0.01 {
-                            // Source injectPower(..., SIMULATE) returns overflow.
-                            let capacity=self.ae2_power_room(pos);
-                            if capacity>=1.0 {m.burn_rate=(m.burn_rate+step).clamp(min,max);modulation=Modulation::Faster;}
-                            else {modulation=Modulation::Idle;}
-                        } else {
-                            let generated=spent*energy_per_fuel;
-                            let accepted=self.ae2_add_power(pos,generated);
-                            let overflow=generated-accepted;
-                            m.burn_rate=(m.burn_rate+if overflow>0.0 {-step}else{step}).clamp(min,max);
-                            modulation=if overflow>0.0 {Modulation::Slower}else{Modulation::Faster};
-                        }
+                        modulation=vibration_burn(&mut m,elapsed,energy_per_fuel,(min,max),|generated|match generated {
+                            None=>self.ae2_power_room(pos),
+                            Some(amount)=>self.ae2_add_power(pos,amount),
+                        });
                     }
                     m!=old
                 }
@@ -1148,6 +1179,135 @@ mod push_out_and_charge_tests {
         dense.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(1_590_000f64.to_bits())));
         assert_eq!(energy_cell_insert(&mut dense,16_000.0).unwrap(),10_000.0);
         assert_eq!(energy_cell_energy(&dense).unwrap(),(1_600_000.0,1_600_000.0));
+    }
+}
+
+#[cfg(test)]
+mod reload_and_oracle_tests {
+    use super::*;
+    /// A data root with AE2's inscriber/silicon_print.json, its `mode` set
+    /// to `mode` (None leaves the field out), and the items it names. `test`
+    /// keeps the temporary roots of tests running at once apart.
+    fn silicon_print(test:&str,mode:Option<&str>)->(Items,horizon_client::crafting::Recipes) {
+        let root=std::env::temp_dir().join(format!("ae2-silicon-print-{}-{test}-{}",std::process::id(),mode.unwrap_or("none")));
+        let _=std::fs::remove_dir_all(&root);
+        let recipe_dir=root.join("data/ae2/recipe/inscriber");let tag_dir=root.join("data/c/tags/item");
+        for dir in [&recipe_dir,&tag_dir,&root.join("data/minecraft/recipe"),&root.join("data/minecraft/loot_table")] {std::fs::create_dir_all(dir).unwrap();}
+        std::fs::write(root.join("horizon-mod-content.json"),br#"["ae2"]"#).unwrap();
+        std::fs::write(root.join("items.json"),br#"{"ae2:silicon":{},"ae2:silicon_press":{},"ae2:printed_silicon":{}}"#).unwrap();
+        std::fs::write(tag_dir.join("silicon.json"),br#"{"values":["ae2:silicon"]}"#).unwrap();
+        let mut recipe=serde_json::json!({"type":"ae2:inscriber","ingredients":{"middle":{"tag":"c:silicon"},"top":{"item":"ae2:silicon_press"}},"result":{"count":1,"id":"ae2:printed_silicon"}});
+        if let Some(mode)=mode {recipe["mode"]=mode.into();}
+        std::fs::write(recipe_dir.join("silicon_print.json"),recipe.to_string()).unwrap();
+        let items=Items::catalog(&root,&horizon_world::loot::PackOverlay::NONE).unwrap();
+        let recipes=horizon_client::crafting::Recipes::load(&root,&items,&horizon_world::loot::PackOverlay::NONE).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+        (items,recipes)
+    }
+    fn reload(m:&Machine)->Machine {
+        let nbt=horizon_client::save::encode_block_entity((0,64,0),&BlockEntity::Ae2(Box::new(m.clone())),m.kind.id());
+        let Some((_,BlockEntity::Ae2(back)))=horizon_client::save::decode_block_entity(&nbt) else {panic!("AE2 machine")};
+        *back
+    }
+    #[test]
+    fn reload_restarts_inscriber_and_assembler_progress() {
+        // InscriberBlockEntity.loadTag restores neither processingTime nor
+        // smash and finalStep; the inventory and settings come back.
+        let mut inscriber=Machine::new(MachineKind::Inscriber);
+        inscriber.slots[0]=Some(simple_stack("ae2:silicon_press"));inscriber.slots[2]=Some(simple_stack("ae2:silicon"));
+        inscriber.progress=160.0;set_int(&mut inscriber,"ae2_smash",5);
+        inscriber.config.insert("auto_export".into(),Tag::String("YES".into()));
+        let back=reload(&inscriber);
+        assert_eq!((back.progress,count_config(&back,"ae2_smash",0)),(0.0,0));
+        assert_eq!(back.slots,inscriber.slots);
+        assert_eq!(back.config.get(&"auto_export".into()),inscriber.config.get(&"auto_export".into()));
+        // MolecularAssemblerBlockEntity.saveAdditional writes myPlan, not progress.
+        let mut assembler=Machine::new(MachineKind::MolecularAssembler);assembler.progress=40.0;
+        assert_eq!(reload(&assembler).progress,0.0);
+    }
+    #[test]
+    fn reload_turns_vibration_burn_speed_into_a_percent_of_the_uncarded_max() {
+        // VibrationChamberBlockEntity.saveAdditional: burnSpeed = (int)
+        // (rate x 100 / max of the last tick). loadTag: burnSpeed x max / 100
+        // with the constructor's range, built before the upgrades load: 0.8..8.
+        let chamber=|card:&str,cards:usize,rate:f64|{
+            let mut m=Machine::new(MachineKind::VibrationChamber);
+            for slot in &mut m.upgrades[..cards] {*slot=Some(simple_stack(card));}
+            m.burn_rate=rate;m.burn_remaining=1600.0;
+            let back=reload(&m);
+            assert_eq!((back.burn_remaining,&back.upgrades),(1600.0,&m.upgrades));
+            back.burn_rate
+        };
+        // Three Speed Cards at full speed (20, 100 AE/t) come back at 8 (40 AE/t).
+        assert_eq!(chamber("ae2:speed_card",3,20.0),8.0);
+        // Three Energy Cards at their minimum 0.32: 10 % of 8 is below 0.8.
+        assert_eq!(chamber("ae2:energy_card",3,4.0/12.5),0.8);
+        // One Speed Card, 7 of 12: 58 %.
+        assert_eq!(chamber("ae2:speed_card",1,7.0),58.0*8.0/100.0);
+        // No cards, the initial 1 of 8: 12 %.
+        assert_eq!(chamber("ae2:speed_card",0,1.0),12.0*8.0/100.0);
+    }
+    #[test]
+    fn vibration_chamber_burns_at_its_rate_before_stepping_into_the_card_range() {
+        // tickingRequest burns ticksSinceLastCall x currentFuelTicksPerTick;
+        // only setCurrentFuelTicksPerTick afterwards clamps to the range of
+        // the installed cards. Three Energy Cards: 12.5 AE per fuel tick,
+        // 0.32..3.2 fuel ticks per tick; reloaded at 8 (VC-1).
+        let mut m=Machine::new(MachineKind::VibrationChamber);
+        m.burn_rate=8.0;m.burn_remaining=1000.0;
+        let mut offered=Vec::new();
+        let modulation=vibration_burn(&mut m,25,12.5,(4.0/12.5,40.0/12.5),|generated|{offered.push(generated);generated.unwrap_or(1.0)});
+        assert_eq!(offered,[Some(2500.0)]);
+        assert_eq!((m.burn_remaining,m.burn_rate,modulation),(800.0,40.0/12.5,Modulation::Faster));
+    }
+    #[test]
+    fn inscriber_recipe_mode_other_than_press_inscribes() {
+        // InscriberRecipe.MODE_CODEC: "press" is PRESS, any other string is
+        // INSCRIBE; the field itself is required.
+        let mut m=Machine::new(MachineKind::Inscriber);
+        m.slots[0]=Some(simple_stack("ae2:silicon_press"));m.slots[2]=Some(simple_stack("ae2:silicon"));
+        for (mode,press) in [(Some("press"),Some(true)),(Some("inscribe"),Some(false)),(Some("Inscribe"),Some(false)),(Some("stamp"),Some(false)),(None,None)] {
+            let (items,recipes)=silicon_print("mode",mode);
+            let found=live_inscriber_recipe(&m,&items,&recipes);
+            assert_eq!(found.map(|(out,press)|(out.item.to_string(),out.count,press)),press.map(|press|("ae2:printed_silicon".to_string(),1,press)),"mode {mode:?}");
+        }
+    }
+    #[test]
+    fn inscriber_matches_the_ae2_oracle_run() {
+        // oracle/traces/inscriber-summary.txt, AE2 19.2.18: an Inscriber
+        // with 1 silicon press on top and 2 silicon in the middle next to a
+        // full Energy Cell (200,000 AE); tick k is the k-th server tick after
+        // the fixture was placed.
+        let (items,recipes)=silicon_print("oracle",Some("inscribe"));
+        let mut m=Machine::new(MachineKind::Inscriber);
+        m.slots[0]=Some(simple_stack("ae2:silicon_press"));
+        let mut silicon=simple_stack("ae2:silicon");silicon.count=2;m.slots[2]=Some(silicon);
+        let mut cell=200_000.0f64;
+        // Tick 1 creates the grid node and its TickTracker: TickRates.Inscriber
+        // 1..20 (ATM10's defaults), so the first call comes 10 ticks later.
+        let sleeping=inscriber_modulation(&m,&items,&recipes,false)==Modulation::Sleep;
+        let mut owner=ProcessorOwner{tracker:Tracker::new(1,1,20,sleeping),input:processing_input(&m),service:None};
+        let (mut powered,mut printed)=(Vec::new(),Vec::new());
+        for tick in 1..=300u64 {
+            if owner.due(tick,processing_input(&m)).is_none() {continue}
+            let (before,output)=(cell,m.slots[3].as_ref().map_or(0,|s|s.count));
+            inscriber_tick(&mut m,&items,&recipes,|amount,simulate|{let got=amount.min(cell);if !simulate {cell-=got;}got});
+            owner.tracker.completed(tick,inscriber_modulation(&m,&items,&recipes,false));owner.input=processing_input(&m);
+            if cell!=before {powered.push((tick,before-cell));}
+            if m.slots[3].as_ref().map_or(0,|s|s.count)!=output {printed.push(tick);}
+        }
+        // 101 powered ticks of 20 AE per item (+2 progress, 202 > 200), the
+        // item 8 ticks after the last, the next job 9 ticks after the item.
+        let expected:Vec<_>=(11..=111).chain(128..=228).map(|tick|(tick,20.0)).collect();
+        assert_eq!(powered,expected);
+        assert_eq!(printed,[119,236]);
+        assert_eq!(cell,195_960.0);
+        assert_eq!(m.energy,0.0);
+        assert_eq!(m.slots[0],Some(simple_stack("ae2:silicon_press")));
+        assert_eq!((&m.slots[1],&m.slots[2]),(&None,&None));
+        assert_eq!(m.slots[3].as_ref().map(|s|(s.item.as_ref(),s.count)),Some(("ae2:printed_silicon",2)));
+        // Idle from then on: the device sleeps.
+        assert!(!owner.tracker.is_awake());
     }
 }
 

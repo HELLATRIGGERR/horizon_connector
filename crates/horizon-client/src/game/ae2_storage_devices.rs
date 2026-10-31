@@ -35,6 +35,21 @@ pub(super) fn is_valid_storage_cell(stack: &ItemStack) -> bool {
 pub(super) fn is_valid_workbench_cell(stack: &ItemStack) -> bool {
     is_valid_storage_cell(stack) || horizon_client::ae2_cell_codec::read_view_cell(stack).is_ok()
 }
+/// StorageCell.getIdleDrain of a cell in a Drive or ME Chest: BasicStorageCell
+/// idleDrain by size; 0.5 for every PortableCellItem, MatterCannonItem and
+/// ColorApplicatorItem.
+pub(super) fn cell_idle_drain(stack: &ItemStack) -> Option<f64> {
+    if matches!(stack.item.as_ref(), "ae2:matter_cannon" | "ae2:color_applicator")
+        || stack.item.starts_with("ae2:portable_item_cell_")
+        || stack.item.starts_with("ae2:portable_fluid_cell_")
+    {
+        return Some(0.5);
+    }
+    stack.item.rsplit('_').next().and_then(|tier| match tier {
+        "1k" => Some(0.5), "4k" => Some(1.0), "16k" => Some(1.5),
+        "64k" => Some(2.0), "256k" => Some(2.5), _ => None,
+    })
+}
 fn write(s: &mut ItemStack, c: &Cell) -> Result<(), String> {
     if is_fluid(s) {
         ae2_fluids::write_fluid_cell(s, c)
@@ -208,6 +223,67 @@ fn completed(c: &Cell, mode: &str) -> bool {
         _ => false,
     }
 }
+/// What IOPortBlockEntity.tickingRequest finds in one input slot.
+enum IoSlot<C> {
+    Empty,
+    NotCell,
+    Cell(C),
+}
+/// IOPortBlockEntity.tickingRequest over the six input slots, `budget`
+/// being itemsToMove. A slot without a storage cell is moved to the output
+/// (moveSlot) and leaves the result alone. A cell transfers while budget is
+/// left (transferContents) and sets the result: IDLE with budget left,
+/// URGENT once it ran out; a cell then matching the fullness mode that moves
+/// out makes it URGENT. Running out of budget does not end the loop: later
+/// non-cells still move, later cells wait. So the last cell that ran
+/// decides, and with no cell the result stays SLEEP.
+fn io_port_slots<G, C>(
+    g: &mut G,
+    mut budget: u64,
+    slot: impl Fn(&mut G, usize) -> Result<IoSlot<C>, String>,
+    transfer: impl Fn(&mut G, usize, &mut C, u64) -> Result<u64, String>,
+    done: impl Fn(&C) -> bool,
+    move_slot: impl Fn(&mut G, usize) -> Result<bool, String>,
+) -> Result<super::ae2_tick_tracker::Modulation, String> {
+    use super::ae2_tick_tracker::Modulation;
+    let mut ret = Modulation::Sleep;
+    for x in 0..6 {
+        let mut cell = match slot(g, x)? {
+            IoSlot::Empty => continue,
+            IoSlot::NotCell => {
+                move_slot(g, x)?;
+                continue;
+            }
+            IoSlot::Cell(cell) => cell,
+        };
+        if budget > 0 {
+            budget = transfer(g, x, &mut cell, budget)?;
+            ret = if budget > 0 { Modulation::Idle } else { Modulation::Urgent };
+        }
+        if budget > 0 && done(&cell) && move_slot(g, x)? {
+            ret = Modulation::Urgent;
+        }
+    }
+    Ok(ret)
+}
+/// One pass of IOPortBlockEntity.transferContents over the listed keys, in
+/// order. `transfer` gives None for a key the destination does not take,
+/// else the operations its attempt used. The first key taken ends the pass,
+/// except that in FILL mode a key the network lists but gives none of
+/// (`src.extract` returns 0) is passed over.
+fn io_transfer_pass<K>(
+    keys: Vec<K>,
+    fill: bool,
+    mut transfer: impl FnMut(K) -> Result<Option<u64>, String>,
+) -> Result<u64, String> {
+    for key in keys {
+        match transfer(key)? {
+            Some(used) if used > 0 || !fill => return Ok(used),
+            _ => {}
+        }
+    }
+    Ok(0)
+}
 impl Game<'_> {
     /// Run on the authoritative world tick; source I/O port cadence 1..5 ticks.
     pub(super) fn tick_ae2_storage_devices(&mut self) {
@@ -235,9 +311,9 @@ impl Game<'_> {
             if !self.ae2_variable_processor_due(p,min,max,!has_input || !enabled,token) {continue;}
             use super::ae2_tick_tracker::Modulation;
             let online=self.ae2_online(p);
-            let urgent=online && self.ae2_io_port_tick(p).unwrap_or(false);
+            let ticked=if online {self.ae2_io_port_tick(p).ok().flatten()} else {None};
             let has_input=matches!(self.world.block_entities.get(&p),Some(BlockEntity::Ae2(m)) if m.slots.iter().take(6).any(Option::is_some));
-            let modulation=if !online {Modulation::Idle}else if urgent {Modulation::Urgent}else if has_input {Modulation::Idle}else{Modulation::Sleep};
+            let modulation=match ticked {Some(modulation)=>modulation,None if !online=>Modulation::Idle,None if has_input=>Modulation::Idle,None=>Modulation::Sleep};
             let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&p) else {continue;};
             let token=format!("{:?}|{:?}|{:?}|{enabled}",machine.slots,machine.upgrades,machine.config.iter().filter(|(key,_)|key.to_string_lossy().starts_with("io_") && key.to_string_lossy()!="io_next_tick").collect::<Vec<_>>());
             self.ae2_variable_processor_completed(p,modulation,token);
@@ -249,7 +325,7 @@ impl Game<'_> {
     fn io_restore(&mut self, snapshot: super::ae2_global::BlockSnapshot) {
         self.ae2_restore_blocks(snapshot);
     }
-    fn ae2_io_port_tick(&mut self, pos: Pos) -> Result<bool, String> {
+    fn ae2_io_port_tick(&mut self, pos: Pos) -> Result<Option<super::ae2_tick_tracker::Modulation>, String> {
         let Some(BlockEntity::Ae2(machine)) = self.world.block_entities.get(&pos) else {
             return Err("I/O port disappeared".into());
         };
@@ -282,59 +358,70 @@ impl Game<'_> {
                 _ => false,
             };
             if !enabled {
-                return Ok(false);
+                return Ok(None);
             }
         }
-        let mut urgent = false;
-        let mut operations = 256u64 * (1u64 << speed);
-        for slot in 0..6 {
-            let mut item = match self.world.block_entities.get(&pos) {
-                Some(BlockEntity::Ae2(m)) => match m.slots[slot].clone() {
-                    Some(s) => s,
-                    None => continue,
-                },
-                _ => return Err("I/O port disappeared".into()),
+        io_port_slots(
+            self,
+            256u64 * (1u64 << speed),
+            |g: &mut Self, slot| {
+                let Some(BlockEntity::Ae2(m)) = g.world.block_entities.get(&pos) else {
+                    return Err("I/O port disappeared".into());
+                };
+                let Some(item) = m.slots[slot].clone() else {
+                    return Ok(IoSlot::Empty);
+                };
+                Ok(match g.ae2_read_cell(&item) {
+                    Ok(cell) => IoSlot::Cell((item, cell)),
+                    Err(_) => IoSlot::NotCell,
+                })
+            },
+            |g: &mut Self, slot, cell: &mut (ItemStack, Cell), operations| {
+                g.ae2_io_transfer(pos, slot, cell, &mode, operations)
+            },
+            |(_, cell): &(ItemStack, Cell)| completed(cell, &fullness),
+            |g: &mut Self, slot| g.io_move_output(pos, slot),
+        )
+        .map(Some)
+    }
+    /// IOPortBlockEntity.transferContents for the cell in input `slot`;
+    /// gives the operations left.
+    fn ae2_io_transfer(
+        &mut self,
+        pos: Pos,
+        slot: usize,
+        (item, cell): &mut (ItemStack, Cell),
+        mode: &str,
+        mut operations: u64,
+    ) -> Result<u64, String> {
+        while operations > 0 {
+            let primary_fluid = is_fluid(item);
+            let candidates: Vec<(ae2_cell_core::ItemKey, u64, bool, bool)> = if mode == "empty" {
+                // Source scans all available keys, including foreign-channel
+                // Missing Content; a blocked first key must not hide a later
+                // key that the network can accept.
+                cell.entries().map(|(k,v)|(k.clone(),*v,primary_fluid,false))
+                    .chain(cell.other_entries().map(|(k,v)|(k.clone(),*v,!primary_fluid,true)))
+                    .collect()
+            } else {
+                let listed = if primary_fluid { self.ae2_grid_fluids(pos)? } else { self.ae2_grid_inventory(pos)? };
+                listed.into_iter().filter(|(_, n)| *n > 0).map(|(k, n)| (k, n, primary_fluid, false)).collect()
             };
-            let mut cell = match self.ae2_read_cell(&item) {
-                Ok(c) => c,
-                Err(_) => {
-                    urgent |= self.io_move_output(pos, slot)?;
-                    continue;
-                }
-            };
-            while operations > 0 {
-                let key_amount = if mode == "empty" {
-                    // Source scans all available keys, including foreign-channel
-                    // Missing Content; a blocked first key must not hide a later
-                    // key that the network can accept.
-                    let primary_fluid=is_fluid(&item);
-                    let candidates=cell.entries().map(|(k,v)|(k.clone(),*v,primary_fluid,false))
-                        .chain(cell.other_entries().map(|(k,v)|(k.clone(),*v,!primary_fluid,true)))
-                        .collect::<Vec<_>>();
-                    let mut selected=None;
-                    for (key,amount,key_fluid,other) in candidates {
-                        let accepts=if key_fluid {
-                            self.ae2_grid_fluid_insert(pos,&key,amount,true)? > 0
-                        } else {
-                            let mut stack=ae2_lab::prototype(&key)?;
-                            stack.count=amount.min(u64::from(u32::MAX)) as u32;
-                            self.ae2_grid_insert_simulate(pos,&stack,u64::from(stack.count))? > 0
-                        };
-                        if accepts {selected=Some((key,amount,key_fluid,other));break;}
+            let used = io_transfer_pass(candidates, mode == "fill", |(key, available, key_fluid, other)| {
+                let accepts = if mode == "empty" {
+                    if key_fluid {
+                        self.ae2_grid_fluid_insert(pos,&key,available,true)? > 0
+                    } else {
+                        let mut stack=ae2_lab::prototype(&key)?;
+                        stack.count=available.min(u64::from(u32::MAX)) as u32;
+                        self.ae2_grid_insert_simulate(pos,&stack,u64::from(stack.count))? > 0
                     }
-                    selected
-                } else if is_fluid(&item) {
-                    self.ae2_grid_fluids(pos)?.into_iter().find(|(k, n)| {
-                        *n > 0 && self.ae2_cell_insert(&mut cell, k, 1, Action::Simulate) > 0
-                    }).map(|(key,amount)|(key,amount,true,false))
                 } else {
-                    self.ae2_grid_inventory(pos)?.into_iter().find(|(k, n)| {
-                        *n > 0 && self.ae2_cell_insert(&mut cell, k, 1, Action::Simulate) > 0
-                    }).map(|(key,amount)|(key,amount,false,false))
+                    self.ae2_cell_insert(cell, &key, 1, Action::Simulate) > 0
                 };
-                let Some((key, available,key_fluid,other)) = key_amount else {
-                    break;
-                };
+                if !accepts {
+                    return Ok(None);
+                }
                 let factor = if key_fluid { 125 } else { 1 };
                 let max = operations.saturating_mul(factor).min(available);
                 let before = self.io_snapshot();
@@ -354,8 +441,8 @@ impl Game<'_> {
                             )?
                         }
                     } else {
-                        let room = self.ae2_cell_insert(&mut cell, &key, max, Action::Simulate);
-                        if is_fluid(&item) {
+                        let room = self.ae2_cell_insert(cell, &key, max, Action::Simulate);
+                        if is_fluid(item) {
                             self.ae2_grid_fluid_extract(pos, &key, room, false)?
                         } else {
                             self.ae2_grid_extract_staged(pos, &key, room, &mut formation)?
@@ -368,12 +455,12 @@ impl Game<'_> {
                     let changed = if mode == "empty" {
                         if other {cell.extract_other(&key,moved,Action::Modulate)} else {cell.extract(&key, moved, Action::Modulate)}
                     } else {
-                        self.ae2_cell_insert(&mut cell, &key, moved, Action::Modulate)
+                        self.ae2_cell_insert(cell, &key, moved, Action::Modulate)
                     };
                     if changed != moved {
                         return Err("I/O cell refused staged transfer".into());
                     }
-                    write(&mut item, &cell)?;
+                    write(item, cell)?;
                     let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get_mut(&pos) else {
                         return Err("I/O port disappeared".into());
                     };
@@ -393,20 +480,14 @@ impl Game<'_> {
                         return Err(e);
                     }
                 };
-                if moved == 0 {
-                    break;
-                }
-                operations = operations.saturating_sub((moved / factor).max(1));
-            }
-            if operations > 0 && completed(&cell, &fullness) {
-                urgent |= self.io_move_output(pos, slot)?;
-            }
-            if operations == 0 {
-                urgent = true;
+                Ok(Some(if moved == 0 { 0 } else { (moved / factor).max(1) }))
+            })?;
+            if used == 0 {
                 break;
             }
+            operations = operations.saturating_sub(used);
         }
-        Ok(urgent)
+        Ok(operations)
     }
     fn io_move_output(&mut self, pos: Pos, slot: usize) -> Result<bool, String> {
         let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get_mut(&pos) else {
@@ -874,6 +955,105 @@ impl Game<'_> {
 mod storage_tests {
     use super::*;
     use horizon_client::ae2_world::{Machine, MachineKind};
+    use super::super::ae2_tick_tracker::Modulation;
+    #[test]
+    fn drive_and_chest_idle_drain_follows_each_cell_item() {
+        let drain = |id: &str| cell_idle_drain(&ItemStack::new(id, 1));
+        // BasicStorageCell idleDrain by size (AEItems.ITEM_CELL_*, FLUID_CELL_*).
+        assert_eq!(drain("ae2:item_storage_cell_1k"), Some(0.5));
+        assert_eq!(drain("ae2:item_storage_cell_256k"), Some(2.5));
+        assert_eq!(drain("ae2:fluid_storage_cell_64k"), Some(2.0));
+        // PortableCellItem.getIdleDrain is 0.5 for every size, so a Drive
+        // with ten 256k portable cells draws 2 + 10 x 0.5 = 7 AE/t.
+        for size in ["1k", "4k", "16k", "64k", "256k"] {
+            assert_eq!(drain(&format!("ae2:portable_item_cell_{size}")), Some(0.5));
+            assert_eq!(drain(&format!("ae2:portable_fluid_cell_{size}")), Some(0.5));
+        }
+        assert_eq!(drain("ae2:matter_cannon"), Some(0.5));
+        // CreativeCellInventory.getIdleDrain is 0.
+        assert_eq!(drain("ae2:creative_item_cell"), None);
+    }
+    /// Six I/O Port input slots for io_port_slots: Some(n) is a cell holding
+    /// n items, None a non-cell. The network takes up to `room` items.
+    struct Port {
+        inputs: [Option<Option<u64>>; 6],
+        outputs: Vec<Option<u64>>,
+        room: u64,
+    }
+    fn empty_cells(port: &mut Port, budget: u64) -> Modulation {
+        io_port_slots(
+            port,
+            budget,
+            |p: &mut Port, x| Ok(match p.inputs[x] {
+                None => IoSlot::Empty,
+                Some(None) => IoSlot::NotCell,
+                Some(Some(n)) => IoSlot::Cell(n),
+            }),
+            |p: &mut Port, x, n: &mut u64, budget| {
+                let moved = (*n).min(budget).min(p.room);
+                p.room -= moved;
+                *n -= moved;
+                p.inputs[x] = Some(Some(*n));
+                Ok(budget - moved)
+            },
+            |n: &u64| *n == 0,
+            |p: &mut Port, x| Ok(p.outputs.len() < 6 && {
+                p.outputs.push(p.inputs[x].take().unwrap());
+                true
+            }),
+        )
+        .unwrap()
+    }
+    #[test]
+    fn io_port_keeps_moving_non_cells_after_the_budget_runs_out() {
+        // IOPortBlockEntity.tickingRequest: once itemsToMove is 0 the loop
+        // still visits every slot; a non-cell moves to the output, a cell waits.
+        let mut port = Port { inputs: [Some(Some(1000)), Some(None), Some(Some(5)), None, None, None], outputs: Vec::new(), room: u64::MAX };
+        assert_eq!(empty_cells(&mut port, 256), Modulation::Urgent);
+        assert_eq!(port.inputs[..3], [Some(Some(744)), None, Some(Some(5))]);
+        assert_eq!(port.outputs, [None]);
+    }
+    #[test]
+    fn io_port_tick_rate_follows_the_last_cell() {
+        // `ret` is overwritten by each cell that still had budget: the first
+        // cell finishes and moves out (URGENT), the second stops with budget
+        // left because the network is full (IDLE), and IDLE is returned.
+        let mut port = Port { inputs: [Some(Some(10)), None, Some(Some(20)), None, None, None], outputs: Vec::new(), room: 15 };
+        assert_eq!(empty_cells(&mut port, 256), Modulation::Idle);
+        assert_eq!(port.outputs, [Some(0)]);
+        assert_eq!(port.inputs[2], Some(Some(15)));
+        // Moving a non-cell leaves `ret` at SLEEP, whether or not it fits.
+        let mut port = Port { inputs: [Some(None), None, None, None, None, None], outputs: Vec::new(), room: 0 };
+        assert_eq!(empty_cells(&mut port, 256), Modulation::Sleep);
+        assert_eq!(port.outputs, [None]);
+        let mut port = Port { inputs: [Some(None), None, None, None, None, None], outputs: vec![Some(0); 6], room: 0 };
+        assert_eq!(empty_cells(&mut port, 256), Modulation::Sleep);
+        assert_eq!(port.inputs[0], Some(None));
+    }
+    #[test]
+    fn io_port_fill_passes_over_a_listed_key_the_network_does_not_give_up() {
+        // IOPortBlockEntity.transferContents, FILL: when networkInv.extract
+        // gives 0 for a listed key (a Storage Bus with filter NONE lists a
+        // furnace's fuel that its sided handler keeps), the next key is tried.
+        let mut tried = Vec::new();
+        let used = io_transfer_pass(vec!["fuel", "cobblestone", "dirt"], true, |key| {
+            tried.push(key);
+            Ok(Some(if key == "fuel" { 0 } else { 64 }))
+        });
+        assert_eq!(used, Ok(64));
+        assert_eq!(tried, ["fuel", "cobblestone"]);
+        // A key the cell does not take is passed over too.
+        assert_eq!(io_transfer_pass(vec!["refused", "dirt"], true, |key| Ok((key == "dirt").then_some(3))), Ok(3));
+        // EMPTY: the first key the network takes ends the pass even if
+        // poweredInsert stored nothing (didStuff stays false).
+        let mut tried = Vec::new();
+        let used = io_transfer_pass(vec!["refused", "taken", "later"], false, |key| {
+            tried.push(key);
+            Ok(match key { "refused" => None, "taken" => Some(0), _ => Some(9) })
+        });
+        assert_eq!(used, Ok(0));
+        assert_eq!(tried, ["refused", "taken"]);
+    }
     #[test]
     fn condenser_me_fluid_obeys_source_output_and_integer_amount_rules() {
         let mut machine=Machine::new(MachineKind::Condenser);
