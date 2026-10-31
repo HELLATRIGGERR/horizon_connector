@@ -125,28 +125,6 @@ pub(super) struct Minecart {
 }
 pub(super) const WIDTH: f64 = 0.98;
 pub(super) const HEIGHT: f64 = 0.7;
-/// Insert physical item entities into a hopper cart without exceeding the
-/// incoming stack's component-defined maximum. Return any uninserted quantity.
-fn merge_hopper_cart_items(slots: &mut [Option<ItemStack>], mut stack: ItemStack, max: u32) -> Option<ItemStack> {
-    if stack.count == 0 { return None; }
-    for slot in slots {
-        match slot {
-            None => {
-                let moved = stack.count.min(max);
-                *slot = Some(ItemStack { count: moved, ..stack.clone() });
-                stack.count -= moved;
-            }
-            Some(current) if current.same_item_same_components(&stack) => {
-                let moved = stack.count.min(max.saturating_sub(current.count));
-                current.count += moved;
-                stack.count -= moved;
-            }
-            _ => {}
-        }
-        if stack.count == 0 { return None; }
-    }
-    Some(stack)
-}
 /// AbstractMinecart.getDefaultDisplayOffset, in sixteenths of a block.
 fn display_offset(kind: CartKind) -> f64 {
     if kind == CartKind::Hopper { 1.0 } else { 6.0 }
@@ -1687,17 +1665,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hopper_cart_keeps_component_limited_physical_stacks_separate() {
-        use horizon_world::nbt::Tag;
-        let mut source=ItemStack::new("minecraft:stone",20);
-        source.data_mut().set_other("minecraft:max_stack_size",Some(Tag::Int(16)));
-        let mut partial=source.clone();partial.count=12;
-        let mut slots=vec![Some(partial),None,Some(ItemStack::new("minecraft:dirt",1))];
-        assert!(merge_hopper_cart_items(&mut slots,source.clone(),16).is_none());
-        assert_eq!(slots[0].as_ref().unwrap().count,16);
-        assert_eq!(slots[1].as_ref().unwrap().count,16);
-        assert_eq!(merge_hopper_cart_items(&mut slots,source,16).unwrap().count,20);
-    }
     fn a_tnt_cart_lets_the_held_item_be_used() {
         // Entity.interact passes: a crossbow aimed at it shoots.
         assert!(CartKind::Tnt.interact_passes(false, false, true));

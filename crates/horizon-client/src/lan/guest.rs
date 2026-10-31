@@ -715,6 +715,7 @@ fn wire_template(stack: &ItemStack, omit_single_count: bool) -> horizon_world::n
     if !omit_single_count || stack.count != 1 { item.insert("count".into(),Tag::Int(stack.count as i32)); }
     if let Some(components) = wire_components(stack) { item.insert("components".into(),components); }
     Tag::Compound(item)
+}
 /// `DyeColor.getId` of a dye's name.
 fn dye_id(name: &str) -> Option<i32> {
     crate::block_entity_render::DYES
@@ -1291,16 +1292,13 @@ mod tests {
             .unwrap();
         assert_eq!(reader.remaining(), 0);
 
-        let Some(Component::Raw(bytes)) = received.component(component::CONTAINER) else {
-            panic!("the stack carried no container component");
-        };
         // ItemContainerContents.STREAM_CODEC: the slot count, then one
         // optional template per slot.
-        let mut r = Reader::new(bytes);
-        assert_eq!(r.count(256).unwrap(), 1);
-        assert!(r.bool().unwrap());
-        let template = horizon_protocol::item::Template::read(&mut r).unwrap();
-        assert_eq!(r.remaining(), 0);
+        let Some(Component::Container(slots)) = received.component(component::CONTAINER) else {
+            panic!("the stack carried no container component");
+        };
+        assert_eq!(slots.len(), 1);
+        let template = slots[0].as_ref().expect("the slot holds the diamonds");
         assert_eq!((template.item, template.count), (22, 2));
         assert!(matches!(
             template.component(component::CUSTOM_NAME),

@@ -88,7 +88,7 @@ impl Game<'_> {
             hands_full,
             self.res
                 .recipes()
-                .custom
+                .ae2_custom
                 .get("ae2:crafting_unit_transform")
                 .map_or(&[][..], Vec::as_slice),
         )
@@ -110,7 +110,7 @@ impl Game<'_> {
             hands_full,
             self.res
                 .recipes()
-                .custom
+                .ae2_custom
                 .get("ae2:crafting_unit_transform")
                 .map_or(&[][..], Vec::as_slice),
         ) else {

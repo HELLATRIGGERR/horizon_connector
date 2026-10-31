@@ -80,6 +80,7 @@ impl LevelAccess for TestLevel {
     fn dimension(&self) -> Dimension { self.dimension }
     fn custom_shape_event(&mut self, pos: BlockPos, _state: BlockStateId, neighbor: BlockPos) {
         if let Some(events)=self.observed_shapes.as_mut() { events.push((pos,neighbor)); }
+    }
     fn adjust_signal(
         &self,
         pos: BlockPos,
@@ -388,7 +389,7 @@ fn neighbor_observation_follows_dispatch_order() {
     }
     drop(actual);
     b.sim(&mut level, &mut ticks)
-        .neighbor_changed(b.air(), BlockPos::new(3, 4, 5), changed, true);
+        .neighbor_changed(b.air(), BlockPos::new(3, 4, 5), changed, true, None);
     assert_eq!(
         level.seen.borrow().last(),
         Some(&(BlockPos::new(3, 4, 5), b.air(), changed, true))

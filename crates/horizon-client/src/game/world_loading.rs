@@ -568,7 +568,7 @@ pub(super) fn make_streaming(
     streaming.smooth_lighting = settings.smooth_lighting;
     streaming.cutout_leaves = settings.cutout_leaves;
     streaming.biome_zoom = BiomeZoom::new(obfuscate_seed(seed));
-    streaming.sky_light = horizon_client::save::LevelShape::for_dir(&horizon_client::save::dimension_dir(world_root, dim.id())).sky_light;
+    streaming.sky_light = dim.shape().sky_light;
     streaming.nether_shading = dim == Dim::Nether;
     // A server draws nothing: neither the integrated server nor the
     // dedicated one meshes sections.

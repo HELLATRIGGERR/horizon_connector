@@ -426,7 +426,7 @@ mod bus_memory {
         #[test]
         fn source_only_bus_card_roundtrips_filters_and_moves_grouped_cards(){
             let mut source=part("ae2:export_bus");let mut state=ae2_buses::bus_state(&source).unwrap();
-            let mut diamond=ItemStack::new("minecraft:diamond",1);diamond.data_mut().custom_name=Some("key".into());
+            let mut diamond=ItemStack::new("minecraft:diamond",1);diamond.data_mut().custom_name=Some(horizon_client::item_data::text_name("key"));
             state.config[0]=Some(Key::from(&ae2_lab::key(&diamond).unwrap()));state.config[3]=Some(Key{id:"minecraft:water".into(),components:Vec::new()});
             state.redstone=Redstone::High;state.schedule=Schedule::RoundRobin;store_state(&mut source,&state);
             ae2_buses::store_bus_upgrade_slots(&mut source,&vec![Some(ItemStack::new("ae2:speed_card",1)),Some(ItemStack::new("ae2:speed_card",1)),None,None,None]).unwrap();

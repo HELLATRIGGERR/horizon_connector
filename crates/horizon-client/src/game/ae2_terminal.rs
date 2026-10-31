@@ -17,7 +17,7 @@ fn navigation(label: &str) -> ItemStack {
         damage: 0,
         extra: None,
     };
-    stack.data_mut().custom_name = Some(label.into());
+    stack.data_mut().custom_name = Some(horizon_client::item_data::text_name(label));
     stack
 }
 fn encoding_item_icon(item:&ItemStack,max:u32)->Option<ItemStack> {
@@ -29,7 +29,7 @@ fn encoding_fluid_icon(fluid:&super::ae2_processing::PatternFluid)->Option<ItemS
     let value=horizon_client::ae2_generic_stack::GenericStack{key:fluid.key.clone(),fluid:true,amount:i64::try_from(fluid.amount).ok()?};
     horizon_client::ae2_generic_stack::wrap(&value).ok().or_else(||{
         let id=super::ae2_fluids::fluid_bucket(&fluid.key.item_id).unwrap_or("minecraft:bucket");
-        let mut item=ItemStack::new(id,1);item.data_mut().custom_name=Some(format!("{} mB {}",fluid.amount,fluid.key.item_id));Some(item)
+        let mut item=ItemStack::new(id,1);item.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("{} mB {}",fluid.amount,fluid.key.item_id)));Some(item)
     })
 }
 /// AEBaseScreen's right-click EMPTY_ITEM action sets the fluid represented by
@@ -257,7 +257,7 @@ impl Game<'_> {
         let (namespace,path)=id.split_once(':').unwrap_or(("minecraft",id));
         if let Some(stack)=fluid.is_none().then(||ae2_lab::prototype(key).ok()).flatten() {
             let text=stack.custom_name_component().map(|tag|horizon_protocol::text::plain(tag,language.map()))
-                .or_else(||stack.custom_name().map(str::to_owned))
+                .or_else(||stack.custom_name())
                 .or_else(||stack.data().and_then(|data|data.other("minecraft:item_name")).map(|tag|horizon_protocol::text::plain(tag,language.map())))
                 .or_else(||language.get(&format!("item.{namespace}.{path}")).or_else(||language.get(&format!("block.{namespace}.{path}"))).map(str::to_owned))
                 .unwrap_or_else(||self.pack.names.item(id));
@@ -646,7 +646,7 @@ impl Game<'_> {
             return (state.inputs.iter().any(Option::is_some) || state.fluid_inputs.iter().any(Option::is_some))
                 .then_some(())
                 .filter(|_|state.outputs.iter().any(Option::is_some) || state.fluid_outputs.iter().any(Option::is_some))
-                .map(|_|{let mut item=ItemStack::new("ae2:processing_pattern",1);item.data_mut().custom_name=Some("Encode item processing pattern".into());item});
+                .map(|_|{let mut item=ItemStack::new("ae2:processing_pattern",1);item.data_mut().custom_name=Some(horizon_client::item_data::text_name("Encode item processing pattern"));item});
         }
         if state.special_mode==1 {
             return self.res.stations().recipes.smithing_recipe_result(&self.res.stations().enchantments,state.inputs[0].as_ref(),state.inputs[1].as_ref(),state.inputs[2].as_ref()).map(|(_,result)|result);
@@ -655,7 +655,7 @@ impl Game<'_> {
             let input=state.inputs[0].as_ref()?;
             return state.stone_recipe.as_ref().and_then(|id|self.res.stations().recipes.stonecutter(input).iter().find(|r|&r.id==id).map(|r|r.result.clone()));
         }
-        self.res.recipes().find(&state.inputs[..9],3).map(|(_,mut result)|{result.data_mut().custom_name=Some("Click to encode pattern".into());result})
+        self.res.recipes().find(&state.inputs[..9],3).map(|(_,mut result)|{result.data_mut().custom_name=Some(horizon_client::item_data::text_name("Click to encode pattern"));result})
     }
     pub(super) fn ae2_local_encoding_fake_slot(&self,slot:usize)->bool {
         if !self.ae2_terminal_open() || !self.ae2_local_terminal.as_ref().is_some_and(|session|session.encoding && session.encoding_open) {return false;}
@@ -1169,11 +1169,11 @@ impl Game<'_> {
         if let Some(fluid) = marker_fluid(key) {
             let id = super::ae2_fluids::fluid_bucket(&fluid.item_id).unwrap_or("minecraft:bucket");
             let mut icon = ItemStack::new(id, 1);
-            icon.data_mut().custom_name = Some(if *amount == 0 {
+            icon.data_mut().custom_name = Some(horizon_client::item_data::text_name(if *amount == 0 {
                 format!("Craft 1000 mB {}", fluid.item_id)
             } else {
                 format!("{}: {} mB", fluid.item_id, amount)
-            });
+            }));
             return Some(icon);
         }
         let mut stack = ae2_lab::prototype(key).ok()?;
@@ -2413,7 +2413,7 @@ impl Game<'_> {
                     {
                         let mut preview = ItemStack::new("ae2:processing_pattern", 1);
                         preview.data_mut().custom_name =
-                            Some("Encode item processing pattern".into());
+                            Some(horizon_client::item_data::text_name("Encode item processing pattern"));
                         items[13] = Some(preview);
                     }
                 } else if special_mode!=0 {
@@ -2439,7 +2439,7 @@ impl Game<'_> {
                     }));
                     if let Some((_, result)) = self.res.recipes().find(&pattern_grid[..9], 3) {
                         let mut preview = result;
-                        preview.data_mut().custom_name = Some("Click to encode pattern".into());
+                        preview.data_mut().custom_name = Some(horizon_client::item_data::text_name("Click to encode pattern"));
                         items[13] = Some(preview);
                     }
                 }
@@ -4804,7 +4804,7 @@ fn provider_return_icon(slot:&ProviderReturnSlot) -> ItemStack {
         ProviderReturnSlot::Fluid(key,amount) => {
             let mut icon = ItemStack::new("ae2:wrapped_generic_stack",1);
             let data=icon.data_mut();
-            data.custom_name=Some(format!("{}: {} mB",key.item_id,amount));
+            data.custom_name=Some(horizon_client::item_data::text_name(format!("{}: {} mB",key.item_id,amount)));
             // Native item packets carry vanilla custom_data, so include a
             // render-only GenericStack envelope there. The real fluid remains
             // in the provider's return inventory and is never this icon.
@@ -5695,7 +5695,7 @@ impl Game<'_> {
                     let id =
                         super::ae2_fluids::fluid_bucket(&key.item_id).unwrap_or("minecraft:bucket");
                     let mut icon = ItemStack::new(id, 1);
-                    icon.data_mut().custom_name = Some(format!("{}: {} mB", key.item_id, n));
+                    icon.data_mut().custom_name = Some(horizon_client::item_data::text_name(format!("{}: {} mB", key.item_id, n)));
                     slots[i] = Some(icon);
                 }
             }
@@ -6217,7 +6217,7 @@ impl Game<'_> {
                                     .unwrap_or("minecraft:bucket");
                                 let mut icon = ItemStack::new(id, 1);
                                 icon.data_mut().custom_name =
-                                    Some(format!("{}: {} mB", key.item_id, n));
+                                    Some(horizon_client::item_data::text_name(format!("{}: {} mB", key.item_id, n)));
                                 items[offset + index] = Some(icon);
                             }
                         }
@@ -7300,7 +7300,7 @@ mod terminal_filter_tests {
         use horizon_client::ae2_world::{Machine,MachineKind};
         let mut machine=Machine::new(MachineKind::PatternProvider);
         let mut item=ItemStack::new("minecraft:diamond",3);
-        item.data_mut().custom_name=Some("return item".into());
+        item.data_mut().custom_name=Some(horizon_client::item_data::text_name("return item"));
         let mut slots=vec![None;9];
         slots[1]=Some(ProviderReturnSlot::Item(item));
         slots[7]=Some(ProviderReturnSlot::Fluid(super::super::ae2_fluids::fluid_key("minecraft:water"),2500));
@@ -7356,7 +7356,7 @@ mod terminal_filter_tests {
     #[test]
     fn encoding_bucket_filter_reads_the_fluid_without_mutating_a_named_carrier() {
         let mut bucket=ItemStack::new("minecraft:water_bucket",1);
-        bucket.data_mut().custom_name=Some("Marked bucket".into());
+        bucket.data_mut().custom_name=Some(horizon_client::item_data::text_name("Marked bucket"));
         let before=bucket.clone();
         let value=encoding_emptying_action(Some(&bucket),1).unwrap();
         assert_eq!(value.key,super::super::ae2_fluids::fluid_key("minecraft:water"));
@@ -7448,9 +7448,9 @@ mod terminal_filter_tests {
         assert!(!toolbox_pickup_locked(45,8,Some(0)));
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
         assert!(root.join("items.json").exists(), "native test resources are required");
-        let items=Items::catalog(&root).unwrap(); let recipes=Recipes::load(&root,&items).unwrap();
-        let brewing=Brewing::load(&root,&items); let banners=Banners::load(&root);
-        let stations=horizon_client::stations::StationRecipes::load(&root,&items);
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap(); let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE); let banners=Banners::load(&root);
+        let stations=horizon_client::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
         let enchantments=horizon_client::enchant::Enchantments::default();
         let names=horizon_client::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,
@@ -7472,9 +7472,9 @@ mod terminal_filter_tests {
             items::Items, menu::{Env, Kind, Menu}};
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
         assert!(root.join("items.json").exists(), "native test resources are required");
-        let items=Items::catalog(&root).unwrap(); let recipes=Recipes::load(&root,&items).unwrap();
-        let brewing=Brewing::load(&root,&items); let banners=Banners::load(&root);
-        let stations=horizon_client::stations::StationRecipes::load(&root,&items);
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap(); let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE); let banners=Banners::load(&root);
+        let stations=horizon_client::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
         let enchantments=horizon_client::enchant::Enchantments::default();
         let names=horizon_client::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,

@@ -981,7 +981,7 @@ mod tests {
     fn ghost_configuration_preserves_count_and_components_and_rejects_duplicate_slots() {
         let mut machine = Machine::new(MachineKind::Interface);
         let mut wanted = ItemStack::new("minecraft:diamond", 3);
-        wanted.data_mut().custom_name = Some("Stock request".into());
+        wanted.data_mut().custom_name = Some(horizon_client::item_data::text_name("Stock request"));
         set_interface_config(&mut machine, 4, Some(&wanted)).unwrap();
         assert_eq!(
             interface_config(&machine).unwrap()[4].as_ref(),

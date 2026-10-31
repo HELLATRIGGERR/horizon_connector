@@ -330,6 +330,8 @@ struct NewBlock<'a> {
     item: Option<String>,
     custom_states: Option<Vec<BTreeMap<String, String>>>,
     custom_default: usize,
+    shapes: Option<Vec<VoxelShape>>,
+    default: u32,
 }
 impl NewBlock<'_> {
     fn state_count(&self) -> usize {
@@ -434,8 +436,6 @@ fn transformed_custom_state(
         *value = dirs[next].into();
     }
     block.rename.first + states.iter().position(|s| *s == props).unwrap_or(index) as u32
-    shapes: Option<Vec<VoxelShape>>,
-    default: u32,
 }
 /// An item being added (declared, or a block's).
 struct NewItem {

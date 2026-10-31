@@ -421,7 +421,7 @@ impl Game<'_> {
                     continue;
                 }
                 let dir = horizon_client::save::dimension_dir(&self.world_root, dim.id());
-                if !SaveDir::new(dir).load_forced_chunks().is_empty() {
+                if !SaveDir::new(dir, dim.shape()).load_forced_chunks().is_empty() {
                     let parked = self.open_level(dim)?;
                     self.levels.parked.insert(dim, parked);
                 }

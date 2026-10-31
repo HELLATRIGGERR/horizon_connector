@@ -5,7 +5,8 @@
 //! This native persistence format uses an item prototype or a fluid key plus
 //! a signed-long amount. It also reads the old physical-stack and opaque-fluid
 //! lists; migration to the ordered form occurs only on a successful commit.
-use crate::{ae2_cell_codec,items::ItemStack,save};
+use crate::items::ItemStack;
+use horizon_items::item_nbt as save;
 use ae2_cell_core::ItemKey;
 use horizon_world::nbt::{Compound,Tag};
 
@@ -35,7 +36,7 @@ fn fluid(entry:&Tag)->Result<Entry,String> {
     let amount=amount(entry)?;
     let (Some(Tag::String(id)),Some(Tag::ByteArray(components)))=(entry.get("fluid"),entry.get("components")) else{return Err("invalid provider queue fluid".into());};
     let id=id.to_string().map_err(|_|"invalid provider queue fluid id")?;
-    if !ae2_cell_codec::valid_fluid_id(&id) {return Err("invalid provider queue fluid id".into());}
+    if !valid_fluid_id(&id) {return Err("invalid provider queue fluid id".into());}
     Ok(Entry::Fluid{key:ItemKey{item_id:id,components:components.clone()},amount})
 }
 fn queue_entry(entry:&Tag)->Result<Entry,String> {
@@ -73,7 +74,7 @@ fn write_entry(entry:&Entry)->Result<Tag,String> {
     match entry {
         Entry::Item{prototype,..} if prototype.count==1=>Ok(Tag::compound([("item",save::item_to_nbt(prototype)),("amount",Tag::Long(amount))])),
         Entry::Item{..}=>Err("provider queue item is not a prototype".into()),
-        Entry::Fluid{key,..} if ae2_cell_codec::valid_fluid_id(&key.item_id)=>Ok(Tag::compound([
+        Entry::Fluid{key,..} if valid_fluid_id(&key.item_id)=>Ok(Tag::compound([
             ("fluid",Tag::String(key.item_id.as_str().into())),("components",Tag::ByteArray(key.components.clone())),("amount",Tag::Long(amount))])),
         Entry::Fluid{..}=>Err("invalid provider queue fluid id".into()),
     }
@@ -143,4 +144,20 @@ mod tests {
         let bad=[Entry::Item{prototype:ItemStack::new("minecraft:stone",1),amount:u64::MAX}];
         assert!(write(&mut config,&bad).is_err());assert_eq!(config,before);
     }
+}
+
+/// A fluid's resource location as AE2's keys accept it.
+pub fn valid_fluid_id(id: &str) -> bool {
+    let Some((namespace, path)) = id.split_once(':') else {
+        return false;
+    };
+    !namespace.is_empty()
+        && !path.is_empty()
+        && namespace
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(&c))
+        && path
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-/".contains(&c))
+        && id != "minecraft:empty"
 }

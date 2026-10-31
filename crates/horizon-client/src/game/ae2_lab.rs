@@ -182,7 +182,7 @@ mod tests {
     fn item_components_survive_cell_and_normal_inventory_nbt_round_trip() {
         let mut item = ItemStack::new("minecraft:diamond_sword", 1);
         item.damage = 42;
-        item.data_mut().custom_name = Some("Persistent AE2 probe".into());
+        item.data_mut().custom_name = Some(horizon_client::item_data::text_name("Persistent AE2 probe"));
         item.enchant("minecraft:sharpness", 3);
         let mut cell = Cell::new_1k();
         let k = key(&item).unwrap();

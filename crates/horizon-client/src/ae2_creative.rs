@@ -296,10 +296,10 @@ mod tests {
         let positions = creative
             .tabs
             .iter()
-            .map(|t| (t.top, t.column))
+            .map(|t| (t.page, t.top, t.column))
             .collect::<HashSet<_>>();
         assert_eq!(positions.len(), creative.tabs.len());
-        assert!(positions.iter().all(|(_, c)| *c < 7));
+        assert!(positions.iter().all(|(_, _, c)| *c < 7));
     }
     #[test]
     fn actual_java_catalog_variants_have_native_power_cells_enchantments_and_facades() {

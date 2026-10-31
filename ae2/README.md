@@ -38,7 +38,7 @@ The default server-thread gameplay path has the strongest coverage. Provider, te
 
 ### Requirements
 
-- Rust 1.95, Bun, Git, unzip, Python 3.10 or newer, and JDK 25.
+- Rust 1.99.1 (the toolchain Horizon's launcher pins), Bun, Git, unzip, Python 3.10 or newer, and JDK 25.
 - Your own Minecraft: Java Edition 26.3 installation and matching server JAR.
 - An internet connection to fetch dependencies, the pinned AE2 source and NeoForge conventional tag data.
 - On Linux, Horizon's upstream prerequisites include the ALSA and udev development headers (for example, `libasound2-dev` and `libudev-dev` on Debian-based systems).
@@ -48,39 +48,37 @@ Minecraft game files, prepared resources and generated runtime content are not s
 ### Prepare a local build
 
 ```sh
-git clone https://github.com/AdamAugustinsky/ae2-horizon.git
-cd ae2-horizon
-
-rustup toolchain install 1.95.0
-bun run scripts/prepare-resources.ts \
+# From the root of this fork of Horizon:
+rustup toolchain install 1.99.1
+bun run ae2/scripts/prepare-resources.ts \
   --minecraft-dir "/path/to/your/.minecraft" \
   --server-jar "/path/to/your/26.3-server.jar"
-bun run scripts/prepare-content.ts
-bun run scripts/build.ts
-bun run scripts/play.ts
+bun run ae2/scripts/prepare-content.ts
+bun run ae2/scripts/build.ts
+bun run ae2/scripts/play.ts
 ```
 
 Substitute the paths for your own installation. The content preparation step obtains the pinned AE2 source and NeoForge conventional tag data; it does not make this client a NeoForge mod. Do not commit Minecraft JARs, prepared resources or generated assets.
 
-The tested default build disables audio and controller support. To enable audio in a separate build, use `bun run scripts/build.ts --features audio`; that configuration was not part of the stated native-world checks.
+The tested default build disables audio and controller support. To enable audio in a separate build, use `bun run ae2/scripts/build.ts --features audio`; that configuration was not part of the stated native-world checks.
 
 The play command opens a visible title screen with an isolated fresh profile; the illustrated hall is not bundled. To start a new creative test world directly, use:
 
 ```sh
-bun run scripts/play.ts --world "AE2 Experiment" --creative
+bun run ae2/scripts/play.ts --world "AE2 Experiment" --creative
 ```
 
 To run the five core test suites, and optionally the AE2 client and host checks (the latter require prepared Minecraft resources):
 
 ```sh
-bun run scripts/test.ts
-bun run scripts/test.ts --client
+bun run ae2/scripts/test.ts
+bun run ae2/scripts/test.ts --client
 ```
 
 Native world regressions use hidden windows, isolated profiles and virtual input. They serialize rendering under a shared lease, cap each client at 30 FPS, and assert that its window is invisible, unfocused and does not capture the system pointer:
 
 ```sh
-bun run scripts/test-world.ts provider-session crafting-alternatives
+bun run ae2/scripts/test-world.ts provider-session crafting-alternatives
 ```
 
 The runner accepts `--content DIRECTORY`, `--in-frame` for supported alternate-runtime cases, and `--build METADATA.json` to select a binary by SHA-256. Logs, transcripts and disposable saves remain in ignored `.local/world-tests/`. The ordinary `play.ts` command above is for an explicitly requested visible session.

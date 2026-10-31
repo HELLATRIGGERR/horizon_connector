@@ -265,6 +265,8 @@ impl BlockEntities {
             out: self.out.clone(),
             states: self.states.clone(),
             next_slot: self.next_slot, freed: self.freed,
+            replaced: self.replaced.clone(),
+            mod_containers: self.mod_containers.clone(),
             #[cfg(feature="ae2-lab")]
             vanilla_metadata: self.vanilla_metadata.clone(),
             #[cfg(feature="ae2-lab")]
@@ -490,11 +492,11 @@ impl BlockEntities {
         if positions.is_empty(){return}
         let owned:Vec<_>=positions.iter().filter_map(|pos|self.vanilla_metadata(pos).map(|tag|(*pos,tag.clone()))).collect();
         if chunk.saved.is_none() && owned.is_empty(){return}
-        let saved=Arc::make_mut(chunk.saved.get_or_insert_with(||Arc::new(crate::save::ChunkExtras::default())));
+        let saved=Arc::make_mut(chunk.saved.get_or_insert_with(||Arc::new(crate::chunk::ChunkExtras::default())));
         saved.block_entity_sources.retain(|(pos,_)|!positions.contains(pos));
         saved.block_entity_sources.extend(owned);
         saved.rolled_loot.retain(|roll|!positions.contains(&roll.pos) || self.vanilla_metadata(&roll.pos)
-            .and_then(|tag|crate::save::text(tag.get("LootTable"))).as_deref()==Some(roll.table.as_str()));
+            .and_then(|tag|horizon_client_core::nbt_value::text(tag.get("LootTable"))).as_deref()==Some(roll.table.as_str()));
     }
     /// Whether the ticking table has been built.
     pub fn has_states(&self) -> bool {
@@ -891,7 +893,7 @@ mod tests {
         ]);
         let mut chunk=crate::chunk::Chunk::empty(0,0);
         chunk.block_entities.push((p,BlockEntity::Chest(vec![None;27])));
-        chunk.saved=Some(Arc::new(crate::save::ChunkExtras {block_entity_sources:vec![(p,raw.clone())],..Default::default()}));
+        chunk.saved=Some(Arc::new(crate::chunk::ChunkExtras {block_entity_sources:vec![(p,raw.clone())],..Default::default()}));
         let mut b=level();
         b.prepare_vanilla_metadata(&chunk);
         b.load_chunk(std::mem::take(&mut chunk.block_entities));
@@ -1056,7 +1058,7 @@ mod tests {
         let mut imported=Machine::new(MachineKind::PatternProvider);
         imported.slots[0]=Some(ItemStack::new("ae2:encoded_pattern",1));
         imported.config.insert("priority".into(),Tag::Int(17));
-        let items=crate::save::encode_items(&imported.slots);
+        let items=horizon_items::item_nbt::encode_items(&imported.slots);
         let provider_raw=Tag::compound([("Items",items.clone())]);
         entities.import_placed_in_place(provider,BlockEntity::Ae2(Box::new(imported.clone()))).unwrap();
         assert_eq!(entities.refresh_pending_placed_ae2(provider,Some(&provider_raw)),Some(true));

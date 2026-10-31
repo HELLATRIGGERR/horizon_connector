@@ -229,7 +229,7 @@ mod tests {
         let physical=horizon_client::ae2_generic_stack::wrap(&value).unwrap();
         assert_eq!(wrapped_ghost(&physical,&|_,_|true).unwrap(),Some(WrappedGhost::Fluid(PatternFluid{key:value.key,amount:1750})));
         assert_eq!(physical.count,1);
-        let mut physical_item=ItemStack::new("minecraft:oak_log",1);physical_item.data_mut().custom_name=Some("marked".into());
+        let mut physical_item=ItemStack::new("minecraft:oak_log",1);physical_item.data_mut().custom_name=Some(horizon_client::item_data::text_name("marked"));
         let key=horizon_client::ae2_cell_codec::key(&physical_item).unwrap();
         let wrapped=horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack{key,fluid:false,amount:5}).unwrap();
         physical_item.count=5;assert_eq!(wrapped_ghost(&wrapped,&|_,_|true).unwrap(),Some(WrappedGhost::Item(physical_item.clone())));
@@ -289,7 +289,7 @@ mod tests {
     fn encoding_state_roundtrips_sparse_items_fluids_and_rejects_duplicate_slots() {
         let mut machine=Machine::new(MachineKind::PatternEncodingTerminal);
         let mut state=EncodingState::default();state.processing=true;state.substitutes=true;
-        let mut item=ItemStack::new("minecraft:iron_ingot",3);item.data_mut().custom_name=Some("Tagged input".into());
+        let mut item=ItemStack::new("minecraft:iron_ingot",3);item.data_mut().custom_name=Some(horizon_client::item_data::text_name("Tagged input"));
         state.inputs[80]=Some(item);state.outputs[26]=Some(ItemStack::new("minecraft:gold_ingot",2));
         state.fluid_inputs[2]=Some(PatternFluid{key:ae2_cell_core::ItemKey{item_id:"example:water".into(),components:vec![0,42]},amount:750});
         state.save(&mut machine).unwrap();assert_eq!(EncodingState::load(&machine).unwrap(),state);

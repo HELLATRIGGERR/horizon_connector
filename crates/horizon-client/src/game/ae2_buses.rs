@@ -2414,7 +2414,7 @@ impl Game<'_> {
         // Silk Touch copies the resident bees and honey-level loot components.
         if let Some(BlockEntity::Beehive(hive))=entity.as_ref()
             && tool.as_ref().is_some_and(|tool|tool.enchantment_level("minecraft:silk_touch")>0) {
-            let bees=hive.to_nbt().into_iter().find_map(|(key,value)|(key=="bees").then_some(value));
+            let bees=horizon_client::beehive::BeehiveExt::to_nbt(&**hive).into_iter().find_map(|(key,value)|(key=="bees").then_some(value));
             let honey=self.pack.assets.registry.state(state)
                 .and_then(|state|state.properties.get("honey_level")).cloned();
             for stack in drops.iter_mut().filter(|item|item.item.as_ref()==facts.name.as_ref()) {

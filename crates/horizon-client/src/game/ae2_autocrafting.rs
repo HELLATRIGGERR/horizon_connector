@@ -4428,7 +4428,7 @@ mod recursive {
         }
         #[test]
         fn legacy_named_job_normalizes_keys_against_physical_escrow() {
-            let mut item=ItemStack::new("minecraft:diamond_sword",1);item.damage=5;item.data_mut().custom_name=Some("Relic".into());
+            let mut item=ItemStack::new("minecraft:diamond_sword",1);item.damage=5;item.data_mut().custom_name=Some(horizon_client::item_data::text_name("Relic"));
             let modern=canon(&item);let old=modern.replace("\"minecraft:damage\"","minecraft:damage").replace("\"minecraft:custom_name\"","minecraft:custom_name");assert_ne!(modern,old);
             let result=canon(&ItemStack::new("minecraft:netherite_sword",1));
             let mut registry=ExtendedRegistry::default();registry.register(ExtendedPattern{id:"legacy".into(),inputs:vec![Ingredient{choices:Inventory::from([(old.clone(),1)])}],outputs:Inventory::from([(result.clone(),1)])}).unwrap();
@@ -4546,12 +4546,12 @@ mod recursive {
         fn fluid_slots_follow_each_selected_flight_and_legacy_spec() {
             let resources=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
             if !resources.join("items.json").exists(){return;}
-            let items=horizon_client::items::Items::catalog(&resources).unwrap();
+            let items=horizon_client::items::Items::catalog(&resources, &horizon_world::loot::PackOverlay::NONE).unwrap();
             let root=std::env::temp_dir().join(format!("ae2-fluid-grid-{}",std::process::id()));
             let dir=root.join("data/minecraft/recipe");std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("fluid_grid.json"),r#"{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:water_bucket","minecraft:water_bucket"],"result":{"id":"minecraft:diamond","count":1}}"#).unwrap();
-            let recipes=horizon_client::crafting::Recipes::load(&root,&items).unwrap();
-            let stations=horizon_client::stations::StationData::load(&resources,&items);
+            let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+            let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE);
             let water=fluid_name(&super::super::super::ae2_fluids::fluid_key("minecraft:water"));
             let filled=canon(&ItemStack::new("minecraft:water_bucket",1));let empty=canon(&ItemStack::new("minecraft:bucket",1));
             let result=canon(&ItemStack::new("minecraft:diamond",1));let mut grid=vec!["-".to_string();9];grid[0]=filled.clone();grid[1]=filled.clone();
@@ -4576,11 +4576,11 @@ mod recursive {
         fn nonunit_source_crafting_never_partially_moves_escrow_into_assembler() {
             let resources=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
             if !resources.join("items.json").exists(){return;}
-            let items=horizon_client::items::Items::catalog(&resources).unwrap();
+            let items=horizon_client::items::Items::catalog(&resources, &horizon_world::loot::PackOverlay::NONE).unwrap();
             let root=std::env::temp_dir().join(format!("ae2-nonunit-grid-{}",std::process::id()));
             let dir=root.join("data/minecraft/recipe");std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("nonunit.json"),r#"{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:oak_log"],"result":{"id":"minecraft:oak_planks","count":4}}"#).unwrap();
-            let recipes=horizon_client::crafting::Recipes::load(&root,&items).unwrap();let stations=horizon_client::stations::StationData::load(&resources,&items);
+            let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE);
             let input=canon(&ItemStack::new("minecraft:oak_log",1));let output=canon(&ItemStack::new("minecraft:oak_planks",4));
             let mut grid=vec!["-".to_string();9];grid[0]=input.clone();let mut choices=vec![Vec::new();9];choices[0]=vec![input.clone()];
             let mut recipe_grid=vec![None;9];recipe_grid[0]=Some(ItemStack::new("minecraft:oak_log",1));
@@ -4611,7 +4611,7 @@ mod recursive {
             let provider=ProviderOwner::Block(GridAddress::from_local(super::super::super::Dim::Overworld,(0,64,0)).unwrap());
             let mut inputs=Vec::new();let mut stock=Inventory::new();
             for i in 0..4097 {
-                let mut input=ItemStack::new("minecraft:stone",1);input.data_mut().custom_name=Some(format!("variant-{i:04}"));
+                let mut input=ItemStack::new("minecraft:stone",1);input.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("variant-{i:04}")));
                 stock.insert(canon(&input),1);inputs.push(input);
             }
             let primary=stock.keys().next().unwrap().clone();let result=canon(&ItemStack::new("minecraft:diamond",1));

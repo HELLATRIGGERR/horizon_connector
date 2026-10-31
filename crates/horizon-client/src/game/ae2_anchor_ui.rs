@@ -26,7 +26,7 @@ impl Game<'_> {
         let labels=if let Some(s)=snapshot {
             vec![format!("Overlay: {}",if s.overlay{"on"}else{"off"}),format!("Power: {:.0} AE/t",s.idle),format!("Loaded chunks: {}",s.owned_chunks.len()),format!("Loaded: {} chunks in {} worlds",s.anchor_max_by_dimension.iter().map(|(_,n)|n).sum::<usize>(),s.anchor_max_by_dimension.len()),format!("Total: {} chunks in {} worlds",s.grid_chunks_by_dimension.iter().map(|(_,v)|v.len()).sum::<usize>(),s.grid_chunks_by_dimension.len())]
         } else {vec!["Network unavailable".into()]};
-        let mut items:Vec<Option<ItemStack>>=(0..27).map(|i|labels.get(i).map(|v|{let mut s=ItemStack::new("minecraft:paper",1);s.data_mut().custom_name=Some(v.clone());s})).collect();
+        let mut items:Vec<Option<ItemStack>>=(0..27).map(|i|labels.get(i).map(|v|{let mut s=ItemStack::new("minecraft:paper",1);s.data_mut().custom_name=Some(horizon_client::item_data::text_name(v.clone()));s})).collect();
         let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else{return;};
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));let carried=g.carried.clone();
         let Some(s)=host.play.get_mut(&conn).and_then(|p|p.ae2_anchor.as_mut()) else{return;};s.state=(state+1)&0x7fff;let state=s.state;

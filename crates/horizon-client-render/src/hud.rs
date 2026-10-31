@@ -2261,7 +2261,7 @@ mod tests {
         let rect = atlas.sprites["ae2:item/charged_staff"];
         assert_eq!(rect.texels((atlas.width, atlas.height)), (16, 16));
         let animation = atlas
-            .fire_animations
+            .sprite_animations
             .iter()
             .find(|(r, _)| r.u0 == rect.u0 && r.v0 == rect.v0)
             .unwrap();

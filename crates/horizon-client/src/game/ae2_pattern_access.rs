@@ -124,7 +124,7 @@ impl Game<'_> {
                 let face=["east","west","up","down","south","north"].get(usize::from(part.face))?;
                 let part=parts.iter().find(|p|p.get("face")==Some(&Tag::String((*face).into())))?;
                 let stack=horizon_client::save::item_from_nbt(part.get("stack")?)?;
-                stack.custom_name().map(str::to_owned)
+                stack.custom_name()
             }
         }
     }

@@ -366,7 +366,7 @@ impl Game<'_> {
         // vehicle back to the source coordinates and out of the new tracker.
         if g.vehicle_relocated && target.distance_squared(old)>100.0 {
             if super::server_travel::trace_spatial(){eprintln!("AE2 passenger rejected stale relocation conn={} dimension={} vehicle={:?} old={:?} target={:?}",conn,self.dim.id(),vehicle,old,target);}
-            back(host,old,b.yaw);
+            back(host,old,yaw);
             return;
         }
         // Moved too quickly: more than 10 blocks past its own motion.

@@ -1,6 +1,8 @@
 //! Control-socket block commands for scripted tests: `setblock`, `fill`,
 //! `getblock` and `container` (list or put items in a block entity).
 use super::Game;
+#[cfg(feature = "ae2-lab")]
+use horizon_client::containers::BlockEntity;
 use horizon_client::{Result, items::ItemStack};
 use horizon_world::{chunk::BlockState, registry::BlockStateId};
 use serde_json::{Value, json};

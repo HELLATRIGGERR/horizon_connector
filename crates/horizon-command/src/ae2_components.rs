@@ -44,7 +44,7 @@ pub fn is_known(id: &str) -> bool {
 
 use horizon_world::nbt::{Compound, Tag};
 
-pub fn register(reg: &mut crate::command::args::Registries) {
+pub fn register(reg: &mut crate::args::Registries) {
     reg.persistent_components
         .extend(PERSISTENT_IDS.iter().map(|id| (*id).to_owned()));
     reg.persistent_components.sort();
@@ -80,10 +80,10 @@ pub fn normalize(id: &str, value: Tag) -> Result<Tag, String> {
 pub fn validate_registered(
     id: &str,
     value: &Tag,
-    reg: &crate::command::args::Registries,
+    reg: &crate::args::Registries,
 ) -> Result<(), String> {
     let value = normalize(id, value.clone())?;
-    fn stack(t: &Tag, reg: &crate::command::args::Registries, depth: usize) -> Result<(), String> {
+    fn stack(t: &Tag, reg: &crate::args::Registries, depth: usize) -> Result<(), String> {
         if depth > 64 {
             return Err("AE2 component nesting exceeds 64".into());
         }
@@ -110,7 +110,7 @@ pub fn validate_registered(
     fn check(
         id: &str,
         t: &Tag,
-        reg: &crate::command::args::Registries,
+        reg: &crate::args::Registries,
         depth: usize,
     ) -> Result<(), String> {
         match id {
@@ -172,7 +172,7 @@ fn string(t: &Tag) -> Result<String, String> {
 }
 fn resource(t: Tag) -> Result<Tag, String> {
     let s = string(&t)?;
-    let s = crate::command::args::normalize(&s);
+    let s = crate::args::normalize(&s);
     let Some((namespace, path)) = s.split_once(':') else {
         unreachable!()
     };
@@ -278,7 +278,7 @@ fn patch(t: Tag, depth: usize) -> Result<Tag, String> {
         } else if is_known(&id) {
             value = decode(&id, value, depth + 1)?;
         } else {
-            crate::command::item::decode_component(&id, &value)?;
+            crate::item::decode_component(&id, &value)?;
         }
         let key = if removed { format!("!{id}") } else { id };
         if out.insert(key.as_str().into(), value).is_some() {
@@ -363,7 +363,7 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
     }
     match id {
         "ae2:exported_settings_source" | "ae2:exported_custom_name" | "ae2:name_press_name" => {
-            crate::command::component::decode(&t)?;
+            crate::component::decode(&t)?;
             Ok(t)
         }
         "ae2:exported_priority" => Ok(Tag::Int(integer(&t)?)),
@@ -520,7 +520,7 @@ mod tests {
     }
     #[test]
     fn ae2_registered_item_commands_reject_missing_strict_content() {
-        let mut reg = crate::command::args::Registries::default();
+        let mut reg = crate::args::Registries::default();
         register(&mut reg);
         reg.items = vec!["minecraft:stone".into(), "ae2:speed_card".into()];
         assert!(validate_registered("ae2:facade_item", &snbt("stone"), &reg).is_ok());

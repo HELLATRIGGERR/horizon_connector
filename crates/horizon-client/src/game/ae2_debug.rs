@@ -66,9 +66,9 @@ mod tests {
     #[test]
     fn itemgen_insert_respects_components_and_slot_limits() {
         let mut base = ItemStack::new("minecraft:diamond", 60);
-        base.data_mut().custom_name = Some("original".into());
+        base.data_mut().custom_name = Some(horizon_client::item_data::text_name("original"));
         let mut different = ItemStack::new("minecraft:diamond", 1);
-        different.data_mut().custom_name = Some("different".into());
+        different.data_mut().custom_name = Some(horizon_client::item_data::text_name("different"));
         let input = ItemStack { count: 9, ..base.clone() };
         let mut slots = vec![Some(base), Some(different.clone()), None];
         assert_eq!(itemgen_insert(&mut slots, &input, 7, 64), 7);

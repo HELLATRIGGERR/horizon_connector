@@ -346,7 +346,7 @@ impl Game<'_> {
                         let Some(rect)=self.gui.atlas.sprites.get(key) else {continue};
                         let points=q.positions.map(|p|o+(glam::Vec3::from_array(p)-glam::Vec3::splat(0.5))*scale);
                         let normal=(points[1]-points[0]).cross(points[2]-points[0]).normalize_or_zero();
-                        for n in 0..4 {out.push(Vertex {pos:points[n].to_array(),uv:[rect.u0+q.uv[n][0]*(rect.u1-rect.u0),rect.v0+q.uv[n][1]*(rect.v1-rect.v0)],layer:if lit {5} else {0},color:0xffffffff,light:packed,normal:[(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127]});}
+                        for n in 0..4 {out.push(Vertex {glint_uv:[0.0,0.0],pos:points[n].to_array(),uv:[rect.u0+q.uv[n][0]*(rect.u1-rect.u0),rect.v0+q.uv[n][1]*(rect.v1-rect.v0)],layer:if lit {5} else {0},color:0xffffffff,light:packed,normal:[(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127]});}
                     }
                 }
                 continue;
@@ -561,6 +561,10 @@ mod tests {
             velocity: Vec3::ZERO,
             fuse: 80,
             on_ground: true,
+            tiny: false,
+            in_water: false,
+            saved_uuid: None,
+            tiny_owner: None,
         };
         tnt.velocity = bounce_velocity(Direction::Up, tnt.velocity);
         tnt.on_ground = false;

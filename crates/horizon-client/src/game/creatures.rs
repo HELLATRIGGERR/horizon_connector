@@ -2669,7 +2669,7 @@ impl Game<'_> {
         self.hits_player_caused_by(amount,from,damage_type,Some(attacker))
     }
     fn hits_player_caused_by(&mut self,amount:f32,from:[f64;3],damage_type:&str,player_cause:Option<u32>)->bool {
-        self.hurt_player_from(amount, Some(from), damage_type, None)
+        self.hurt_player_from_caused(amount, Some(from), damage_type, None, player_cause)
     }
     /// `hurtServer` on the player. `from` is the source's position (none: no
     /// direction), `known`: the causing mob when it is given (`/damage`),
@@ -2680,6 +2680,18 @@ impl Game<'_> {
         from: Option<[f64; 3]>,
         damage_type: &str,
         known: Option<Option<u32>>,
+    ) -> bool {
+        self.hurt_player_from_caused(amount, from, damage_type, known, None)
+    }
+    /// `hurt_player_from` by another player (`player_cause`), who is then the
+    /// attacker rather than any mob.
+    fn hurt_player_from_caused(
+        &mut self,
+        amount: f32,
+        from: Option<[f64; 3]>,
+        damage_type: &str,
+        known: Option<Option<u32>>,
+        player_cause: Option<u32>,
     ) -> bool {
         // ServerPlayer.canHarmPlayer refused another player's projectile.
         if self.creative || self.combat.refuse_player_hit {

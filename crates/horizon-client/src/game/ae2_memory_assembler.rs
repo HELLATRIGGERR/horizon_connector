@@ -110,7 +110,7 @@ mod assembler_memory {
             let source=SavedAssembler{desired:vec![ItemStack::new("ae2:speed_card",1);5],name:Some("source".into())};
             let ins=Machine::new(MachineKind::Inscriber);assert_eq!(assembler_to_inscriber(&ins,&source).unwrap().desired.len(),4);
             let io=Machine::new(MachineKind::IoPort);assert_eq!(assembler_to_io(&io,&source).unwrap().desired.len(),3);assert_eq!(assembler_to_vibration(&source).desired.len(),3);
-            let mut target=Machine::new(MachineKind::MolecularAssembler);let mut marked=ItemStack::new("ae2:speed_card",1);marked.data_mut().custom_name=Some("marked".into());target.upgrades[0]=Some(marked.clone());target.upgrades[1]=Some(ItemStack::new("ae2:speed_card",1));
+            let mut target=Machine::new(MachineKind::MolecularAssembler);let mut marked=ItemStack::new("ae2:speed_card",1);marked.data_mut().custom_name=Some(horizon_client::item_data::text_name("marked"));target.upgrades[0]=Some(marked.clone());target.upgrades[1]=Some(ItemStack::new("ae2:speed_card",1));
             let saved=SavedAssembler{desired:vec![ItemStack::new("ae2:speed_card",1)],name:None};let mut inventory=vec![None;36];let mut pocket=None;
             let changes=apply_assembler(&mut target,&mut inventory,&mut pocket,&saved,false).unwrap();assert_eq!(changes.missing,0);assert!(changes.drops.is_empty());assert!(inventory.iter().flatten().any(|s|s.same_item_same_components(&marked)));assert_eq!(target.upgrades.iter().flatten().count(),1);
         }

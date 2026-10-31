@@ -314,20 +314,20 @@ impl Game<'_> {
             let rows=self.ae2_recursive_status_rows(cpu).unwrap_or_default();
             let pages=rows.len().max(1).div_ceil(12);page=requested_page.min(pages-1);
             let label=match self.ae2_recursive_suspended(cpu) {Some(true)=>"Suspended",Some(false)=>"Running",None=>"Idle"};
-            items[0]=if status_direct {let mut mode=ItemStack::new("minecraft:paper",1);mode.data_mut().custom_name=Some(format!("Selection: {}",self.ae2_cpu_selection_mode(cpu).unwrap_or("invalid")));Some(mode)} else {None};
+            items[0]=if status_direct {let mut mode=ItemStack::new("minecraft:paper",1);mode.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("Selection: {}",self.ae2_cpu_selection_mode(cpu).unwrap_or("invalid"))));Some(mode)} else {None};
             let location=self.ae2_address_parts(cpu).map(|(dim,p)|format!("{} {},{},{}",dim.id().strip_prefix("minecraft:").unwrap_or(dim.id()),p.0,p.1,p.2)).unwrap_or_else(||"unknown".into());
-            let mut heading=ItemStack::new("minecraft:paper",1);heading.data_mut().custom_name=Some(format!("{}: {}",label,location));items[1]=Some(heading);
+            let mut heading=ItemStack::new("minecraft:paper",1);heading.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("{}: {}",label,location)));items[1]=Some(heading);
             for (i,(key,stored,pending,active)) in rows.into_iter().skip(page*12).take(12).enumerate() {
                 let mut line=self.ae2_recursive_status_icon(&key).unwrap_or_else(||ItemStack::new("minecraft:paper",1));
                 let name=line.item.to_string();line.count=1;
-                line.data_mut().custom_name=Some(format!("{}: stored {}, pending {}, active {}",name,stored,pending,active));items[5+i]=Some(line);
+                line.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("{}: stored {}, pending {}, active {}",name,stored,pending,active)));items[5+i]=Some(line);
             }
-            let mut label=ItemStack::new("minecraft:paper",1);label.data_mut().custom_name=Some(format!("Page {} of {}",page+1,pages));items[17]=Some(label);
-            if !status_direct {let mut back=ItemStack::new("minecraft:paper",1);back.data_mut().custom_name=Some("Back to terminal".into());items[20]=Some(back);}
+            let mut label=ItemStack::new("minecraft:paper",1);label.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("Page {} of {}",page+1,pages)));items[17]=Some(label);
+            if !status_direct {let mut back=ItemStack::new("minecraft:paper",1);back.data_mut().custom_name=Some(horizon_client::item_data::text_name("Back to terminal"));items[20]=Some(back);}
         } else if status_mode {
             items[0]=None;
-            let mut heading=ItemStack::new("minecraft:paper",1);heading.data_mut().custom_name=Some("No crafting CPUs".into());items[1]=Some(heading);
-            let mut back=ItemStack::new("minecraft:paper",1);back.data_mut().custom_name=Some("Back to terminal".into());items[20]=Some(back);
+            let mut heading=ItemStack::new("minecraft:paper",1);heading.data_mut().custom_name=Some(horizon_client::item_data::text_name("No crafting CPUs"));items[1]=Some(heading);
+            let mut back=ItemStack::new("minecraft:paper",1);back.data_mut().custom_name=Some(horizon_client::item_data::text_name("Back to terminal"));items[20]=Some(back);
         } else if confirmation {
             let message=match report {
                 None=>"Calculating...".into(),
@@ -336,11 +336,11 @@ impl Game<'_> {
                     let pages=lines.len().max(1).div_ceil(12);
                     page=requested_page.min(pages-1);
                     let mut page_label=ItemStack::new("minecraft:paper",1);
-                    page_label.data_mut().custom_name=Some(format!("Page {} of {}",page+1,pages));
+                    page_label.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("Page {} of {}",page+1,pages)));
                     items[17]=Some(page_label);
                     for (i,label) in lines.into_iter().skip(page*12).take(12).enumerate() {
                         let mut item=ItemStack::new("minecraft:paper",1);
-                        item.data_mut().custom_name=Some(label);
+                        item.data_mut().custom_name=Some(horizon_client::item_data::text_name(label));
                         items[5+i]=Some(item);
                     }
                     if missing.is_empty() {format!("{} {}, {} bytes",plan.steps.len(),if plan.steps.len()==1 {"step"} else {"steps"},plan.estimated_bytes)}
@@ -349,10 +349,10 @@ impl Game<'_> {
                 Some(Err(error))=>error,
             };
             let mut line=ItemStack::new("minecraft:paper",1);
-            line.data_mut().custom_name=Some(message);
+            line.data_mut().custom_name=Some(horizon_client::item_data::text_name(message));
             items[1]=Some(line);
             let mut selector=ItemStack::new("minecraft:paper",1);
-            selector.data_mut().custom_name=Some(cpu.map(|p|format!("CPU: {}",self.ae2_cpu_label(p))).unwrap_or_else(||"CPU: Automatic".into()));
+            selector.data_mut().custom_name=Some(horizon_client::item_data::text_name(cpu.map(|p|format!("CPU: {}",self.ae2_cpu_label(p))).unwrap_or_else(||"CPU: Automatic".into())));
             items[4]=Some(selector);
         }
         (items,page)

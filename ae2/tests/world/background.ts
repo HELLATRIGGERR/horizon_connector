@@ -1,11 +1,12 @@
 /** A host-wide rendering lease. No child process inherits the lease descriptor. */
 import { dlopen, ptr } from 'bun:ffi';
-import { closeSync, ftruncateSync, openSync, writeSync } from 'node:fs';
+import { closeSync, ftruncateSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export async function acquireRenderLease(): Promise<() => void> {
-  if (process.platform !== 'darwin' && process.platform !== 'linux') throw new Error('The hidden world harness currently supports macOS and Linux only.');
+  if (process.platform === 'win32') return acquireWindowsLease();
+  if (process.platform !== 'darwin' && process.platform !== 'linux') throw new Error('The hidden world harness supports macOS, Linux and Windows only.');
   const libc = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6', {
     flock: { args: ['i32', 'i32'], returns: 'i32' },
     fcntl: { args: ['i32', 'i32', 'i32'], returns: 'i32' },
@@ -19,6 +20,29 @@ export async function acquireRenderLease(): Promise<() => void> {
   } catch (error) { closeSync(fd); libc.close(); throw error; }
   let released = false;
   return () => { if (!released) { released = true; closeSync(fd); libc.close(); } };
+}
+
+// Windows has no flock: the lease is a file created exclusively, taken over
+// only when the process that holds it is gone.
+async function acquireWindowsLease(): Promise<() => void> {
+  const path = join(tmpdir(), `ae2-horizon-render-${process.env.USERNAME ?? 'user'}.lock`);
+  for (;;) {
+    try {
+      const fd = openSync(path, 'wx', 0o600);
+      writeSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }) + '\n');
+      closeSync(fd);
+      let released = false;
+      return () => { if (!released) { released = true; rmSync(path, { force: true }); } };
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') throw error;
+      let holder = 0;
+      try { holder = JSON.parse(readFileSync(path, 'utf8')).pid; } catch {}
+      let alive = false;
+      if (holder) try { process.kill(holder, 0); alive = true; } catch {}
+      if (!alive) rmSync(path, { force: true });
+      else await Bun.sleep(250);
+    }
+  }
 }
 
 // Match Rust Instant on Darwin: mach_absolute_time excludes system sleep.

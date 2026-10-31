@@ -1417,3 +1417,21 @@ mod layer_color_tests {
         assert_eq!(layer_color(None, Some(&dyed)), 0xFFFF_FFFF);
     }
 }
+
+/// `ArmorStand.brokenByAnything`'s drops: the equipment without curse of
+/// vanishing, from the block above the stand's feet.
+#[cfg(feature = "ae2-lab")]
+fn burnt_armor_stand_equipment(a: ArmorStand) -> ([i32; 3], Vec<ItemStack>) {
+    let pos = [
+        a.position.x.floor() as i32,
+        a.position.y.floor() as i32 + 1,
+        a.position.z.floor() as i32,
+    ];
+    let drops = a
+        .equipment
+        .into_iter()
+        .flatten()
+        .filter(|stack| stack.enchantment_level("minecraft:vanishing_curse") == 0)
+        .collect();
+    (pos, drops)
+}

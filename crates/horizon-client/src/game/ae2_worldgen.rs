@@ -508,7 +508,7 @@ mod tests {
         let record = ChunkRecord::from_nbt(&saved,Compression::Zlib,0,Limits::default()).unwrap();
         RegionFile::open_writable(dir.join("region/r.0.0.mca"),true).unwrap().write(ChunkPos::new(0,0),&record).unwrap();
         let generator = OverworldGenerator::new(data,1234).unwrap();
-        generator.set_saved_start_source(Arc::new(SaveDir::new(dir)));
+        generator.set_saved_start_source(Arc::new(SaveDir::new(dir, crate::save::LevelShape::OVERWORLD)));
         let mut worker = generator.worker();
         let neighbor = worker.generate_proto(ChunkPos::new(1,0)).unwrap();
         assert!(neighbor.structures().iter().any(|(name,pos,_,_)| *name=="ae2:meteorite" && *pos==ChunkPos::new(0,0)));

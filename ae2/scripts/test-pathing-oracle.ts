@@ -39,6 +39,6 @@ function run(command:string[],feed?:string):string {
 const javaHome=process.env.JAVA_HOME;
 run([javaHome?join(javaHome,'bin/javac'):'javac','-d',dir,join(dir,'PathingOracle.java'),join(dir,'IPathItem.java'),join(dir,'PathingCalculation.java')]);
 const expected=JSON.parse(run([javaHome?join(javaHome,'bin/java'):'java','-cp',dir,'PathingOracle'],input));
-const actual=JSON.parse(run(['cargo','+1.95.0','run','--locked','--offline','--quiet','--manifest-path',join(root,'crates/ae2-network-core/Cargo.toml'),'--example','pathing_oracle'],input));
+const actual=JSON.parse(run(['cargo','run','--locked','--offline','--quiet','--manifest-path',join(root,'crates/ae2-network-core/Cargo.toml'),'--example','pathing_oracle'],input));
 for(let i=0;i<cases.length;i++)assert.deepEqual(actual[i],expected[i],`source pathing graph ${i}: ${JSON.stringify(cases[i])}`);
 console.log(`PASS ${cases.length} synthetic graphs against pinned AE2 PathingCalculation, GridNode and GridConnection methods. This is not live-world evidence.`);

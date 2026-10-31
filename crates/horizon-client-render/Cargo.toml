@@ -7,6 +7,11 @@ rust-version = "1.90"
 description = "The client's world data, rendering and screens: chunks, meshing, light, streaming, the renderer, the HUD, menus and settings; no gameplay"
 
 [dependencies]
+ae2-cell-core = { path = "../ae2-cell-core", optional = true }
+ae2-links-core = { path = "../ae2-links-core", optional = true }
+ae2-machines-core = { path = "../ae2-machines-core", optional = true }
+ae2-network-core = { path = "../ae2-network-core", optional = true }
+toml = { version = "1.1", optional = true }
 horizon-assets = { path = "../horizon-assets" }
 horizon-bench = { path = "../horizon-bench" }
 horizon-client-core = { path = "../horizon-client-core" }
@@ -56,6 +61,10 @@ wgpu = { version = "30.0.1", default-features = false, features = ["dx12"] }
 wgpu = { version = "30.0.1", default-features = false, features = ["gles"] }
 
 [features]
+# AE2's block entities, cells and config (the client's `ae2-lab`).
+ae2-lab = ["horizon-items/ae2-lab", "horizon-command/ae2-lab", "horizon-client-core/ae2-lab",
+    "horizon-client-input/ae2-lab", "dep:ae2-cell-core", "dep:ae2-machines-core",
+    "dep:ae2-network-core", "dep:ae2-links-core", "dep:toml"]
 # Sound output: horizon-client's `audio` feature.
 audio = ["dep:cpal"]
 # Helpers horizon-client's tests build their fixtures with.

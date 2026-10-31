@@ -330,7 +330,7 @@ mod interface_memory {
             let mut source=Machine::new(MachineKind::Interface);
             source.config.insert(FUZZY.into(),Tag::String("percent_75".into()));
             source.config.insert("priority".into(),Tag::Int(123));
-            let mut item=ItemStack::new("minecraft:diamond",3);item.data_mut().custom_name=Some("request".into());
+            let mut item=ItemStack::new("minecraft:diamond",3);item.data_mut().custom_name=Some(horizon_client::item_data::text_name("request"));
             set_interface_config(&mut source,2,Some(&item)).unwrap();
             let water=super::super::super::ae2_fluids::fluid_key("minecraft:water");
             set_interface_fluid_config(&mut source,5,Some(&water)).unwrap();
@@ -398,7 +398,7 @@ mod interface_memory {
         #[test]
         fn source_only_interface_card_preserves_counts_and_zero_type_filters_follow_existing_slot(){
             let mut source=Machine::new(MachineKind::Interface);source.config.insert("priority".into(),Tag::Int(23));
-            let mut diamond=ItemStack::new("minecraft:diamond",3);diamond.data_mut().custom_name=Some("request".into());
+            let mut diamond=ItemStack::new("minecraft:diamond",3);diamond.data_mut().custom_name=Some(horizon_client::item_data::text_name("request"));
             set_interface_config(&mut source,2,Some(&diamond)).unwrap();source.upgrades[0]=Some(ItemStack::new("ae2:fuzzy_card",1));
             let mut card=ItemStack::new("ae2:memory_card",1);save_interface_part(&mut card,&source,Some("Part")).unwrap();
             assert_eq!(card.data().unwrap().other("ae2:exported_settings_source").and_then(|v|v.get("translate")),Some(&Tag::String("item.ae2.cable_interface".into())));

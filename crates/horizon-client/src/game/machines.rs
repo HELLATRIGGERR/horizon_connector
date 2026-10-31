@@ -271,6 +271,7 @@ impl Containers<'_> {
             if matches!(self.world.block_entities.get(&pos), Some(BlockEntity::Ae2(machine)) if machine.kind == horizon_client::ae2_world::MachineKind::QuantumLink) {
                 return index == 0 && crate::game::ae2_quantum::frequency(stack).is_some();
             }
+        }
         if let Some(c) = &view.container {
             return c.inputs.contains(&slot);
         }

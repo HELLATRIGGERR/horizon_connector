@@ -426,6 +426,13 @@ impl Component {
             Self::PaintingVariant(i) => entry(names, "minecraft:painting_variant", *i)?,
             Self::Profile(p) => raw::profile(p),
             Self::Raw(bytes) => raw::code(id, bytes, names)?,
+            // AE2 keeps a container's empty slots; its hash is the vanilla
+            // codec's, as for the bytes Horizon otherwise keeps.
+            Self::Container(_) => {
+                let mut w = crate::buf::Writer::new();
+                self.write(id, &mut w);
+                raw::code(id, &w.data, names)?
+            }
         })
     }
 

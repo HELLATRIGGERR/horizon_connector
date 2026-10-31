@@ -24,6 +24,9 @@ pub struct Tab {
     /// `CreativeModeTab.Type.HOTBAR`: the saved toolbars, filled when the
     /// tab is selected (`set_saved_hotbars`).
     pub hotbar: bool,
+    /// The page the tab is on (NeoForge's `CreativeTabsScreenPage`): vanilla's
+    /// are on 0, mods' after them (`mod_tab_slot`).
+    pub page: u32,
 }
 impl Tab {
     /// The tab without its stacks.
@@ -39,8 +42,16 @@ impl Tab {
             search: self.search,
             inventory: self.inventory,
             hotbar: self.hotbar,
+            page: self.page,
         }
     }
+}
+/// The page, row (top) and column of the `index`th tab past vanilla's, as
+/// NeoForge's `CreativeModeInventoryScreen` pages them: ten to a page after
+/// vanilla's, five along the top and five along the bottom, beside the
+/// right-hand tabs every page shows.
+pub fn mod_tab_slot(index: u32) -> (u32, bool, u32) {
+    (1 + index / 10, index % 10 < 5, index % 5)
 }
 /// A tab as exported, built with permissions: `operator` marks the stacks a
 /// build without them leaves out (the export's `permissions_only`).
@@ -68,6 +79,8 @@ pub struct Creative {
     /// permissions put in them.
     pub tabs: Vec<Tab>,
     pub selected: usize,
+    /// The page of tabs shown (NeoForge's `currentPage`).
+    pub page: u32,
     /// Scroll position 0..1 (scrollOffs).
     pub scroll: f32,
     /// The scrollbar is held (scrolling): dragging moves it.
@@ -178,14 +191,16 @@ pub fn item_group_key(id: &str) -> Option<&'static str> {
 impl Creative {
     #[cfg(feature = "ae2-lab")]
     fn append_ae2_tabs(&mut self, root: &Path) -> Result<()> {
-        let tags = crate::items::Items::tags_only(root)?;
+        let tags = crate::items::Items::tags_only(root, &horizon_world::loot::PackOverlay::NONE)?;
         let names = Names::load(root);
+        // Into the exported tabs, which `rebuild` makes the shown ones from
+        // whenever the permissions change; none of AE2's stacks needs them.
         for extra in crate::ae2_creative::tabs(root)? {
             for stack in &extra.items {
                 if self
-                    .search_items
+                    .exported_search
                     .iter()
-                    .any(|s| s.same_item_same_components(stack))
+                    .any(|(s, _, _)| s.same_item_same_components(stack))
                 {
                     continue;
                 }
@@ -197,55 +212,69 @@ impl Creative {
                     .map(|(tag, _)| split_id(&java_lower(tag)))
                     .collect::<Vec<_>>();
                 item_tags.sort();
-                self.search_index.push(SearchEntry {
+                let entry = SearchEntry {
                     namespace,
                     path,
                     lines: vec![java_lower(&names.display_item(&stack.item))],
                     tags: item_tags,
-                });
-                self.search_items.push(stack.clone());
+                };
+                self.exported_search.push((stack.clone(), entry, false));
+                if let Some(search) = self.exported.iter_mut().find(|e| e.tab.search) {
+                    search.tab.items.push(stack.clone());
+                    search.operator.push(false);
+                }
             }
-            if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == extra.id) {
+            if let Some(e) = self.exported.iter_mut().find(|e| e.tab.id == extra.id) {
                 for stack in extra.items {
-                    if !tab
-                        .items
-                        .iter()
-                        .any(|s| s.same_item_same_components(&stack))
-                    {
-                        tab.items.push(stack);
+                    if !e.tab.items.iter().any(|s| s.same_item_same_components(&stack)) {
+                        e.tab.items.push(stack);
+                        e.operator.push(false);
                     }
                 }
             } else {
-                // The native screen has no Saved Hotbars tab and hides the
-                // operator tab, leaving two normal tab positions for AE2.
-                let (top, column) = [true, false]
-                    .into_iter()
-                    .flat_map(|top| (0..7).map(move |column| (top, column)))
-                    .find(|(top, column)| {
-                        !self
-                            .tabs
-                            .iter()
-                            .any(|t| t.top == *top && t.column == *column)
-                    })
-                    .ok_or("no free native creative tab position")?;
-                self.tabs.push(Tab {
-                    id: extra.id,
-                    title: extra.title,
-                    icon: extra.icon.item.to_string(),
-                    icon_stack: Some(extra.icon),
-                    items: extra.items,
-                    top,
-                    column,
-                    search: false,
-                    inventory: false,
+                let index = self.exported.iter().filter(|e| e.tab.page > 0).count() as u32;
+                let (page, top, column) = mod_tab_slot(index);
+                self.exported.push(Exported {
+                    operator: vec![false; extra.items.len()],
+                    tab: Tab {
+                        id: extra.id,
+                        title: extra.title,
+                        icon: extra.icon.item.to_string(),
+                        icon_stack: Some(extra.icon),
+                        items: extra.items,
+                        top,
+                        column,
+                        search: false,
+                        inventory: false,
+                        hotbar: false,
+                        page,
+                    },
+                    category: false,
                 });
             }
         }
-        if let Some(search) = self.tabs.iter_mut().find(|t| t.search) {
-            search.items = self.search_items.clone();
-        }
-        *self.shown.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.rebuild();
         Ok(())
+    }
+    /// How many pages of tabs there are.
+    pub fn pages(&self) -> u32 {
+        self.tabs.iter().map(|t| t.page).max().unwrap_or(0) + 1
+    }
+    /// Whether `tab` shows on the current page: its own page, or every page
+    /// for vanilla's right-hand tabs (search, saved hotbars, operator,
+    /// inventory).
+    pub fn on_page(&self, tab: &Tab) -> bool {
+        tab.page == self.page || (tab.page == 0 && tab.column >= 5)
+    }
+    /// NeoForge's page buttons: show page `page` (kept to the pages there
+    /// are) and select its first tab when the selected one is not on it.
+    pub fn set_page(&mut self, page: u32) {
+        self.page = page.min(self.pages() - 1);
+        if !self.on_page(self.tab())
+            && let Some(first) = self.tabs.iter().position(|t| t.page == self.page)
+        {
+            self.select(first);
+        }
     }
     pub const WIDTH: f32 = 195.0;
     pub const HEIGHT: f32 = 136.0;
@@ -377,6 +406,7 @@ impl Creative {
                     search: kind == "SEARCH",
                     inventory: kind == "INVENTORY",
                     hotbar: kind == "HOTBAR",
+                    page: 0,
                 },
                 category: kind == "CATEGORY",
                 operator,
@@ -417,6 +447,7 @@ impl Creative {
                     search: kind == "SEARCH",
                     inventory: kind == "INVENTORY",
                     hotbar: false,
+                    page: 0,
                 },
                 category: false,
             });
@@ -439,6 +470,7 @@ impl Creative {
         let mut creative = Self {
             tabs: Vec::new(),
             selected: 0,
+            page: 0,
             scroll: 0.0,
             scrolling: false,
             search: {
@@ -548,6 +580,11 @@ impl Creative {
         }
         self.selected = tab;
         self.scroll = 0.0;
+        // A tab chosen off the page shown (by the pad, an agent, a default)
+        // brings its page along.
+        if !self.on_page(self.tab()) {
+            self.page = self.tab().page;
+        }
         if self.tab().search {
             self.search.focused = true;
             self.search.reset_blink();
@@ -1305,6 +1342,42 @@ mod tests {
     }
 
     #[test]
+    fn mod_tabs_go_on_pages_after_vanilla_and_outlive_a_rebuild() {
+        assert_eq!(mod_tab_slot(0), (1, true, 0));
+        assert_eq!(mod_tab_slot(4), (1, true, 4));
+        assert_eq!(mod_tab_slot(5), (1, false, 0));
+        assert_eq!(mod_tab_slot(10), (2, true, 0));
+        let mut c = with_operator_tab();
+        assert_eq!(c.pages(), 1);
+        let (page, top, column) = mod_tab_slot(0);
+        let modded = Tab {
+            id: "mymod:main".into(),
+            items: vec![ItemStack::new("minecraft:stone", 1)],
+            page,
+            top,
+            column,
+            ..c.tabs[0].header()
+        };
+        c.exported.push(Exported { tab: modded, category: false, operator: vec![false] });
+        c.rebuild();
+        assert_eq!(c.pages(), 2);
+        let at = |c: &Creative, id: &str| c.tabs.iter().position(|t| t.id == id).unwrap();
+        // Page 0 shows vanilla's tabs; the right-hand ones show on every page.
+        assert!(!c.on_page(&c.tabs[at(&c, "mymod:main")]));
+        c.set_page(1);
+        assert_eq!(c.tab().id, "mymod:main");
+        assert!(!c.on_page(&c.tabs[at(&c, "minecraft:building_blocks")]));
+        assert!(c.on_page(&c.tabs[at(&c, "minecraft:search")]));
+        // Choosing a tab elsewhere brings its page; permissions keep the mod's tab.
+        c.select(at(&c, "minecraft:building_blocks"));
+        assert_eq!(c.page, 0);
+        assert!(c.set_permissions(true, &Names::default()));
+        assert!(tab_ids(&c).contains(&"mymod:main"));
+        c.set_page(9);
+        assert_eq!(c.page, 1);
+    }
+
+    #[test]
     fn operator_stacks_stay_out_without_permissions() {
         let c = with_operator_tab();
         let names = Names::default();
@@ -1540,6 +1613,7 @@ mod tests {
     #[test]
     fn unselected_tabs_want_the_hand_strictly_inside() {
         let tab = |top, column| Tab {
+            icon_stack: None,
             id: String::new(),
             title: String::new(),
             icon: String::new(),
@@ -1549,6 +1623,7 @@ mod tests {
             search: false,
             inventory: false,
             hotbar: false,
+            page: 0,
         };
         // Top row, second column: the button spans x 27..53, y -28..4.
         let t = tab(true, 1);

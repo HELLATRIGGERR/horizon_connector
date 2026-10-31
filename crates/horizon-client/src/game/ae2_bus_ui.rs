@@ -47,7 +47,7 @@ fn field(data: &Compound, name: &str) -> Option<String> {
 }
 fn icon(text: String) -> Option<ItemStack> {
     let mut s = ItemStack::new("minecraft:paper", 1);
-    s.data_mut().custom_name = Some(text);
+    s.data_mut().custom_name = Some(horizon_client::item_data::text_name(text));
     Some(s)
 }
 fn stable(data: &Compound) -> Option<Tag> {
@@ -1033,7 +1033,7 @@ impl Game<'_> {
             items[0]=state.filter.as_ref().and_then(|filter|match filter {
                 EmitterFilter::Item(item)=>Some(item.clone()),
                 EmitterFilter::Fluid(key)=>super::ae2_fluids::fluid_bucket(&key.item_id).map(|id|{
-                    let mut item=ItemStack::new(id,1);item.data_mut().custom_name=Some(format!("Fluid filter: {}",key.item_id));item
+                    let mut item=ItemStack::new(id,1);item.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("Fluid filter: {}",key.item_id)));item
                 }),
             });
             items[1]=icon("Set fluid filter from held bucket".into());
@@ -1368,8 +1368,8 @@ mod emitter_menu_tests {
     fn emitter_physical_upgrade_slot_filters_conserves_and_orders() {
         use horizon_client::{banner::Banners,brewing::Brewing,crafting::Recipes,items::Items,menu::Env};
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
-        let items=Items::catalog(&root).unwrap();let recipes=Recipes::load(&root,&items).unwrap();let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);
-        let stations=horizon_client::stations::StationRecipes::load(&root,&items);let enchantments=horizon_client::enchant::Enchantments::default();let names=horizon_client::creative::Names::default();
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root);
+        let stations=horizon_client::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let enchantments=horizon_client::enchant::Enchantments::default();let names=horizon_client::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&stations,enchantments:&enchantments,names:&names,trade:None,maps:None};
         let card=|id:&str,n|Some(ItemStack::new(id,n));let mut menu=emitter_menu();
         menu.carried=card("ae2:speed_card",2);menu.click(&env,36,0,Input::Pickup).unwrap();assert!(menu.slot(36).is_none());assert_eq!(menu.carried.as_ref().map(|s|s.count),Some(2));

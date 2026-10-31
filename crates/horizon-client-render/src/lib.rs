@@ -1,6 +1,18 @@
 //! The client's world data, rendering and screens: chunks, meshing, light, streaming, the renderer,
 //! the HUD, menus and settings. Gameplay (horizon-client) builds on it; nothing here reaches gameplay.
 #![forbid(unsafe_code)]
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_common_config;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_meteorite;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_provider_queue;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_world;
+#[cfg(feature = "ae2-lab")]
+pub use horizon_command::ae2_components;
+#[cfg(feature = "ae2-lab")]
+pub use horizon_items::ae2_stack_identity;
 pub mod assets;
 pub mod atlas_sources;
 pub mod audio;

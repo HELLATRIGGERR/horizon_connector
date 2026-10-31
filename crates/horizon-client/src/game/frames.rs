@@ -289,6 +289,7 @@ impl Game<'_> {
         self.audio.play(&sound(&f,"break"),Some(at),1.0,1.0);
         self.drop_frame_items(&f,true,false);
         self.world.modified.insert((f.pos[0] >> 4,f.pos[2] >> 4));
+    }
     /// `ItemFrame.setItem` / `setRotation`: `updateNeighbourForOutputSignal`, so
     /// the comparators reading the frame take its new signal.
     fn frame_output_changed(&mut self, pos: [i32; 3]) {

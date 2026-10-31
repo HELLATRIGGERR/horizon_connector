@@ -349,7 +349,7 @@ impl Game<'_> {
             // Source Item.use only invokes useOn for a fluid ray hit.
             return Ok(UseResult::Success { swing: true });
         }
-        let recipes = self.res.recipes().custom.get("ae2:entropy");
+        let recipes = self.res.recipes().ae2_custom.get("ae2:entropy");
         let find = |mode| recipes.and_then(|recipes| recipes.iter()
             .find(|(_, recipe)| matches_recipe(recipe, mode, &block, &fluid)))
             .map(|(_, recipe)| recipe.clone());

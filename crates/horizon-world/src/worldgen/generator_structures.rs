@@ -347,7 +347,7 @@ impl StructureState {
         let work = self.start_work.at((chunk.x, chunk.z));
         let _work = match work.try_lock() {
             Ok(guard) => guard,
-            Err(TryLockError::WouldBlock) if !wait => return None,
+            Err(TryLockError::WouldBlock) if !wait => return Ok(None),
             Err(_) => work.lock().unwrap(),
         };
         if let Some(found) = self.starts.get((chunk.x, chunk.z)) {
@@ -590,7 +590,7 @@ impl StructureState {
         let found: Vec<Option<Starts>> = around
             .iter()
             .map(|&at| self.build_starts(context, at, false))
-            .collect();
+            .collect::<Result<_, _>>()?;
         let mut out = Vec::new();
         for (&at, found) in around.iter().zip(found) {
             let starts = match found {

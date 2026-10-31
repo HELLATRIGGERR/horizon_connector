@@ -192,6 +192,9 @@ impl Game<'_> {
                     }
                 }
                 for (i, t) in self.creative_screen.tabs.iter().enumerate() {
+                    if !self.creative_screen.on_page(t) {
+                        continue;
+                    }
                     let (x, y) = Creative::tab_position(t);
                     targets.push(Target {
                         rect: [ox + x, oy + y, 26.0, 32.0],
@@ -610,6 +613,10 @@ impl Game<'_> {
             (selected + count - 1) % count
         };
         let (ox, oy) = Self::creative_origin(&batch);
+        // A tab on another page: show that page, so the click lands on it.
+        if !self.creative_screen.on_page(&self.creative_screen.tabs[tab]) {
+            self.creative_screen.page = self.creative_screen.tabs[tab].page;
+        }
         let (x, y) = Creative::tab_position(&self.creative_screen.tabs[tab]);
         let back = self.pad.menu.pos;
         self.pad_click_at(event_loop, (ox + x + 13.0, oy + y + 16.0), false);

@@ -3350,7 +3350,7 @@ pub(crate) mod tests {
     #[test]
     fn wrapped_stack_refuses_pickup_and_pours_only_real_fluid_into_buckets() {
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
-        let items=Items::catalog(&root).unwrap();let recipes=Recipes::load(&root,&items).unwrap();let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root,&items);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
         let value=crate::ae2_generic_stack::GenericStack{key:crate::ae2_cell_codec::fluid_key("minecraft:water"),fluid:true,amount:1500};
         let wrapper=crate::ae2_generic_stack::wrap(&value).unwrap();let mut menu=Menu::new(Kind::Chest(1));
@@ -3372,8 +3372,8 @@ pub(crate) mod tests {
     #[test]
     fn quartz_knife_menu_consumes_one_ingot_and_locks_the_physical_knife() {
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
-        let mut items=Items::catalog(&root).unwrap();items.item_tags.insert("ae2:metal_ingots".into(),std::collections::HashSet::from(["minecraft:iron_ingot".into()]));
-        let recipes=Recipes::load(&root,&items).unwrap();let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root,&items);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
+        let mut items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();items.item_tags.insert("ae2:metal_ingots".into(),std::collections::HashSet::from(["minecraft:iron_ingot".into()]));
+        let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
         let mut menu=Menu::new(Kind::Anvil);menu.quartz_knife_slot=Some(0);menu.set_player_item(0,Some(ItemStack::new("ae2:certus_quartz_cutting_knife",1)));
         menu.set_slot(&env,0,stack("iron_ingot",1));assert!(menu.slot(2).is_none());assert!(menu.rename(&env,"Hello"));
@@ -3387,11 +3387,11 @@ pub(crate) mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/resources/26.3");
         if !root.join("items.json").exists() { return; }
-        let items = Items::catalog(&root).unwrap();
-        let recipes = Recipes::load(&root, &items).unwrap();
-        let brewing = Brewing::load(&root, &items);
+        let items = Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let recipes = Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let brewing = Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
         let banners = Banners::load(&root);
-        let station_recipes = crate::stations::StationRecipes::load(&root, &items);
+        let station_recipes = crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
         let enchantments = crate::enchant::Enchantments::default();
         let names = crate::creative::Names::default();
         let env = Env { items: &items, recipes: &recipes, brewing: &brewing,
@@ -3801,11 +3801,11 @@ mod ae2_identity_tests {
     fn native_menu_swap_clone_and_pickup_preserve_source_object_rules() {
         let Some(root) = std::env::var_os("HORIZON_TEST_RESOURCES") else { return };
         let root = std::path::Path::new(&root);
-        let items = Items::catalog(root).unwrap();
-        let recipes = Recipes::load(root, &items).unwrap();
-        let brewing = Brewing::load(root, &items);
+        let items = Items::catalog(root, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let recipes = Recipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let brewing = Brewing::load(root, &items, &horizon_world::loot::PackOverlay::NONE);
         let banners = Banners::load(root);
-        let station_recipes = crate::stations::StationRecipes::load(root, &items);
+        let station_recipes = crate::stations::StationRecipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE);
         let enchantments = crate::enchant::Enchantments::default();
         let names = crate::creative::Names::default();
         let env = Env { items: &items, recipes: &recipes, brewing: &brewing, banners: &banners,

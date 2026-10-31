@@ -7,6 +7,7 @@ rust-version = "1.90"
 description = "Blocks and items as the client knows them: block facts, item stacks and their data components, enchantments, cooldowns, bundles, and items in NBT"
 
 [dependencies]
+horizon-command = { path = "../horizon-command", optional = true }
 horizon-client-core = { path = "../horizon-client-core" }
 horizon-core = { path = "../horizon-core" }
 horizon-world = { path = "../horizon-world" }
@@ -14,6 +15,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["raw_value"] }
 
 [features]
+# AE2's items and the stack identity its storage tracks.
+ae2-lab = ["dep:horizon-command", "horizon-command/ae2-lab", "horizon-client-core/ae2-lab"]
 # Test helpers (`Items::for_tests`, `enchant::tests`) for horizon-client's unit tests.
 test-support = []
 

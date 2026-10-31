@@ -11,5 +11,9 @@ horizon-client-core = { path = "../horizon-client-core" }
 horizon-protocol = { path = "../horizon-protocol" }
 horizon-world = { path = "../horizon-world" }
 
+[features]
+# AE2's item components in commands (`ae2_components`).
+ae2-lab = ["horizon-client-core/ae2-lab"]
+
 [lints]
 workspace = true

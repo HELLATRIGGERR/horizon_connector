@@ -123,9 +123,9 @@ mod tests {
     #[test]
     fn tracked_item_marker_survives_move_without_changing_values_or_wire_data() {
         let mut item = ItemStack::new("minecraft:diamond", 7);
-        let before = crate::save::item_to_nbt(&item);
+        let before = crate::item_nbt::item_to_nbt(&item);
         let held = StackRef::capture(&mut item);
-        assert_eq!(crate::save::item_to_nbt(&item), before);
+        assert_eq!(crate::item_nbt::item_to_nbt(&item), before);
         let moved = item.clone();
         assert!(held.tracks(&moved));
         let mut copy = moved.clone();
@@ -158,8 +158,8 @@ mod tests {
     #[test]
     fn save_roundtrip_reconstructs_a_distinct_object() {
         let original = StackRef::new(ItemStack::new("minecraft:stone", 4));
-        let saved = crate::save::item_to_nbt(&original.read());
-        let loaded = StackRef::new(crate::save::item_from_nbt(&saved).unwrap());
+        let saved = crate::item_nbt::item_to_nbt(&original.read());
+        let loaded = StackRef::new(crate::item_nbt::item_from_nbt(&saved).unwrap());
         assert!(!original.same_object(&loaded));
         loaded.shrink(1);
         assert_eq!(original.read().count, 4);

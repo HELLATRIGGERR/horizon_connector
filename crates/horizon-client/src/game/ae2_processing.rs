@@ -279,7 +279,7 @@ fn inscriber_result(value: &serde_json::Value) -> Option<ItemStack> {
 fn live_inscriber_recipe(machine:&Machine, items:&Items, recipes:&horizon_client::crafting::Recipes) -> Option<(ItemStack,bool)> {
     if let Some(output)=name_press_recipe(machine){return Some((output,false));}
     let [top,bottom,middle,_] = machine.slots.as_slice() else { return None; };
-    recipes.custom.get("ae2:inscriber")?.iter().find_map(|(_,v)| {
+    recipes.ae2_custom.get("ae2:inscriber")?.iter().find_map(|(_,v)| {
         let ingredients=v.get("ingredients")?;
         if !json_ingredient(items,ingredients.get("middle"),middle.as_ref()) { return None; }
         let t=ingredients.get("top");let b=ingredients.get("bottom");
@@ -289,7 +289,7 @@ fn live_inscriber_recipe(machine:&Machine, items:&Items, recipes:&horizon_client
     })
 }
 pub(super) fn live_charger_recipe(stack:&ItemStack,items:&Items,recipes:&horizon_client::crafting::Recipes)->Option<ItemStack> {
-    recipes.custom.get("ae2:charger")?.iter().find_map(|(_,v)| {
+    recipes.ae2_custom.get("ae2:charger")?.iter().find_map(|(_,v)| {
         if !json_ingredient(items,v.get("ingredient"),Some(stack)) {return None;}
         let result=horizon_client::crafting::Template::parse(v.get("result")?)?;
         Some(result.create())
@@ -882,7 +882,7 @@ mod tests {
     use super::*;
     #[test]
     fn inscriber_output_respects_component_stack_maximum() {
-        let items=Items::tags_only(&std::env::temp_dir().join("ae2-empty-item-catalog")).unwrap();
+        let items=Items::tags_only(&std::env::temp_dir().join("ae2-empty-item-catalog"), &horizon_world::loot::PackOverlay::NONE).unwrap();
         let mut output=ItemStack::new("minecraft:stone",1);
         output.data_mut().set_other("minecraft:max_stack_size",Some(Tag::Int(16)));
         let mut partial=output.clone();partial.count=15;
@@ -915,11 +915,11 @@ mod tests {
         let mut m=Machine::new(MachineKind::Inscriber);
         m.slots[0]=Some(press("Alpha"));m.slots[1]=Some(press("Beta"));
         let mut input=simple_stack("minecraft:diamond");input.count=2;input.data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("marker",Tag::Int(7))])));m.slots[2]=Some(input);
-        let output=name_press_recipe(&m).unwrap();assert_eq!(output.count,1);assert_eq!(output.custom_name(),Some("Alpha Beta"));
+        let output=name_press_recipe(&m).unwrap();assert_eq!(output.count,1);assert_eq!(output.custom_name().as_deref(),Some("Alpha Beta"));
         assert_eq!(output.data().unwrap().other("minecraft:custom_data").unwrap().get("marker"),Some(&Tag::Int(7)));
         m.slots[1].as_mut().unwrap().data_mut().set_other("ae2:name_press_name",None);
         m.slots[1].as_mut().unwrap().data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("ae2:name_press_name",Tag::String("Legacy".into()))])));
-        assert_eq!(name_press_recipe(&m).unwrap().custom_name(),Some("Alpha Legacy"));
+        assert_eq!(name_press_recipe(&m).unwrap().custom_name().as_deref(),Some("Alpha Legacy"));
         finish_inscriber(&mut m,false,output);assert!(m.slots[0].is_some()&&m.slots[1].is_some());assert_eq!(m.slots[2].as_ref().unwrap().count,1);
         m.slots[1]=Some(simple_stack("ae2:logic_processor_press"));assert!(name_press_recipe(&m).is_none());
     }
@@ -1550,9 +1550,9 @@ mod pattern_tests {
         std::fs::write(dir.join("cut.json"),r#"{"type":"minecraft:stonecutting","ingredient":["minecraft:stone","minecraft:andesite"],"result":{"id":"minecraft:stone_slab","count":2}}"#).unwrap();
         std::fs::write(dir.join("smith.json"),r#"{"type":"minecraft:smithing_transform","template":"minecraft:netherite_upgrade_smithing_template","base":"minecraft:diamond_sword","addition":"minecraft:netherite_ingot","result":{"id":"minecraft:netherite_sword"}}"#).unwrap();
         std::fs::write(root.join("items.json"),r#"{"minecraft:stone":{},"minecraft:andesite":{},"minecraft:dirt":{},"minecraft:diamond":{},"minecraft:gold_ingot":{},"minecraft:stone_slab":{},"minecraft:netherite_upgrade_smithing_template":{},"minecraft:diamond_sword":{},"minecraft:netherite_ingot":{},"minecraft:netherite_sword":{}}"#).unwrap();
-        let items=Items::catalog(&root).unwrap();
-        let recipes=horizon_client::crafting::Recipes::load(&root,&items).unwrap();
-        let stations=horizon_client::stations::StationData::load(&root,&items);
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let stations=horizon_client::stations::StationData::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
         let named=|name:&str|&recipes.crafting.iter().find(|(id,_)|id==name).unwrap().1;
         assert!(!assembler_recipe_is_special(named("transmute")));
         assert!(assembler_recipe_is_special(named("repair")));
@@ -1862,7 +1862,7 @@ mod processing_pattern_tests {
         let mut ore = simple_stack("minecraft:iron_ore");
         ore.count = 3;
         let mut named = simple_stack("minecraft:iron_ingot");
-        named.data_mut().custom_name = Some("Special".into());
+        named.data_mut().custom_name = Some(horizon_client::item_data::text_name("Special"));
         let inputs = vec![Some(ore.clone())];
         let outputs = vec![
             Some(named.clone()),

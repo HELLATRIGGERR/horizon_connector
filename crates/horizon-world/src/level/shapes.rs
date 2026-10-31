@@ -54,6 +54,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             && self.b.is_waterlogged(state)
         {
             self.schedule_water_tick(pos);
+        }
         let mut new = None;
         self.level.before_update_shape(
             self.ticks,

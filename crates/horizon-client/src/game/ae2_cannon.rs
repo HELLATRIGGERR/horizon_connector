@@ -263,7 +263,7 @@ impl Game<'_> {
             }
             CannonEntity::Special(id) => {
                 let before = self.special_targets().iter().any(|(i, _)| *i == id);
-                let hurt = self.hit_special(id, amount, true, false);
+                let hurt = self.hit_special(id, amount, true, horizon_client::mobs::DamageKind::PlayerAttack, None);
                 before
                     && matches!(hurt, super::dragon::Hurt::Landed { .. })
                     && !self.special_targets().iter().any(|(i, _)| *i == id)

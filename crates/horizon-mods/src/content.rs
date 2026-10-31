@@ -593,6 +593,9 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
             for part in selector.split(',') {
                 let Some((key,value))=part.split_once('=') else { return Err(format!("invalid emission selector {selector:?}")); };
                 if !file.state_properties.get(key).is_some_and(|values|values.iter().any(|v|v==value)) { return Err(format!("unknown emission selector {selector:?}")); }
+            }
+        }
+    }
     if let Some(shapes) = &file.shapes {
         if shapes.property.is_empty() || shapes.values.is_empty() {
             return Err("shapes needs a property and values".into());

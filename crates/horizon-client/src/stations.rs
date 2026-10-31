@@ -546,7 +546,6 @@ impl StationRecipes {
         for (id, v) in sources {
             match v["type"].as_str().unwrap_or("") {
                 "minecraft:smithing_transform" => smithing.push(Smithing::Transform {
-                    id: id.clone(),
                     id,
                     template: ingredient(&v["template"], items),
                     base: ingredient(&v["base"], items),
@@ -1104,7 +1103,7 @@ mod special_pattern_recipe_tests {
         std::fs::write(root.join("horizon-mod-content.json"),br#"["example"]"#).unwrap();
         std::fs::write(nested.join("upgrade.json"),br#"{"type":"minecraft:smithing_transform","template":"minecraft:paper","base":"minecraft:iron_sword","addition":"minecraft:gold_ingot","result":{"id":"minecraft:golden_sword"}}"#).unwrap();
         std::fs::write(nested.join("cut.json"),br#"{"type":"minecraft:stonecutting","ingredient":"minecraft:stone","result":{"id":"minecraft:stone_slab","count":2}}"#).unwrap();
-        let items=Items::for_tests(Default::default());let recipes=StationRecipes::load(&root,&items);
+        let items=Items::for_tests(Default::default());let recipes=StationRecipes::load(&root,&items,&horizon_world::loot::PackOverlay::NONE);
         let enchantments=crate::enchant::tests::sample();let base=ItemStack::new("minecraft:iron_sword",1);
         let (id,result)=recipes.smithing_recipe_result(&enchantments,Some(&ItemStack::new("minecraft:paper",1)),Some(&base),Some(&ItemStack::new("minecraft:gold_ingot",1))).unwrap();
         assert_eq!(id,"example:nested/stations/upgrade");assert_eq!(&*result.item,"minecraft:golden_sword");

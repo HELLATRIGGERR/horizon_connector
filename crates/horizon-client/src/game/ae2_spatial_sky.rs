@@ -63,7 +63,7 @@ impl Game<'_> {
         let uv=[(white.u0+white.u1)*0.5,(white.v0+white.v1)*0.5];
         let level=(brightness*255.0).clamp(0.0,255.0) as u32;
         let color=u32::from_le_bytes([level as u8,level as u8,level as u8,255]);
-        state.vertices.iter().map(|pos|Vertex{normal:[0;4],pos:*pos,uv,layer:2,color,light:0}).collect()
+        state.vertices.iter().map(|pos|Vertex{glint_uv:[0.0,0.0],normal:[0;4],pos:*pos,uv,layer:2,color,light:0}).collect()
     }
 }
 #[cfg(test)]

@@ -94,7 +94,7 @@ mod tests {
         let mut tool = ItemStack::new(TOOL, 1);
         let mut inv = Inventory::read(&tool).unwrap();
         let mut cards = ItemStack::new("ae2:speed_card", 100);
-        cards.data_mut().custom_name = Some("original marked cards".into());
+        cards.data_mut().custom_name = Some(crate::item_data::text_name("original marked cards"));
         assert_eq!(inv.insert(&mut cards, 64), 100);
         assert_eq!(cards.count, 0);
         assert_eq!(inv.slots[0].as_ref().unwrap().count, 64);
@@ -110,7 +110,7 @@ mod tests {
             *slot = Some(ItemStack::new("ae2:capacity_card", 64));
         }
         let mut extra = ItemStack::new("ae2:speed_card", 40);
-        extra.data_mut().custom_name = Some("original marked cards".into());
+        extra.data_mut().custom_name = Some(crate::item_data::text_name("original marked cards"));
         assert_eq!(inv.insert(&mut extra, 64), 28);
         assert_eq!(extra.count, 12);
     }

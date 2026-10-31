@@ -544,8 +544,6 @@ impl ExperienceOrb {
         self.health <= 0
     }
     pub fn bounds(&self) -> Aabb {
-        Aabb::new(Vec3::new(self.position.x-0.25,self.position.y,self.position.z-0.25), Vec3::new(self.position.x+0.25,self.position.y+0.5,self.position.z+0.25))
-    pub fn bounds(&self) -> Aabb {
         let h = 0.25;
         Aabb::new(
             Vec3::new(self.position.x - h, self.position.y, self.position.z - h),

@@ -629,7 +629,7 @@ impl Game<'_> {
         let mut slots=vec![None;27];
         slots[1]=machine.slots.first().cloned().flatten();
         slots[2]=machine.slots.get(1).cloned().flatten();
-        let label=|text:String| {let mut item=ItemStack::new("minecraft:arrow",1);item.data_mut().custom_name=Some(text);Some(item)};
+        let label=|text:String| {let mut item=ItemStack::new("minecraft:arrow",1);item.data_mut().custom_name=Some(horizon_client::item_data::text_name(text));Some(item)};
         let mode=text(&machine.config,"condenser_output").unwrap_or_else(||"trash".into());
         slots[24]=label("Trash input: first slot; cells and components are excluded".into());
         let required=condenser_mode(machine).ok()?.1;let capacity=condenser_capacity(machine);
@@ -1222,7 +1222,7 @@ impl Game<'_> {
                 } else{None};
             }
         }
-        let label=|item:&str,name:String|{let mut s=ItemStack::new(item,1);s.data_mut().custom_name=Some(name);Some(s)};
+        let label=|item:&str,name:String|{let mut s=ItemStack::new(item,1);s.data_mut().custom_name=Some(horizon_client::item_data::text_name(name));Some(s)};
         let fuzzy=settings.as_ref().and_then(|s|text(s,"fuzzy_mode")).unwrap_or_else(||"ignore_all".into());
         let mode=if workbench_keep(machine){"keep on remove"}else{"clear on remove"};
         slots[23]=label("minecraft:comparator",format!("Fuzzy: {fuzzy}; left cycle, right copy mode: {mode}"));

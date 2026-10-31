@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn source_upgrade_slots_override_legacy_and_roundtrip_physical_components() {
         let mut owner=ItemStack::new("ae2:matter_cannon",1);
-        let mut card=ItemStack::new("ae2:energy_card",1);card.data_mut().custom_name=Some("Kept card".into());
+        let mut card=ItemStack::new("ae2:energy_card",1);card.data_mut().custom_name = Some(crate::item_data::text_name("Kept card"));
         owner.data_mut().set_other("ae2:upgrades",Some(Tag::List(vec![Tag::compound([("slot",Tag::Int(2)),("item",save::item_to_nbt(&card))])])));
         owner.data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("ae2_cell_settings",Tag::compound([("upgrades",Tag::List(vec![])),("filters",Tag::List(vec![]))]))])));
         owner.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(200_000.0f64.to_bits())));
@@ -305,9 +305,9 @@ mod tests {
     #[test]
     fn physical_upgrade_holes_keep_source_removal_and_first_empty_insertion_order() {
         let mut tool = ItemStack::new("ae2:matter_cannon", 1);
-        tool.data_mut().custom_name = Some("Actual tool".into());
+        tool.data_mut().custom_name = Some(crate::item_data::text_name("Actual tool"));
         let mut first = ItemStack::new("ae2:speed_card", 64);
-        first.data_mut().custom_name = Some("Marked".into());
+        first.data_mut().custom_name = Some(crate::item_data::text_name("Marked"));
         let mut inventory = Inventory::read(&tool).unwrap();
         assert!(inventory.insert_one(&first));
         assert!(inventory.insert_one(&ItemStack::new("ae2:energy_card", 1)));
@@ -316,7 +316,7 @@ mod tests {
         let removed = inventory.remove_first().unwrap();
         assert_eq!(removed.count, 1);
         assert_eq!(
-            removed.data().unwrap().custom_name.as_deref(),
+            removed.data().unwrap().custom_name_plain().as_deref(),
             Some("Marked")
         );
         inventory.store(&mut tool).unwrap();
@@ -331,7 +331,7 @@ mod tests {
         let mut inventory = Inventory::read(&tool).unwrap();
         assert_eq!(inventory.remove_first().unwrap(), removed);
         assert_eq!(
-            tool.data().unwrap().custom_name.as_deref(),
+            tool.data().unwrap().custom_name_plain().as_deref(),
             Some("Actual tool")
         );
         assert!(!inventory.insert_one(&ItemStack::new("minecraft:diamond", 1)));

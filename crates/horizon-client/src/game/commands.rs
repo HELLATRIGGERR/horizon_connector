@@ -818,6 +818,8 @@ impl Game<'_> {
             Dim::Overworld => 0,
             Dim::Nether => 1,
             Dim::End => 2,
+            #[cfg(feature = "ae2-lab")]
+            Dim::Spatial => 3,
         });
         dims
     }

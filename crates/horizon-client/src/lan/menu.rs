@@ -920,7 +920,7 @@ mod tests {
             key:crate::ae2_cell_codec::fluid_key("minecraft:water"),fluid:true,amount:1500,
         }).unwrap();
         let mut chest=vec![Some(wrapped.clone())];let mut drag=None;
-        let mut view=View{guest:&mut g,container:Some(&mut chest),shulker:false};
+        let mut view=View{guest:&mut g,container:Some(&mut chest),shulker:false,hidden:&[]};
         click(&mut view,&mut drag,0,0,input::PICKUP,&rules);
         assert!(view.guest.carried.is_none());assert_eq!(view.get(0),Some(wrapped));
         view.guest.carried=Some(ItemStack::new("minecraft:bucket",2));

@@ -231,7 +231,7 @@ pub fn ingredient_matches(value: &serde_json::Value, items: &Items, stack: &Item
 /// First matching actual source ammo recipe, including datapack replacements.
 pub fn ammo_weight(recipes: &Recipes, items: &Items, stack: &ItemStack) -> f32 {
     recipes
-        .custom
+        .ae2_custom
         .get("ae2:matter_cannon")
         .and_then(|recipes| {
             recipes
@@ -347,7 +347,7 @@ mod tests {
     use super::*;
     #[test]
     fn physical_tool_cards_apply_source_capacity_and_rate() {
-        let card = |id: &str| crate::save::item_to_nbt(&ItemStack::new(id, 1));
+        let card = |id: &str| horizon_items::item_nbt::item_to_nbt(&ItemStack::new(id, 1));
         let mut cannon = ItemStack::new("ae2:matter_cannon", 1);
         cannon.data_mut().set_other(
             "minecraft:custom_data",

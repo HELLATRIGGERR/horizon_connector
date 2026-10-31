@@ -4,6 +4,8 @@
 //! usage text and the vanilla error messages. Argument types live in
 //! [`args`]; the vanilla command tree in [`vanilla`].
 #![forbid(unsafe_code)]
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_components;
 pub mod args;
 pub mod block;
 pub mod codec;

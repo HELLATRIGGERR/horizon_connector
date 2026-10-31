@@ -1492,12 +1492,6 @@ impl Renderer {
                 attributes: &instance_attributes,
             }),
         ];
-        let line_attributes = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3];
-        let line_buffers = [Some(wgpu::VertexBufferLayout {
-            array_stride: 24,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &line_attributes,
-        })];
         let overlay_attributes=wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x4];
         let overlay_buffers=[Some(wgpu::VertexBufferLayout{array_stride:28,step_mode:wgpu::VertexStepMode::Vertex,attributes:&overlay_attributes})];
         let alpha_blend = wgpu::BlendState::ALPHA_BLENDING;

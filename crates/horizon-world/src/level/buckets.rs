@@ -168,7 +168,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let replaceable=!b.instance_of(state,Class::EndPortal)
             && !b.instance_of(state,Class::EndGateway)
             && (b.is_replaceable(state) || !b.is_solid(state));
-        replaceable || (self.is_liquid_container(state) && self.can_place_liquid(state,fluid))
+        replaceable || (self.is_liquid_container(state) && self.can_place_liquid(state,fluid,false))
     }
     /// AE2 FluidPlacementStrategy.placeInWorld MODULATE after canPlace. Effects
     /// are emitted separately, after callbacks and the plane's throttle check.
@@ -182,7 +182,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         if self.is_liquid_container(state) && fluid==FluidKind::Water {
             // Source ignores placeLiquid's result, including an already-filled
             // waterloggable block, and still consumes one full bucket.
-            self.place_liquid(pos,state,FluidState::new(FluidKind::Water,8,false));
+            self.place_liquid(pos,state,FluidState::new(FluidKind::Water,8,false),false);
             return true;
         }
         let replaceable=!b.instance_of(state,Class::EndPortal)

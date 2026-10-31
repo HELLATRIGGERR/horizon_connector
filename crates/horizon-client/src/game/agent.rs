@@ -407,6 +407,8 @@ impl Game<'_> {
         }
         match self.screen {
             Screen::Playing => "playing",
+            #[cfg(feature = "ae2-lab")]
+            Screen::Mod => "mod",
             Screen::GameModeSwitcher => "gamemode-switcher",
             Screen::Paused => "paused",
             Screen::Options => "options",
@@ -807,8 +809,10 @@ impl Game<'_> {
                 v["origin"]=json!([ox,oy]);
                 v["creative_tabs"]=json!(self.creative_screen.tabs.iter().map(|t| {
                     let (x,y)=horizon_client::creative::Creative::tab_position(t);
-                    json!({"id":t.id,"title":self.creative_tab_title(t),"rect":[ox+x,oy+y,26.0,32.0],"items":t.items.len()})
+                    json!({"id":t.id,"title":self.creative_tab_title(t),"rect":[ox+x,oy+y,26.0,32.0],"items":t.items.len(),"page":t.page,"shown":self.creative_screen.on_page(t)})
                 }).collect::<Vec<_>>());
+                v["creative_page"]=json!(self.creative_screen.page);
+                v["creative_pages"]=json!(self.creative_screen.pages());
             }
         }
         v

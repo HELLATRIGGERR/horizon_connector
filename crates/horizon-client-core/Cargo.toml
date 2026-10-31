@@ -10,5 +10,9 @@ description = "The client's lowest layer: chat text and translations, SNBT and N
 horizon-world = { path = "../horizon-world" }
 serde_json = { version = "1.0.151", features = ["raw_value"] }
 
+[features]
+# AE2's block entities keep their own compound (`block_entity_nbt::canonical`).
+ae2-lab = []
+
 [lints]
 workspace = true

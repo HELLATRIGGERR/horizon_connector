@@ -367,7 +367,7 @@ pub fn canonical(tag: &Tag) -> Option<Tag> {
     let id = id(tag)?;
     let (x, y, z) = (int(tag.get("x"))?, int(tag.get("y"))?, int(tag.get("z"))?);
     #[cfg(feature = "ae2-lab")]
-    if crate::ae2_world::MachineKind::from_id(&id).is_some() {
+    if id.starts_with("ae2:") {
         return Some(tag.clone());
     }
     let mut f = Fields {

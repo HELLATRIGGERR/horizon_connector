@@ -278,7 +278,7 @@ mod tests {
         {g.dimension="ae2:spatial_storage".into();}
         g.vehicle_uuid = Some([1, -2, 3, -4]);
         let mut level = Level::default();
-        store(&g, &mut level);
+        store(&g, &mut level, g.vehicle_uuid);
         let tag = level.player_tag();
         let mut read = Level::default();
         read.read_player(&tag);
@@ -289,10 +289,10 @@ mod tests {
         assert_eq!(back.dimension,g.dimension);
         assert_eq!(back.vehicle_to_restore, Some([1, -2, 3, -4]));
         // Saving before entity residency must not erase the pending reference.
-        store(&back, &mut level);
+        store(&back, &mut level, back.vehicle_uuid);
         assert!(level.player_tag().get("horizon:vehicle_uuid").is_some());
         back.vehicle_to_restore = None;
-        store(&back, &mut level);
+        store(&back, &mut level, back.vehicle_uuid);
         assert!(level.player_tag().get("horizon:vehicle_uuid").is_none());
     }
 

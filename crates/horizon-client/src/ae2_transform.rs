@@ -86,7 +86,7 @@ fn parse(
 }
 pub fn rules(recipes: &Recipes, items: &Items) -> Vec<Rule> {
     recipes
-        .custom
+        .ae2_custom
         .get("ae2:transform")
         .into_iter()
         .flatten()
@@ -178,6 +178,7 @@ mod tests {
     use horizon_core::geometry::Vec3;
     fn entity(id: u32, item: &str, count: u32) -> ItemEntity {
         ItemEntity {
+            target: None,
             health: 5,
             fire_ticks: 0,
             id,

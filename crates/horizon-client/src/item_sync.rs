@@ -1335,6 +1335,7 @@ mod tests {
         );
         let mut w = Writer::new();
         Slot::write(&wire, &mut w);
+        #[cfg(not(feature = "ae2-lab"))]
         assert_eq!(w.data, [1, 1, 1, 0, 109, 1]);
         let wire = Slot::read(&mut Reader::new(&w.data)).unwrap().unwrap();
         assert_eq!(

@@ -73,11 +73,13 @@ impl FlatTerrain {
         if range.start < crate::chunk::MIN_Y || range.end > crate::chunk::MIN_Y + crate::chunk::HEIGHT || range.start >= range.end { return None; }
         let mut layers = vec![0; (range.end - crate::chunk::MIN_Y) as usize];
         layers[(range.start - crate::chunk::MIN_Y) as usize..].fill(block.0);
-        Some(Self { layers, biome, surface: None })
+        Some(Self { shape: LevelShape::OVERWORLD, layers, biome, surface: None, void_platform: None })
     }
     /// An empty dimension.
     pub fn void(biome: u16) -> Self {
         Self {
+            shape: LevelShape::OVERWORLD,
+            void_platform: None,
             layers: Vec::new(),
             biome,
             surface: None,

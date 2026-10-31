@@ -2040,6 +2040,7 @@ impl Game<'_> {
             if let Some(v)=self.ae2_visual_cache.get(&(pos[0],pos[1],pos[2])).cloned() {
                 if self.pack.assets.registry.state(state).is_some_and(|s|s.name==v.kind) { self.ae2_apply_dynamic_shape(&v); }
                 else { self.ae2_visual_cache.remove(&(pos[0],pos[1],pos[2])); }
+            }
             // LevelChunk.setBlockState removes the block entity of a block
             // that changes: the moving piston the client's moveBlocks made
             // stops when the server places what it moved (#3002).
@@ -3860,6 +3861,7 @@ impl Game<'_> {
                     self.remote.as_mut().unwrap().ae2_bus_deferred.push(DeferredBusUpdate::Content(p));
                     return Ok(());
                 }
+                let active = self.remote_menu().0 == p.container;
                 self.remote_menu_state(p.container, p.state);
                 for (slot, item) in p.items.iter().enumerate() {
                     let stack = self.to_stack(item);
@@ -3898,6 +3900,11 @@ impl Game<'_> {
                 self.remote_synced_since(&before);
             }
             C::SetCursorItem(p) => {
+                #[cfg(feature = "ae2-lab")]
+                if self.remote.as_ref().is_some_and(|r|r.ae2_bus_ack_enabled && !r.ae2_bus_pending.is_empty()) {
+                    self.remote.as_mut().unwrap().ae2_bus_deferred.push(DeferredBusUpdate::Cursor(p));
+                    return Ok(());
+                }
                 let stack = self.to_stack(&p.item);
                 self.tutorial_get_item(stack.as_ref());
                 self.carried = stack;
@@ -6825,7 +6832,7 @@ impl Game<'_> {
             let alternate = self.keys.contains(&KeyCode::ShiftLeft);
             if (!alternate && held.is_some_and(|s| self.ae2_wrench_can_rotate(s)) && matches!(block.name.as_ref(), "ae2:drive" | "ae2:charger" | "ae2:inscriber" | "ae2:wireless_access_point" | "ae2:crystal_resonance_generator" | "ae2:sky_stone_chest" | "ae2:smooth_sky_stone_chest" | "ae2:growth_accelerator" | "ae2:vibration_chamber" | "ae2:io_port" | "ae2:spatial_io_port" | "ae2:cell_workbench" | "ae2:chest" | "ae2:spatial_anchor" | "ae2:pattern_provider"))
                 || (alternate && (block.name.as_ref()=="ae2:cable_bus" || horizon_client::ae2_world::MachineKind::from_id(block.name.as_ref()).is_some_and(|kind| !matches!(kind,horizon_client::ae2_world::MachineKind::CableBus|horizon_client::ae2_world::MachineKind::Paint) && self.res.items().get(kind.id()).is_some()))) {
-                return (true, DryUse::default());
+                return (InteractionResult::Success, DryUse::default());
             }
         }
         if self.keys.contains(&KeyCode::ShiftLeft) && hands_full {
@@ -6858,24 +6865,24 @@ impl Game<'_> {
         }
         #[cfg(feature="ae2-lab")]
         if self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2])).name.as_ref()=="ae2:debug_cube_gen" {
-            return (true, DryUse::default());
+            return (InteractionResult::Success, DryUse::default());
         }
         #[cfg(feature="ae2-lab")]
         if self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2])).name.as_ref()=="ae2:crank" {
-            return (true, DryUse::default());
+            return (InteractionResult::Success, DryUse::default());
         }
         #[cfg(feature="ae2-lab")]
         {
             let face=match hit.face {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};
             if self.ae2_monitor_client_use_consumed((hit.pos[0],hit.pos[1],hit.pos[2]),face,held.is_some(),self.keys.contains(&KeyCode::ShiftLeft)) {
-                return (true,DryUse::default());
+                return (InteractionResult::Success, DryUse::default());
             }
         }
         #[cfg(feature="ae2-lab")]
         if held.is_some_and(|s|s.item.as_ref()==horizon_client::ae2_network_tool::TOOL) {
             let face=match hit.face {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};
             if !self.ae2_network_tool_monitor_face((hit.pos[0],hit.pos[1],hit.pos[2]),face) {
-                return (true,DryUse::default());
+                return (InteractionResult::Success, DryUse::default());
             }
         }
         #[cfg(feature="ae2-lab")]
@@ -6887,7 +6894,7 @@ impl Game<'_> {
                 .is_some_and(|v|v.kind=="ae2:charger" && v.slots.first().is_some_and(Option::is_some));
             let insert=held.is_some_and(|stack|super::ae2_processing::charger_chargeable(stack)
                 || super::ae2_processing::live_charger_recipe(stack,self.res.items(),self.res.recipes()).is_some());
-            if occupied || insert { return (true,DryUse::default()); }
+            if occupied || insert { return (InteractionResult::Success, DryUse::default()); }
         }
         #[cfg(feature="ae2-lab")]
         {
@@ -6904,7 +6911,7 @@ impl Game<'_> {
                 "ae2:terminal"|"ae2:pattern_encoding_terminal"|"ae2:crafting_terminal"|"ae2:pattern_access_terminal"|
                 "ae2:cable_interface"|"ae2:cable_pattern_provider"|"ae2:import_bus"|
                 "ae2:export_bus"|"ae2:storage_bus"|"ae2:formation_plane"|"ae2:level_emitter"|"ae2:energy_level_emitter")));
-            if physical || part || cpu {return (true,DryUse::default());}
+            if physical || part || cpu {return (InteractionResult::Success, DryUse::default());}
         }
         use horizon_core::geometry::Direction;
         let face = match hit.face {

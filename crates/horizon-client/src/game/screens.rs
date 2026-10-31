@@ -34,6 +34,9 @@ impl Screen {
             // WinScreen.extractBackground: the poem fills the screen with the End portal, the
             // credits alone blur. Game::menu_blur knows which one rolls.
             Self::Win => false,
+            // AE2's Guide draws its own background.
+            #[cfg(feature = "ae2-lab")]
+            Self::Mod => false,
         }
     }
 }

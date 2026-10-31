@@ -75,7 +75,7 @@ pub struct World {
     /// Block entities, and the order they tick in.
     pub block_entities: crate::block_entities::BlockEntities,
     /// Runtime, state-tagged geometry for dynamic multipart blocks.
-    pub dynamic_shapes: HashMap<
+    pub dynamic_shapes: std::collections::HashMap<
         (i32, i32, i32),
         (
             BlockStateId,
@@ -194,6 +194,9 @@ impl World {
             loaded_entities: self.loaded_entities.clone(),
             modified: self.modified.clone(),
             dynamic_shapes: self.dynamic_shapes.clone(),
+            shape: self.shape,
+            path_writes: self.path_writes.clone(),
+            moving_piston_fallback: self.moving_piston_fallback.clone(),
             chest_openers: self.chest_openers.clone(),
             block_names: self.block_names.clone(),
             watched: self.watched.clone(),

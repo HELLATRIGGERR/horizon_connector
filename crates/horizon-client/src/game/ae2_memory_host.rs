@@ -38,7 +38,7 @@ pub(super) fn set_machine_name_component(machine:&mut Machine,component:Option<&
 }
 
 pub(super) fn stack_name_component(stack:&horizon_client::items::ItemStack)->Option<Tag> {
-    stack.custom_name_component().cloned().or_else(||stack.custom_name().map(|name|Tag::String(name.into())))
+    stack.custom_name_component().cloned()
 }
 
 pub(super) fn publish_memory_name(card:&mut horizon_client::items::ItemStack,component:Option<Tag>) {
@@ -124,7 +124,7 @@ impl Game<'_> {
             let stack=part.get("stack").and_then(save::item_from_nbt).filter(|s|s.item.as_ref()=="ae2:cable_interface"&&s.count==1).ok_or("invalid Interface part stack")?;
             let address=super::ae2_parts::PartAddress{host:self.ae2_local_address(key).ok_or("invalid host address")?,face:face_index as u8};
             let machine=self.ae2_part_machine(address)?.filter(|m|m.kind==MachineKind::Interface).ok_or("missing Interface part")?;
-            let name=stack.custom_name().map(str::to_owned);let component=stack_name_component(&stack);
+            let name=stack.custom_name();let component=stack_name_component(&stack);
             (Target::InterfacePart{index,face:face_index as u8},machine,name,component)
         }else{return Ok(None)};
         Ok(Some(Snapshot{target,host:(**host).clone(),machine,incarnation:self.world.block_entities.incarnation(&key).ok_or("missing machine identity")?,name,name_component}))

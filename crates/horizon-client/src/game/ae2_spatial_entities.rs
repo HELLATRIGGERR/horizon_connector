@@ -486,7 +486,7 @@ impl Game<'_> {
             self.player = Some(player);
             return Err(error);
         }
-        self.trigger_dimension(from, movement.destination);
+        self.trigger_dimension(from, movement.destination, movement.at);
         let target = vec3(movement.at);
         player.position = target;
         player.velocity = Vec3::ZERO;

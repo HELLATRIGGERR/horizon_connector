@@ -3,23 +3,13 @@
 #![forbid(unsafe_code)]
 pub mod advancements;
 #[cfg(feature = "ae2-lab")]
-pub mod ae2_components;
-#[cfg(feature = "ae2-lab")]
-pub mod ae2_powered_items;
-#[cfg(feature = "ae2-lab")]
 pub mod ae2_item_capabilities;
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_event_replay;
 #[cfg(feature = "ae2-lab")]
-pub mod ae2_upgrade_inventory;
-#[cfg(feature = "ae2-lab")]
 pub mod ae2_transform;
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_network_tool;
-#[cfg(feature = "ae2-lab")]
-pub mod ae2_world;
-#[cfg(feature = "ae2-lab")]
-pub mod ae2_stack_identity;
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_job_status;
 pub mod ambience;
@@ -170,20 +160,25 @@ pub use horizon_items::enchant;
 pub use horizon_items::item_data;
 pub use horizon_items::items;
 pub use horizon_items::random_sequences;
-
+#[cfg(all(test, feature = "ae2-lab"))]
+mod ae2_world_tests;
+#[cfg(all(test, feature = "ae2-lab"))]
+mod streaming_flat_tests;
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_cell_codec;
-
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_generic_stack;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_upgrade_inventory;
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_powered_items;
+#[cfg(feature = "ae2-lab")]
+pub use horizon_client_render::{ae2_common_config, ae2_meteorite, ae2_provider_queue, ae2_world};
+#[cfg(feature = "ae2-lab")]
+pub use horizon_command::ae2_components;
+#[cfg(feature = "ae2-lab")]
+pub use horizon_items::ae2_stack_identity;
 
-#[cfg(feature = "ae2-lab")]
-pub mod ae2_provider_queue;
-
-#[cfg(feature = "ae2-lab")]
-pub mod ae2_meteorite;
-#[cfg(feature = "ae2-lab")]
-pub mod ae2_common_config;
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_tick_config;
 #[cfg(feature = "ae2-lab")]

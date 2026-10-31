@@ -184,7 +184,6 @@ impl Game<'_> {
                 if let horizon_world::level::PlaceOutcome::Placed {pos:placed,state} = result {
                     let target=[placed.x,placed.y,placed.z];
                     let state=self.ae2_apply_item_block_state(target,state,&selected);
-                    self.mod_block_event(target,state,true);
                     if let Some(entity)=BlockEntity::for_block(&self.res.facts().get(state).name) {
                         self.world.block_entities.insert((placed.x,placed.y,placed.z),entity);
                         self.apply_placed_item(target,&selected,false);

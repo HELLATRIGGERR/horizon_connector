@@ -44,6 +44,14 @@ impl LevelShape {
         height: 256,
         logical_height: 256,
     };
+    /// AE2's spatial storage: no sky, 256 blocks from y 0.
+    #[cfg(feature = "ae2-lab")]
+    pub const SPATIAL: Self = Self {
+        sky_light: false,
+        min_y: 0,
+        height: 256,
+        logical_height: 256,
+    };
     /// A dimension type's shape, checked as its codec checks it.
     pub fn new(
         min_y: i32,
@@ -104,6 +112,8 @@ impl LevelShapes {
     /// Overworld's.
     pub fn get(&self, id: &str) -> LevelShape {
         match id {
+            #[cfg(feature = "ae2-lab")]
+            "ae2:spatial_storage" => LevelShape::SPATIAL,
             "minecraft:the_nether" => self.nether,
             "minecraft:the_end" => self.end,
             _ => self.overworld,

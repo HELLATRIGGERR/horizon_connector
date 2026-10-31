@@ -17,6 +17,8 @@ arboard = { version = "3.6.1", default-features = false, features = ["wayland-da
 horizon-dualsense = { path = "../horizon-dualsense", optional = true }
 
 [features]
+# AE2's key mappings.
+ae2-lab = []
 controllers = ["dep:horizon-dualsense"]
 
 [lints]

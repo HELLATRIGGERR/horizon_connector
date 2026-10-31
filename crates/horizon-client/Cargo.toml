@@ -96,7 +96,7 @@ wgpu = { version = "30.0.1", default-features = false, features = ["gles"] }
 winresource = "0.1"
 
 [features]
-ae2-lab = ["dep:ae2-cell-core", "dep:ae2-network-core", "dep:ae2-machines-core", "dep:ae2-crafting-core", "dep:ae2-links-core", "dep:toml"]
+ae2-lab = ["horizon-client-render/ae2-lab", "dep:ae2-cell-core", "dep:ae2-network-core", "dep:ae2-machines-core", "dep:ae2-crafting-core", "dep:ae2-links-core", "dep:toml"]
 default = ["audio", "controllers"]
 # Sound output. Without it (and `controllers`) the program links neither libasound nor libudev on
 # Linux: the server build (`--no-default-features`, released as horizon-engine; docs/server.md).

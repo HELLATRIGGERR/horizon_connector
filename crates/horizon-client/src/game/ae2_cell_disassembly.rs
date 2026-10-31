@@ -105,7 +105,7 @@ impl Game<'_> {
                 &stack,
                 self.res
                     .recipes()
-                    .custom
+                    .ae2_custom
                     .get("ae2:storage_cell_disassembly")
                     .map_or(&[][..], Vec::as_slice),
                 energy,
@@ -157,7 +157,7 @@ impl Game<'_> {
                 stack,
                 self.res
                     .recipes()
-                    .custom
+                    .ae2_custom
                     .get("ae2:storage_cell_disassembly")
                     .map_or(&[][..], Vec::as_slice),
                 0.0
@@ -178,7 +178,7 @@ mod tests {
         let mut holder = ItemStack::new("ae2:portable_item_cell_1k", 1);
         let mut inv = Inventory::read(&holder).unwrap();
         let mut card = ItemStack::new("ae2:energy_card", 1);
-        card.data_mut().custom_name = Some("Actual".into());
+        card.data_mut().custom_name = Some(horizon_client::item_data::text_name("Actual"));
         assert!(inv.insert_one(&card));
         inv.store(&mut holder).unwrap();
         let Prepared::Ready(items) = prepare(&holder, &recipes, 12345.0).unwrap() else {

@@ -477,7 +477,7 @@ mod tests {
         transfer_energy(&mut terminal, 800.0, true, false).unwrap();
         let owner = horizon_client::ae2_stack_identity::StackRef::capture(&mut terminal);
         let mut marked = ItemStack::new("minecraft:oak_log", 3);
-        marked.data_mut().custom_name = Some("physical ingredient".into());
+        marked.data_mut().custom_name = Some(horizon_client::item_data::text_name("physical ingredient"));
         let mut grid = vec![None; 9];
         grid[7] = Some(marked);
         store_crafting_grid(&mut terminal, &grid).unwrap();

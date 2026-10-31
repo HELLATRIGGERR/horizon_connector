@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn emitter_matches_exact_and_fuzzy_item_and_fluid_keys() {
         let mut part=match Tag::compound([("id",Tag::String("ae2:level_emitter".into()))]){Tag::Compound(v)=>v,_=>unreachable!()};
-        let mut state=emitter_read(&part).unwrap();let mut marked=ItemStack::new("minecraft:diamond",1);marked.data_mut().custom_name=Some("marked".into());
+        let mut state=emitter_read(&part).unwrap();let mut marked=ItemStack::new("minecraft:diamond",1);marked.data_mut().custom_name=Some(horizon_client::item_data::text_name("marked"));
         let plain=super::super::ae2_lab::key(&ItemStack::new("minecraft:diamond",1)).unwrap();state.filter=Some(EmitterFilter::Item(marked));assert!(!emitter_matches_item(&state,&plain,0));
         state.upgrades[0]=Some(ItemStack::new("ae2:fuzzy_card",1));assert!(emitter_matches_item(&state,&plain,0));
         let water=ItemKey{item_id:"minecraft:water".into(),components:vec![1]};let other_water=ItemKey{item_id:"minecraft:water".into(),components:vec![2]};state.filter=Some(EmitterFilter::Fluid(water));

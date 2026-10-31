@@ -254,7 +254,7 @@ impl Game<'_>{
             let stack=part.get("stack").and_then(save::item_from_nbt).filter(|s|s.item.as_ref()==PART_SOURCE&&s.count==1).ok_or("invalid provider part stack")?;
             let address=super::ae2_parts::PartAddress{host:self.ae2_local_address(key).ok_or("invalid host address")?,face:face_index as u8};
             let machine=self.ae2_part_machine(address)?.ok_or("missing provider part")?;
-            let name=stack.custom_name().map(str::to_owned);
+            let name=stack.custom_name();
             let component=super::ae2_memory_host::stack_name_component(&stack);
             (Target::Part{index,face:face_index as u8},machine,name,component,"all".into())
         }else{return Ok(None)};
@@ -432,7 +432,7 @@ impl Game<'_>{
         m.slots[0]=Some(ItemStack::new("ae2:crafting_pattern",1));m.slots[2]=Some(ItemStack::new("ae2:blank_pattern",2));m.slots[5]=Some(ItemStack::new("minecraft:stone",3));
         let mut p=player();let c=apply_patterns(&mut m,&mut p,&defs,false,|_|64).unwrap();assert!(c.drops.is_empty());assert_eq!(c.missing,0);assert_eq!(m.slots[0].as_ref().unwrap().item.as_ref(),"ae2:crafting_pattern");assert_eq!(m.slots[1].as_ref().unwrap().item.as_ref(),"ae2:processing_pattern");assert_eq!(p.main.iter().flatten().filter(|s|s.item.as_ref()=="ae2:blank_pattern").map(|s|s.count).sum::<u32>(),1);assert_eq!(m.energy,37.);assert_eq!(m.config.get(&"send_list_marker".into()),Some(&Tag::Int(9)));
         let mut m=Machine::new(MachineKind::PatternProvider);m.slots[0]=Some(ItemStack::new("ae2:crafting_pattern",1));let mut p=player();p.main.fill(Some(ItemStack::new("minecraft:stone",64)));let c=apply_patterns(&mut m,&mut p,&defs,false,|_|64).unwrap();assert_eq!(c.drops.len(),1);assert_eq!(c.drops[0],ItemStack::new("ae2:blank_pattern",1));assert_eq!(c.missing,2);assert!(m.slots.iter().all(Option::is_none));
-        for offhand in [false,true]{let mut m=Machine::new(MachineKind::PatternProvider);let mut p=player();let mut blanks=ItemStack::new("ae2:blank_pattern",2);if offhand{p.offhand=Some(blanks.clone())}else{blanks.data_mut().custom_name=Some("Marked blank".into());p.main[1]=Some(blanks.clone())}let c=apply_patterns(&mut m,&mut p,&defs,false,|_|64).unwrap();assert_eq!(m.slots.iter().flatten().count(),2);assert_eq!(c.missing,0);assert_eq!(if offhand{p.offhand.as_ref()}else{p.main[1].as_ref()},Some(&blanks));}
+        for offhand in [false,true]{let mut m=Machine::new(MachineKind::PatternProvider);let mut p=player();let mut blanks=ItemStack::new("ae2:blank_pattern",2);if offhand{p.offhand=Some(blanks.clone())}else{blanks.data_mut().custom_name=Some(horizon_client::item_data::text_name("Marked blank"));p.main[1]=Some(blanks.clone())}let c=apply_patterns(&mut m,&mut p,&defs,false,|_|64).unwrap();assert_eq!(m.slots.iter().flatten().count(),2);assert_eq!(c.missing,0);assert_eq!(if offhand{p.offhand.as_ref()}else{p.main[1].as_ref()},Some(&blanks));}
         let mut m=Machine::new(MachineKind::PatternProvider);let mut p=player();p.main[1]=Some(ItemStack::new("ae2:blank_pattern",1));let c=apply_patterns(&mut m,&mut p,&defs,false,|_|64).unwrap();assert_eq!(m.slots.iter().flatten().count(),1);assert_eq!(c.missing,1);assert!(p.main[1].is_none());
         let mut m=Machine::new(MachineKind::PatternProvider);let mut p=player();let c=apply_patterns(&mut m,&mut p,&defs,true,|_|64).unwrap();assert_eq!(m.slots.iter().flatten().count(),2);assert!(c.drops.is_empty());assert_eq!(c.missing,0);
     }

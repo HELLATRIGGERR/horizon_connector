@@ -700,21 +700,54 @@ impl RecipeIndex {
                 },
             );
         };
-        let dir = root.join("data/minecraft/recipe");
-        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.extension().is_none_or(|e| e != "json") {
-                continue;
+        // Recipe resource locations, nested paths included, in vanilla's
+        // namespace and the content mods': the ids the crafting loader and
+        // advancement rewards use.
+        fn collect(
+            dir: &std::path::Path,
+            base: &std::path::Path,
+            namespace: &str,
+            out: &mut Vec<(String, std::path::PathBuf)>,
+        ) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                let Ok(kind) = std::fs::symlink_metadata(&path).map(|m| m.file_type()) else {
+                    continue;
+                };
+                if kind.is_dir() {
+                    collect(&path, base, namespace, out);
+                } else if (kind.is_file() || kind.is_symlink())
+                    && path.extension().is_some_and(|e| e == "json")
+                    && let Ok(relative) = path.strip_prefix(base)
+                {
+                    let relative = relative.with_extension("");
+                    let name = relative.to_string_lossy().replace('\\', "/");
+                    out.push((format!("{namespace}:{name}"), path));
+                }
             }
-            let (Some(stem), Some(v)) = (
-                path.file_stem().and_then(|s| s.to_str()),
-                std::fs::read(&path)
-                    .ok()
-                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok()),
-            ) else {
+        }
+        let tags = crate::items::load_tags(root, "item", overlay).unwrap_or_default();
+        let mut namespaces = vec!["minecraft".to_owned()];
+        namespaces.extend(crate::mod_content::namespaces(root));
+        namespaces.sort();
+        namespaces.dedup();
+        let mut files = Vec::new();
+        for namespace in namespaces {
+            let dir = root.join("data").join(&namespace).join("recipe");
+            collect(&dir, &dir, &namespace, &mut files);
+        }
+        files.sort();
+        for (id, path) in files {
+            let Some(v) = std::fs::read(&path)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            else {
                 continue;
             };
-            insert(format!("minecraft:{stem}"), &v);
+            if !crate::recipe_conditions::enabled(&v, &tags) {
+                continue;
+            }
+            insert(id, &v);
         }
         // The world's packs' recipes over the game's own: the top pack's
         // file for each id replaces it (`SimpleJsonResourceReloadListener`).
@@ -951,7 +984,7 @@ mod tests {
         let root=std::env::var_os("AE2_NATIVE_RESOURCES").expect("AE2_NATIVE_RESOURCES");
         let oracle=std::env::var_os("AE2_RECIPE_ORACLE").expect("AE2_RECIPE_ORACLE");
         let rows:serde_json::Value=serde_json::from_slice(&std::fs::read(oracle).unwrap()).unwrap();
-        let index=RecipeIndex::load(std::path::Path::new(&root));
+        let index=RecipeIndex::load(std::path::Path::new(&root), &PackOverlay::NONE);
         let expected:std::collections::BTreeSet<_>=rows.as_array().unwrap().iter().map(|r|r["id"].as_str().unwrap().to_owned()).collect();
         let actual:std::collections::BTreeSet<_>=index.ids().filter(|id|id.starts_with("ae2:")).cloned().collect();
         assert_eq!(actual,expected);

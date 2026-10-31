@@ -37,6 +37,8 @@ impl Game<'_> {
     /// Mouse buttons while playing, for mods' clicks.
     pub(super) fn extras_mouse(&mut self, button: MouseButton, pressed: bool) {
         self.native_mouse_event(button, pressed);
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_hotkey_mouse(button, pressed);
         let i = match button {
             MouseButton::Left => 0,
             MouseButton::Right => 1,

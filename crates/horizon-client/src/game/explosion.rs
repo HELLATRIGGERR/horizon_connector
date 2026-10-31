@@ -847,7 +847,7 @@ impl Game<'_> {
         }
         let pitch=(1.0+(self.world.random.next_float()-self.world.random.next_float())*0.2)*32.9;
         self.audio.play("minecraft:entity.generic.explode",Some(center),4.0,pitch);
-        self.lan_explode(center,0.2,0);
+        self.lan_explode(center, true, 0.2, 0, Vec::new());
         Ok(())
     }
     #[cfg(feature = "ae2-lab")]
@@ -862,7 +862,7 @@ impl Game<'_> {
         if let Some(id)=self.motion.health.damage.id(damage_type) {
             if let Some(player)=self.player.as_mut() {
                 if let Ok(outcome)=player.hurt_caused_by(&self.motion.health,self.world.health_rules,id,6.0,blocking,owner.is_some()) {
-                    if outcome.hurt {self.hurt_armor(6.0);}
+                    if outcome.hurt {self.hurt_armor(id, 6.0);}
                     if raised {self.after_block(outcome,6.0,None,false);}
                 }
             }

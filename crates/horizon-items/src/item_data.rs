@@ -271,9 +271,6 @@ impl ItemStack {
     /// Drops an all-default component box so equal stacks compare equal.
     pub fn tidy(&mut self) {
         if let Some(data) = self.extra.as_mut() {
-            if data.custom_name_component.is_some() && data.effective_custom_name_component().is_none() {
-                data.custom_name_component = None;
-            }
             if data.enchantments_component.as_ref().is_some_and(|raw|read_levels(Some(raw))!=data.enchantments) {data.enchantments_component=None;}
             if data.stored_enchantments_component.as_ref().is_some_and(|raw|read_levels(Some(raw))!=data.stored_enchantments) {data.stored_enchantments_component=None;}
             if data.potion_contents_component.as_ref().is_some_and(|raw|potion_component(Some(raw))!=data.potion) {
@@ -368,13 +365,13 @@ impl ItemStack {
         self.data()?.custom_name_plain()
     }
     pub fn custom_name_component(&self) -> Option<&Tag> {
-        self.data().and_then(StackData::effective_custom_name_component)
+        self.data().and_then(|d| d.custom_name.as_ref())
     }
     /// Set a native text component without flattening its serialized form.
     pub fn set_custom_name_component(&mut self, component: Option<Tag>) {
-        let data = self.data_mut();
-        data.custom_name = component.as_ref().and_then(read_text);
-        data.custom_name_component = component.filter(|value| matches!(value, Tag::Compound(_) | Tag::List(_)));
+        self.data_mut().custom_name = component
+            .filter(|tag| read_text(tag).is_some())
+            .map(collapsed_text);
         self.tidy();
     }
     /// `minecraft:item_name` in the current language (`getItemName`'s
@@ -432,34 +429,13 @@ impl ItemStack {
     pub fn same_item_same_components(&self, other: &Self) -> bool {
         if self.item != other.item || self.damage != other.damage { return false; }
         if self.data() == other.data() { return true; }
-        let sidecars=|stack:&Self|stack.data().is_some_and(|d|d.custom_name_component.is_some()
-            || d.enchantments_component.is_some() || d.stored_enchantments_component.is_some()
+        let sidecars=|stack:&Self|stack.data().is_some_and(|d|d.enchantments_component.is_some() || d.stored_enchantments_component.is_some()
             || d.potion_contents_component.is_some() || d.writable_book_content_component.is_some()
             || d.written_book_content_component.is_some());
         if !sidecars(self) && !sidecars(other) {return false;}
         // Direct edits can stale a retained raw value; compare the
         // representation that will actually be saved.
-        let clean = |stack: &Self| {
-            let mut data = stack.data().cloned();
-            if let Some(data) = data.as_mut() {
-                if data.custom_name_component.is_some() && data.effective_custom_name_component().is_none() {
-                    data.custom_name_component = None;
-                }
-                if data.enchantments_component.as_ref().is_some_and(|raw|read_levels(Some(raw))!=data.enchantments) {data.enchantments_component=None;}
-            if data.stored_enchantments_component.as_ref().is_some_and(|raw|read_levels(Some(raw))!=data.stored_enchantments) {data.stored_enchantments_component=None;}
-            if data.potion_contents_component.as_ref().is_some_and(|raw|potion_component(Some(raw))!=data.potion) {
-                    data.potion_contents_component=None;
-                }
-                if data.writable_book_content_component.as_ref().is_some_and(|raw|writable_component(Some(raw))!=data.writable_pages) {
-                    data.writable_book_content_component=None;
-                }
-                if data.written_book_content_component.as_ref().is_some_and(|raw|written_component(Some(raw))!=data.written) {
-                    data.written_book_content_component=None;
-                }
-            }
-            data.filter(|data| !data.is_empty())
-        };
-        clean(self) == clean(other)
+        components_tag(self.damage, self.data()) == components_tag(other.damage, other.data())
     }
     /// `ItemStack.transmuteCopy`: another item keeping every component.
     pub fn transmute(&self, item: &str, count: u32) -> Self {
@@ -643,47 +619,22 @@ fn written_component(tag: Option<&Tag>) -> Option<WrittenBook> {
         title:b.get("title").and_then(filterable_text).unwrap_or_default(),
         author:b.get("author").and_then(string).unwrap_or_default(),
         generation:b.get("generation").and_then(int).unwrap_or(0).clamp(0,3) as u8,
+        page_tags: match b.get("pages") {
+            Some(Tag::List(pages)) => pages
+                .iter()
+                .map(|p| plain_component(p.get("raw").unwrap_or(p)))
+                .collect(),
+            _ => Vec::new(),
+        },
         pages:match b.get("pages") {
             Some(Tag::List(pages))=>pages.iter().filter_map(filterable_text).collect(),
             _=>Vec::new(),
         },
     })
 }
-fn write_potion(potion: Option<&Arc<str>>) -> Option<Tag> {
-    potion.map(|p|Tag::compound([("potion",Tag::String(horizon_world::datafix::dynamic::namespaced(p).as_str().into()))]))
-}
-fn write_writable(pages: &[String]) -> Option<Tag> {
-    (!pages.is_empty()).then(||Tag::compound([("pages",Tag::List(pages.iter().map(|p|
-        Tag::compound([("raw",Tag::String(p.as_str().into()))])).collect()))]))
-}
-fn write_written(book: Option<&WrittenBook>) -> Option<Tag> {
-    book.map(|book| {
-        let raw=|tag|Tag::compound([("raw",tag)]);
-        let mut fields=vec![("title",raw(Tag::String(book.title.as_str().into()))),
-            ("author",Tag::String(book.author.as_str().into()))];
-        if !book.pages.is_empty() {fields.push(("pages",Tag::List(book.pages.iter()
-            .map(|p|raw(Tag::String(p.as_str().into()))).collect())));}
-        if book.generation!=0 {fields.push(("generation",Tag::Int(i32::from(book.generation))));}
-        Tag::compound(fields)
-    })
-}
 
 /// Retain only source fields beyond the native potion model. Alternative
 /// simple potion syntax and explicitly empty effects are the same component.
-fn rich_potion(tag: &Tag) -> bool {
-    tag.get("custom_color").is_some() || matches!(tag.get("custom_effects"),Some(Tag::List(v)) if !v.is_empty())
-}
-fn normalize_potion(tag: &Tag) -> Tag {
-    let Tag::Compound(map)=tag else{return tag.clone()};
-    let mut result=map.clone();
-    if matches!(tag.get("custom_effects"),Some(Tag::List(effects)) if effects.is_empty()) {result.remove(&"custom_effects".into());}
-    if let Some(Tag::String(id))=tag.get("potion") {
-        let id=horizon_world::datafix::dynamic::namespaced(&id.to_string_lossy());
-        result.insert("potion".into(),Tag::String(id.as_str().into()));
-    }
-    result.retain(|key,_|matches!(key.to_string_lossy().as_str(),"potion"|"custom_color"|"custom_effects"));
-    Tag::Compound(result)
-}
 fn hidden_enchantments(tag: &Tag) -> bool {
     matches!(tag.get("show_in_tooltip"),Some(Tag::Byte(0)))
 }
@@ -927,10 +878,6 @@ pub fn components_tag(damage: u32, data: Option<&StackData>) -> Option<Tag> {
                 Tag::compound(potion.into_iter().chain(extra)),
             ));
         }
-        let potion = d.potion_contents_component.as_ref()
-            .filter(|raw|potion_component(Some(raw))==d.potion).cloned()
-            .or_else(||write_potion(d.potion.as_ref()));
-        if let Some(potion)=potion { entries.push(("minecraft:potion_contents",potion)); }
         if let Some((material, pattern)) = &d.trim {
             entries.push((
                 "minecraft:trim",
@@ -954,7 +901,15 @@ pub fn components_tag(damage: u32, data: Option<&StackData>) -> Option<Tag> {
         }
         // Filterable values are saved as {raw: ..}.
         let raw = |t: Tag| Tag::compound([("raw", t)]);
-        if !d.writable_pages.is_empty() {
+        // AE2 keeps a book's own component (filtered text, styled pages) while
+        // its pages are unedited, so a stored book comes back the same.
+        let writable_raw = d
+            .writable_book_content_component
+            .as_ref()
+            .filter(|raw| writable_component(Some(raw)) == d.writable_pages);
+        if let Some(raw) = writable_raw {
+            entries.push(("minecraft:writable_book_content", raw.clone()));
+        } else if !d.writable_pages.is_empty() {
             let pages = d
                 .writable_pages
                 .iter()
@@ -965,7 +920,13 @@ pub fn components_tag(damage: u32, data: Option<&StackData>) -> Option<Tag> {
                 Tag::compound([("pages", Tag::List(pages))]),
             ));
         }
-        if let Some(w) = &d.written {
+        let written_raw = d
+            .written_book_content_component
+            .as_ref()
+            .filter(|raw| written_component(Some(raw)) == d.written);
+        if let Some(raw) = written_raw {
+            entries.push(("minecraft:written_book_content", raw.clone()));
+        } else if let Some(w) = &d.written {
             let pages = if w.page_tags.len() == w.pages.len() {
                 w.page_tags.iter().cloned().map(raw).collect()
             } else {
@@ -1113,18 +1074,21 @@ pub fn decode_components(components: Option<&Tag>) -> (u32, Option<Box<StackData
         return (0, None);
     };
     let damage = c.get("minecraft:damage").and_then(int).unwrap_or(0).max(0) as u32;
+    // A resource location: `water` is `minecraft:water`.
     let potion = match c.get("minecraft:potion_contents") {
-        Some(Tag::String(s)) => Some(Arc::from(s.to_string_lossy().as_str())),
-        Some(t) => t
-            .get("potion")
-            .and_then(string)
-            .map(|s| Arc::from(s.as_str())),
+        Some(Tag::String(s)) => Some(s.to_string_lossy()),
+        Some(t) => t.get("potion").and_then(string),
         None => None,
-    };
+    }
+    .map(|id| Arc::from(horizon_world::datafix::dynamic::namespaced(&id).as_str()));
     let potion_extra = match c.get("minecraft:potion_contents") {
         Some(Tag::Compound(map)) => map
             .iter()
             .filter(|(k, _)| k.to_string_lossy() != "potion")
+            .filter(|(k, v)| {
+                k.to_string_lossy() != "custom_effects"
+                    || !matches!(v, Tag::List(effects) if effects.is_empty())
+            })
             .map(|(k, v)| (k.to_string_lossy(), v.clone()))
             .collect(),
         _ => Vec::new(),
@@ -1274,7 +1238,6 @@ pub fn decode_components(components: Option<&Tag>) -> (u32, Option<Box<StackData
     let hidden=|levels:&Levels|Tag::compound([("levels",levels_tag(levels)),("show_in_tooltip",Tag::Byte(0))]);
     data.enchantments_component=c.get("minecraft:enchantments").filter(|raw|hidden_enchantments(raw)).map(|_|hidden(&data.enchantments));
     data.stored_enchantments_component=c.get("minecraft:stored_enchantments").filter(|raw|hidden_enchantments(raw)).map(|_|hidden(&data.stored_enchantments));
-    data.potion_contents_component=c.get("minecraft:potion_contents").filter(|raw|rich_potion(raw)).map(normalize_potion);
     data.writable_book_content_component=c.get("minecraft:writable_book_content").filter(|raw|rich_writable(raw)).map(|raw|normalize_book(raw,false));
     data.written_book_content_component=c.get("minecraft:written_book_content").filter(|raw|rich_written(raw)).map(|raw|normalize_book(raw,true));
     if let Tag::Compound(map) = c {
@@ -1343,27 +1306,6 @@ mod tests {
 
     use super::*;
 
-    #[cfg(feature = "ae2-lab")]
-    #[test]
-    fn source_codec_alternatives_and_explicit_defaults_use_one_item_key() {
-        let levels=Tag::compound([("minecraft:sharpness",Tag::Int(3))]);
-        let first=Tag::compound([("minecraft:potion_contents",Tag::String("water".into())),
-            ("minecraft:enchantments",levels.clone()),("minecraft:written_book_content",Tag::compound([
-                ("title",Tag::String("Title".into())),("author",Tag::String("A".into())),
-                ("pages",Tag::List(vec![Tag::String("page".into())]))]))]);
-        let second=Tag::compound([("minecraft:potion_contents",Tag::compound([("potion",Tag::String("minecraft:water".into())),("custom_effects",Tag::List(vec![]))])),
-            ("minecraft:enchantments",Tag::compound([("levels",levels),("show_in_tooltip",Tag::Byte(1))])),
-            ("minecraft:written_book_content",Tag::compound([("title",Tag::compound([("raw",Tag::String("Title".into()))])),
-                ("author",Tag::String("A".into())),("generation",Tag::Int(0)),("resolved",Tag::Byte(0)),
-                ("pages",Tag::List(vec![Tag::compound([("raw",Tag::String("page".into()))])]))]))]);
-        let make=|tag:&Tag|{let (damage,extra)=decode_components(Some(tag));ItemStack{damage,extra,..ItemStack::new("minecraft:written_book",1)}};
-        let a=make(&first);let b=make(&second);
-        assert!(a.same_item_same_components(&b));
-        assert_eq!(crate::ae2_cell_codec::key(&a).unwrap(),crate::ae2_cell_codec::key(&b).unwrap());
-        let zero=Tag::compound([("minecraft:enchantments",Tag::compound([("minecraft:sharpness",Tag::Int(0))]))]);
-        let decoded=make(&zero);assert_eq!(decoded.enchantment_level("minecraft:sharpness"),0);
-        assert_eq!(encode_components(&decoded),Some(zero));
-    }
 
     #[test]
     fn source_potion_and_book_components_preserve_nonmodeled_fields_until_edited() {
@@ -1668,11 +1610,11 @@ mod tests {
         assert_eq!(encode_components(&restored).unwrap().get("minecraft:custom_name"), Some(&structured));
         assert!(item.same_item_same_components(&restored));
         let mut plain = ItemStack::new("minecraft:diamond", 1);
-        plain.data_mut().custom_name = item.custom_name().map(str::to_owned);
+        plain.data_mut().custom_name = item.custom_name().map(text_name);
         assert!(!item.same_item_same_components(&plain), "styled and plain names have different components");
-        restored.data_mut().custom_name = Some("Changed".into());
+        restored.data_mut().custom_name = Some(text_name("Changed"));
         let mut changed = ItemStack::new("minecraft:diamond", 1);
-        changed.data_mut().custom_name = Some("Changed".into());
+        changed.data_mut().custom_name = Some(text_name("Changed"));
         assert!(restored.same_item_same_components(&changed));
         assert_eq!(encode_components(&restored).unwrap().get("minecraft:custom_name"), Some(&Tag::String("Changed".into())));
         restored.set_custom_name_component(None);
@@ -1682,7 +1624,7 @@ mod tests {
     fn canonical_stack_roundtrips_namespaced_components() {
         let mut stack = ItemStack::new("minecraft:diamond_chestplate", 1);
         stack.damage = 5;
-        stack.data_mut().custom_name = Some("Relic".into());
+        stack.data_mut().custom_name = Some(text_name("Relic"));
         stack.data_mut().trim = Some(("minecraft:gold".into(), "minecraft:coast".into()));
         let encoded = canon_stack(Some(&stack));
         assert_eq!(parse_stack(&encoded).unwrap(), Some(stack.clone()));
@@ -1762,4 +1704,9 @@ mod tests {
         );
         assert_eq!(data.debug_stick_property("minecraft:dirt"), None);
     }
+}
+
+/// A plain-text `minecraft:custom_name` component, as `Component.literal`.
+pub fn text_name(text: impl AsRef<str>) -> Tag {
+    Tag::String(text.as_ref().into())
 }

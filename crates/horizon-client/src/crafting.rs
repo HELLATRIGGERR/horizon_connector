@@ -54,6 +54,17 @@ impl Ingredient {
         match v {
             Value::String(s) => add(s),
             Value::Array(a) => a.iter().filter_map(Value::as_str).for_each(&mut add),
+            // AE2's recipes come from its 1.21.1 data, where an ingredient may
+            // still be an `{item}` or `{tag}` object.
+            #[cfg(feature = "ae2-lab")]
+            Value::Object(o) => {
+                if let Some(s) = o.get("item").and_then(Value::as_str) {
+                    add(s);
+                }
+                if let Some(t) = o.get("tag").and_then(Value::as_str) {
+                    add(&format!("#{t}"));
+                }
+            }
             _ => return None,
         }
         (!list.is_empty()).then(|| Self::of(list))
@@ -1135,7 +1146,7 @@ pub struct Recipes {
     pub cooking: Vec<Cooking>,
     /// Typed mod handlers can consume their own recipe schemas directly;
     /// they must never be treated as ordinary player crafting recipes.
-    pub custom: HashMap<String, Vec<(String, Value)>>,
+    pub ae2_custom: HashMap<String, Vec<(String, Value)>>,
     pub fluid_tags: HashMap<String,HashSet<String>>,
     facade_items: HashSet<Arc<str>>,
     /// The recipes of types of mods' own, by type, in file order.
@@ -1222,7 +1233,7 @@ impl Recipes {
     pub fn load(root: &Path, items: &Items, overlay: &PackOverlay) -> Result<Self> {
         let mut crafting = Vec::new();
         let mut cooking = Vec::new();
-        let mut custom: HashMap<String, Vec<(String, Value)>> = HashMap::new();
+        let mut ae2_custom: HashMap<String, Vec<(String, Value)>> = HashMap::new();
         let mut custom: HashMap<String, Vec<CustomRecipe>> = HashMap::new();
         let mut meta = HashMap::new();
         fn json_files(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -1295,7 +1306,12 @@ impl Recipes {
                 }
             };
             if !crate::recipe_conditions::enabled(&v, &items.item_tags) { continue; }
-            if let Some(kind) = custom_type(&v) {
+            if let Some(kind) = custom_type(&v).filter(|k| *k != "ae2:quartz_cutting") {
+                // AE2's handlers read their recipes by file name, with the JSON.
+                ae2_custom
+                    .entry(kind.to_owned())
+                    .or_default()
+                    .push((name.clone(), v.clone()));
                 let id = if name.contains(':') {
                     name
                 } else {
@@ -1491,12 +1507,6 @@ impl Recipes {
                     if kind.starts_with("ae2:") {
                         unsupported_ae2 += 1;
                     }
-                    if !kind.starts_with("minecraft:") && kind.contains(':') {
-                        custom
-                            .entry(kind.to_owned())
-                            .or_default()
-                            .push((name.clone(), v.clone()));
-                    }
                     None
                 }
             };
@@ -1535,7 +1545,8 @@ impl Recipes {
             crafting,
             cooking,
             custom,
-            fluid_tags:crate::items::load_tags(root,"fluid")?,
+            ae2_custom,
+            fluid_tags:crate::items::load_tags(root,"fluid",overlay)?,
             facade_items: items.facade_items.clone(),
             meta,
             facts,
@@ -1593,7 +1604,7 @@ impl Recipes {
         // AE2 FacadeRecipe: four anchors around one eligible block item.
         // This dynamic recipe exists only when supplied by the active pack.
         if input.width == 3 && input.height == 3 {
-            if let Some((name, _)) = self.custom.get("ae2:facade").and_then(|v| v.first()) {
+            if let Some((name, _)) = self.ae2_custom.get("ae2:facade").and_then(|v| v.first()) {
                 let corners = [(0, 0), (2, 0), (0, 2), (2, 2)];
                 let sides = [(1, 0), (0, 1), (2, 1), (1, 2)];
                 if corners.iter().all(|&(x, y)| input.get(x, y).is_none())
@@ -1880,7 +1891,7 @@ mod tests {
             "c:gems/fluix".into(),
             HashSet::from(["ae2:fluix_crystal".into()]),
         )]));
-        let recipes = Recipes::load(&root, &items).unwrap();
+        let recipes = Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
         let mut grid = vec![None; 9];
         grid[0] = Some(ItemStack::new("ae2:fluix_crystal", 1));
         let (id, out) = recipes.find(&grid, 3).unwrap();
@@ -1905,7 +1916,7 @@ mod tests {
         fs::write(root.join("horizon-mod-content.json"),br#"["ae2"]"#).unwrap();
         fs::write(dir.join("cable_anchor.json"),br#"{"type":"ae2:quartz_cutting","ingredients":[{"tag":"ae2:knife"},{"tag":"ae2:metal_ingots"}],"result":{"id":"ae2:cable_anchor","count":4}}"#).unwrap();
         let items=Items::for_tests(HashMap::from([("ae2:knife".into(),HashSet::from(["ae2:certus_quartz_cutting_knife".into()])),("ae2:metal_ingots".into(),HashSet::from(["minecraft:iron_ingot".into()]))]));
-        let mut recipes=Recipes::load(&root,&items).unwrap();
+        let mut recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
         recipes.facts.insert(Arc::from("ae2:certus_quartz_cutting_knife"),Facts{max_damage:50,..Default::default()});
         let mut knife=ItemStack::new("ae2:certus_quartz_cutting_knife",1);knife.damage=48;
         let mut grid=vec![None;9];grid[4]=Some(knife);grid[5]=Some(ItemStack::new("minecraft:iron_ingot",1));
@@ -1939,7 +1950,7 @@ mod tests {
     #[test]
     fn ae2_facade_recipe_checks_block_eligibility_and_components() {
         let mut book = cooking_book();
-        book.custom.insert(
+        book.ae2_custom.insert(
             "ae2:facade".into(),
             vec![(
                 "ae2:special/facade".into(),
@@ -1967,6 +1978,7 @@ mod tests {
         grid[0] = Some(ItemStack::new("minecraft:dirt", 1));
         assert!(book.find(&grid, 3).is_none());
     }
+    #[test]
     fn result_count_is_bounded_like_vanilla() {
         let parse = |s: &str| Template::parse(&serde_json::from_str(s).unwrap());
         assert_eq!(parse(r#"{"id":"minecraft:stone"}"#).unwrap().count, 1);
@@ -2022,6 +2034,7 @@ mod tests {
             crafting: Vec::new(),
             cooking,
             custom: HashMap::new(),
+            ae2_custom: HashMap::new(),
             fluid_tags:HashMap::new(),
             facade_items: HashSet::new(),
             meta: HashMap::new(),
@@ -2042,6 +2055,8 @@ mod tests {
         assert!(recipes.assemble_named("minecraft:rocket",&grid,3).is_none());
         let result=recipes.assemble_named_special_unchecked("minecraft:rocket",&grid,3).unwrap();
         assert_eq!(result.item.as_ref(),"minecraft:firework_rocket");assert_eq!(result.count,3);
+    }
+    #[test]
     fn only_types_outside_minecraft_are_custom() {
         let kind = |json: &str| {
             let v: Value = serde_json::from_str(json).unwrap();
@@ -2183,6 +2198,7 @@ mod tests {
             crafting: Vec::new(),
             cooking: Vec::new(),
             custom: HashMap::new(),
+            ae2_custom: HashMap::new(),
             fluid_tags:HashMap::new(),
             facade_items: HashSet::new(),
             meta: HashMap::new(),

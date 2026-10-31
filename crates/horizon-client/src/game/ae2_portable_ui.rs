@@ -63,7 +63,7 @@ pub(super) use horizon_client::ae2_cell_codec::can_store_item;
 
 fn nav(name: &str) -> ItemStack {
     let mut s = ItemStack::new("minecraft:arrow", 1);
-    s.data_mut().custom_name = Some(name.into());
+    s.data_mut().custom_name = Some(horizon_client::item_data::text_name(name));
     s
 }
 impl Game<'_> {

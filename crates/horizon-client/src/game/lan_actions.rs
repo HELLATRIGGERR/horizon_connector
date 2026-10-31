@@ -1077,6 +1077,9 @@ impl Game<'_> {
             }
             // Opened by a mod (`native_open_menu`), never here.
             Slots::Native => return false,
+            // AE2's sky stone chests open through their own path.
+            #[cfg(feature = "ae2-lab")]
+            Slots::Ae2SkyChest(..) => return false,
         };
         let Some(items) = host
             .hub
@@ -1286,6 +1289,7 @@ impl Game<'_> {
                             })); }
                             host.hub.send_inventory(gi); return;
                         }
+                    }
                     if !host.hub.guests[gi].may_reach_block(a.pos) {
                         return;
                     }
@@ -2001,6 +2005,8 @@ impl Game<'_> {
                 }
                 let item = self.item_from_network(host, &p.item);
                 if item.as_ref().is_some_and(|stack| stack.count > self.res.items().stack_max(stack)) {
+                    return;
+                }
                 if item
                     .as_ref()
                     .is_some_and(|s| !self.creative_stack_valid(host, gi, s))

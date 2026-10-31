@@ -317,7 +317,7 @@ fn recipe_displays(game:&Game<'_>,node:&Value)->Vec<(String,Display,ItemStack)> 
         }
         for r in &game.res.recipes().cooking {if (by_output&&r.result.item.as_ref()==id)||(!by_output&&normalize_id(&r.id)==id){recipes.push((r.id.clone(),Display::Furnace(r.ingredient.clone()),r.result.clone()));}}
         // Custom recipe data is shown from the loaded registry, retaining its actual inputs and output.
-        for (kind,entries) in &game.res.recipes().custom {
+        for (kind,entries) in &game.res.recipes().ae2_custom {
             for (name,v) in entries {
                 let out=custom_result(v);
                 if (by_output&&out.as_deref()==Some(id))||(!by_output&&normalize_id(name)==id) {

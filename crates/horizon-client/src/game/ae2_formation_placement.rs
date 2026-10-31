@@ -124,8 +124,7 @@ impl Game<'_> {
         for action in plan.actions {
             match action {
                 FormationAction::Place {pos,..}=>{
-                    let at=[pos.0,pos.1,pos.2];let state=self.world.block(pos.0,pos.1,pos.2);
-                    self.mod_block_event(at,state,true);
+                    let state=self.world.block(pos.0,pos.1,pos.2);
                     self.ae2_publish_placed_energy(pos);
                     if matches!(self.res.facts().get(state).name.as_ref(),"ae2:quantum_ring"|"ae2:quantum_link") {self.ae2_quantum_block_added(pos);}
                 },

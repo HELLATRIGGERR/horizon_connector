@@ -598,6 +598,7 @@ impl GeneratorData {
     }
     pub fn bind_block_property(&self,property:crate::block_properties::BlockProperty)->Option<crate::block_properties::BoundBlockProperty>{
         Some(self.feature_resources.as_ref()?.blocks.as_ref()?.properties.bind(property))
+    }
     /// The placed-feature decoration of the biome source `source_json`
     /// (resolved: `source`), shared by every generator that uses it. It
     /// depends on these resources and the source alone, not on the seed, and
@@ -3026,6 +3027,7 @@ impl OverworldGenerator {
     /// before creating workers or starting background structure queries.
     pub fn set_saved_start_source(&self, source: Arc<dyn super::structure::extension::SavedStartSource>) {
         self.pipeline.set_saved_start_source(source);
+    }
     /// A new `WorldGenRegion` random centred on the chunk: what its generation
     /// steps draw from (`level.getRandom()`).
     pub fn region_random(

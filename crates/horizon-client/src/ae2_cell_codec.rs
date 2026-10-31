@@ -215,20 +215,7 @@ pub fn fluid_key(id: &str) -> ItemKey {
         components: Vec::new(),
     }
 }
-pub fn valid_fluid_id(id: &str) -> bool {
-    let Some((namespace, path)) = id.split_once(':') else {
-        return false;
-    };
-    !namespace.is_empty()
-        && !path.is_empty()
-        && namespace
-            .bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-".contains(&c))
-        && path
-            .bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || b"_.-/".contains(&c))
-        && id != "minecraft:empty"
-}
+pub use crate::ae2_provider_queue::valid_fluid_id;
 /// Read the cell item itself. Unknown fluid IDs/components remain preserved;
 /// bucket interaction rejects them unless the host has an exact mapping.
 pub fn read_fluid_cell(stack: &ItemStack) -> Result<Cell, String> {
@@ -768,7 +755,7 @@ mod tests {
     #[test]
     fn source_item_cell_contents_override_legacy_and_persist_mutations() {
         let mut cell=ItemStack::new("ae2:item_storage_cell_1k",1);
-        let mut item=ItemStack::new("minecraft:diamond",1);item.data_mut().custom_name=Some("Saved key".into());
+        let mut item=ItemStack::new("minecraft:diamond",1);item.data_mut().custom_name = Some(crate::item_data::text_name("Saved key"));
         let key=key(&item).unwrap();
         let source=crate::ae2_generic_stack::encode(&crate::ae2_generic_stack::GenericStack{key:key.clone(),fluid:false,amount:10}).unwrap();
         cell.data_mut().set_other("ae2:storage_cell_inv",Some(Tag::List(vec![source])));
@@ -812,7 +799,7 @@ mod tests {
     fn shared_item_codec_roundtrips_components_and_rejects_corruption() {
         let mut item = ItemStack::new("minecraft:diamond_sword", 1);
         item.damage = 7;
-        item.data_mut().custom_name = Some("Physical tool".into());
+        item.data_mut().custom_name = Some(crate::item_data::text_name("Physical tool"));
         let key = key(&item).unwrap();
         let mut cell = Cell::new_1k();
         assert_eq!(cell.insert(&key, 1, Action::Modulate), 1);
@@ -872,4 +859,31 @@ mod tests {
         assert!(decode_view_filter_slots(&[entries[0].clone(),entries[0].clone()]).is_err());
     }
 
+}
+
+#[cfg(test)]
+mod item_key_tests {
+    use horizon_items::item_data::{decode_components, encode_components};
+    use horizon_items::items::ItemStack;
+    use horizon_world::nbt::Tag;
+    #[test]
+    fn source_codec_alternatives_and_explicit_defaults_use_one_item_key() {
+        let levels=Tag::compound([("minecraft:sharpness",Tag::Int(3))]);
+        let first=Tag::compound([("minecraft:potion_contents",Tag::String("water".into())),
+            ("minecraft:enchantments",levels.clone()),("minecraft:written_book_content",Tag::compound([
+                ("title",Tag::String("Title".into())),("author",Tag::String("A".into())),
+                ("pages",Tag::List(vec![Tag::String("page".into())]))]))]);
+        let second=Tag::compound([("minecraft:potion_contents",Tag::compound([("potion",Tag::String("minecraft:water".into())),("custom_effects",Tag::List(vec![]))])),
+            ("minecraft:enchantments",Tag::compound([("levels",levels),("show_in_tooltip",Tag::Byte(1))])),
+            ("minecraft:written_book_content",Tag::compound([("title",Tag::compound([("raw",Tag::String("Title".into()))])),
+                ("author",Tag::String("A".into())),("generation",Tag::Int(0)),("resolved",Tag::Byte(0)),
+                ("pages",Tag::List(vec![Tag::compound([("raw",Tag::String("page".into()))])]))]))]);
+        let make=|tag:&Tag|{let (damage,extra)=decode_components(Some(tag));ItemStack{damage,extra,..ItemStack::new("minecraft:written_book",1)}};
+        let a=make(&first);let b=make(&second);
+        assert!(a.same_item_same_components(&b));
+        assert_eq!(crate::ae2_cell_codec::key(&a).unwrap(),crate::ae2_cell_codec::key(&b).unwrap());
+        let zero=Tag::compound([("minecraft:enchantments",Tag::compound([("minecraft:sharpness",Tag::Int(0))]))]);
+        let decoded=make(&zero);assert_eq!(decoded.enchantment_level("minecraft:sharpness"),0);
+        assert_eq!(encode_components(&decoded),Some(zero));
+    }
 }

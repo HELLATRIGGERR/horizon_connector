@@ -60,7 +60,7 @@ impl Game<'_> {
             let mut quad=|a:glam::DVec3,b:glam::DVec3,width:f64,color:u32| {
                 let d=b-a;let mut n=d.cross(glam::DVec3::Y).normalize_or_zero();
                 if n.length_squared()<0.01 {n=d.cross(glam::DVec3::X).normalize_or_zero();}
-                for p in [a-n*width,a+n*width,b+n*width,b-n*width] {out.push(Vertex{pos:p.as_vec3().to_array(),uv,layer:0,color,light:0xF0F0,normal:[0,0,0,0]});}
+                for p in [a-n*width,a+n*width,b+n*width,b-n*width] {out.push(Vertex{glint_uv:[0.0,0.0],pos:p.as_vec3().to_array(),uv,layer:0,color,light:0xF0F0,normal:[0,0,0,0]});}
             };
             if fx.event.kind=="lightning" {
                 // Five randomized, damped steps as in LightningFX.regen().
@@ -82,7 +82,7 @@ impl Game<'_> {
                     let p=start+direction*f64::from(n);
                     let points=[p-right*size-up*size,p+right*size-up*size,p+right*size+up*size,p-right*size+up*size];
                     let uvs=[[sprite.u0,sprite.v1],[sprite.u1,sprite.v1],[sprite.u1,sprite.v0],[sprite.u0,sprite.v0]];
-                    for i in 0..4 {out.push(Vertex{pos:points[i].as_vec3().to_array(),uv:uvs[i],layer:0,color,light:0xF0F0,normal:[0,0,0,0]});}
+                    for i in 0..4 {out.push(Vertex{glint_uv:[0.0,0.0],pos:points[i].as_vec3().to_array(),uv:uvs[i],layer:0,color,light:0xF0F0,normal:[0,0,0,0]});}
                 }
             }
         }

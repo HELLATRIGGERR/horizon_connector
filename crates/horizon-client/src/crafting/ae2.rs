@@ -78,7 +78,7 @@ pub(super) fn find<'a>(
     recipes: &'a Recipes,
     grid: &[Option<ItemStack>],
 ) -> Option<(&'a str, ItemStack)> {
-    if let Some(upgrades) = recipes.custom.get("ae2:storage_cell_upgrade") {
+    if let Some(upgrades) = recipes.ae2_custom.get("ae2:storage_cell_upgrade") {
         for (name, recipe) in upgrades {
             if let Some((_, _, result)) = storage_upgrade(grid, recipe) {
                 return Some((name.as_str(), result));
@@ -89,7 +89,7 @@ pub(super) fn find<'a>(
         ("ae2:add_item_upgrade", true),
         ("ae2:remove_item_upgrade", false),
     ] {
-        if let Some((name, _)) = recipes.custom.get(kind).and_then(|v| v.first()) {
+        if let Some((name, _)) = recipes.ae2_custom.get(kind).and_then(|v| v.first()) {
             if let Some((result, _)) = item_upgrade(grid, add) {
                 return Some((name.as_str(), result));
             }
@@ -116,7 +116,7 @@ pub(super) fn remainders(
             .map(|id| ItemStack::new(id.as_ref(), 1));
     }
     if let Some((_, recipe)) = recipes
-        .custom
+        .ae2_custom
         .get("ae2:storage_cell_upgrade")
         .and_then(|v| v.iter().find(|(id, _)| id == name))
     {
@@ -129,7 +129,7 @@ pub(super) fn remainders(
         ("ae2:remove_item_upgrade", false),
     ] {
         if recipes
-            .custom
+            .ae2_custom
             .get(kind)
             .is_some_and(|v| v.iter().any(|(id, _)| id == name))
         {
@@ -153,7 +153,8 @@ mod tests {
         let recipes = Recipes {
             crafting: vec![],
             cooking: vec![],
-            custom: std::collections::HashMap::from([(
+            custom: Default::default(),
+            ae2_custom: std::collections::HashMap::from([(
                 "ae2:storage_cell_upgrade".into(),
                 vec![("ae2:upgrade/test".into(), recipe)],
             )]),
@@ -169,7 +170,7 @@ mod tests {
         let mut cell = Cell::new_1k();
         assert_eq!(cell.insert(&key, 7, Action::Modulate), 7);
         let mut holder = ItemStack::new("ae2:item_storage_cell_1k", 1);
-        holder.data_mut().custom_name = Some("My physical cell".into());
+        holder.data_mut().custom_name = Some(crate::item_data::text_name("My physical cell"));
         crate::ae2_cell_codec::write_cell(&mut holder, &cell).unwrap();
         let mut grid = vec![None; 9];
         grid[7] = Some(holder.clone());
@@ -201,7 +202,8 @@ mod tests {
         let recipes = Recipes {
             crafting: vec![],
             cooking: vec![],
-            custom: std::collections::HashMap::from([
+            custom: Default::default(),
+            ae2_custom: std::collections::HashMap::from([
                 (
                     "ae2:add_item_upgrade".into(),
                     vec![("ae2:add_item_upgrade".into(), serde_json::json!({}))],
@@ -222,10 +224,10 @@ mod tests {
         let mut cell = Cell::new_1k();
         cell.insert(&key, 7, Action::Modulate);
         let mut holder = ItemStack::new("ae2:item_storage_cell_1k", 1);
-        holder.data_mut().custom_name = Some("Physical".into());
+        holder.data_mut().custom_name = Some(crate::item_data::text_name("Physical"));
         crate::ae2_cell_codec::write_cell(&mut holder, &cell).unwrap();
         let mut card = ItemStack::new("ae2:fuzzy_card", 3);
-        card.data_mut().custom_name = Some("Marked".into());
+        card.data_mut().custom_name = Some(crate::item_data::text_name("Marked"));
         let mut grid = vec![None; 9];
         grid[7] = Some(holder);
         grid[2] = Some(card.clone());
@@ -249,7 +251,7 @@ mod tests {
         let remaining = recipes.remainders(id, &grid, 3);
         let holder = remaining[7].as_ref().unwrap();
         assert_eq!(
-            holder.data().unwrap().custom_name.as_deref(),
+            holder.data().unwrap().custom_name_plain().as_deref(),
             Some("Physical")
         );
         assert_eq!(

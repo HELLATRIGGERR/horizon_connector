@@ -2146,13 +2146,13 @@ impl Game<'_> {
         #[cfg(feature = "ae2-lab")]
         if let Some(preview)=super::ae2_client_config::cell_preview(stack,super::ae2_client_config::settings()) {
             for upgrade in preview.upgrades {
-                let name=upgrade.custom_name().map(str::to_owned).unwrap_or_else(||self.pack.names.display_item(&upgrade.item));
+                let name=upgrade.custom_name().unwrap_or_else(||self.pack.names.display_item(&upgrade.item));
                 lines.push((horizon_client::text::Text::literal(format!("Upgrade: {name}")),rgba(170,170,170,255)));
             }
             for (key,count,channel) in preview.entries {
                 let fluid=channel==ae2_cell_core::Channel::Fluid;
                 let name=if fluid {self.pack.names.display_item(&key.item_id)} else {
-                    horizon_client::ae2_cell_codec::prototype(&key).ok().and_then(|item|item.custom_name().map(str::to_owned))
+                    horizon_client::ae2_cell_codec::prototype(&key).ok().and_then(|item|item.custom_name())
                         .unwrap_or_else(||self.pack.names.display_item(&key.item_id))
                 };
                 let amount=if fluid {format!("{count} mB")}else{count.to_string()};

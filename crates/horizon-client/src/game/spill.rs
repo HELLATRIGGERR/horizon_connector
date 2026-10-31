@@ -998,8 +998,8 @@ mod tests {
     fn ae2_cpu_drop_limit_uses_a_fresh_list_per_exact_key_and_max_stack() {
         use horizon_client::ae2_world::{Machine,MachineKind};
         let mut cpu=Machine::new(MachineKind::CraftingStorage256k);
-        let mut first=ItemStack::new("minecraft:stone",2_002);first.data_mut().custom_name=Some("one".into());
-        let mut second=ItemStack::new("minecraft:stone",2_002);second.data_mut().custom_name=Some("two".into());
+        let mut first=ItemStack::new("minecraft:stone",2_002);first.data_mut().custom_name = Some(horizon_client::item_data::text_name("one"));
+        let mut second=ItemStack::new("minecraft:stone",2_002);second.data_mut().custom_name = Some(horizon_client::item_data::text_name("two"));
         cpu.config.insert("ae2_cpu_escrow".into(),Tag::List(vec![horizon_client::save::item_to_nbt(&first),horizon_client::save::item_to_nbt(&second)]));
         let drops=ae2_physical_drops_with_max(&cpu,&|_|2);
         assert_eq!(drops.len(),2_002);assert!(drops.iter().all(|item|item.count==2));
@@ -1014,7 +1014,7 @@ mod tests {
     fn terminal_faces_drop_only_their_physical_view_cells() {
         use horizon_client::ae2_world::{Machine, MachineKind};
         let mut cell = ItemStack::new("ae2:view_cell", 1);
-        cell.data_mut().custom_name = Some("owned cell".into());
+        cell.data_mut().custom_name = Some(horizon_client::item_data::text_name("owned cell"));
         for (id, kind) in [("ae2:terminal", MachineKind::Terminal), ("ae2:crafting_terminal", MachineKind::CraftingTerminal), ("ae2:pattern_encoding_terminal", MachineKind::PatternEncodingTerminal)] {
             let mut terminal = Machine::new(kind);
             super::super::ae2_parts::ae2_set_terminal_view_cells(&mut terminal, &[None, Some(cell.clone()), None, None, None]).unwrap();
@@ -1045,12 +1045,12 @@ mod tests {
         assert_eq!(ae2_physical_drops(&loaded), vec![cell]);
         let mut cable = Machine::new(MachineKind::CableBus);
         let mut physical_cable = ItemStack::new("ae2:light_blue_smart_dense_cable", 1);
-        physical_cable.data_mut().custom_name = Some("Named cable".into());
+        physical_cable.data_mut().custom_name = Some(horizon_client::item_data::text_name("Named cable"));
         cable
             .config
             .insert("cable".into(), save::item_to_nbt(&physical_cable));
         let mut named_terminal = ItemStack::new("ae2:terminal", 1);
-        named_terminal.data_mut().custom_name = Some("Storage".into());
+        named_terminal.data_mut().custom_name = Some(horizon_client::item_data::text_name("Storage"));
         cable.config.insert(
             "parts".into(),
             Tag::List(vec![
@@ -1085,7 +1085,7 @@ mod tests {
         assert_eq!(drops[0], physical_cable);
         assert_eq!(drops[1], named_terminal);
         let mut facade=ItemStack::new("ae2:facade",1);
-        facade.data_mut().custom_name=Some("Preserved facade".into());
+        facade.data_mut().custom_name = Some(horizon_client::item_data::text_name("Preserved facade"));
         facade.data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("ae2:facade_item",Tag::String("minecraft:stone".into()))])));
         cable.config.insert("facades".into(),Tag::List(vec![
             Tag::compound([("face",Tag::String("north".into())),("stack",save::item_to_nbt(&facade))]),
@@ -1121,7 +1121,7 @@ mod tests {
         assert!(recovered.iter().skip(1).all(|item|item.same_item_same_components(&queued)));
         let wrench=ae2_physical_part_drops_with_max(&nested,&|_|64);assert_eq!(wrench.len(),1001);
         assert_eq!(wrench.iter().skip(1).map(|item|u64::from(item.count)).sum::<u64>(),64_000);
-        let mut encoded=ItemStack::new("ae2:crafting_pattern",1);encoded.data_mut().custom_name=Some("physical encoded pattern".into());
+        let mut encoded=ItemStack::new("ae2:crafting_pattern",1);encoded.data_mut().custom_name = Some(horizon_client::item_data::text_name("physical encoded pattern"));
         let blank=ItemStack::new("ae2:blank_pattern",3);
         let mut enc_host=Machine::new(MachineKind::CableBus);
         let slot=|n,stack:&ItemStack|{let mut tag=save::item_to_nbt(stack);if let Tag::Compound(c)=&mut tag {c.insert("Slot".into(),Tag::Byte(n));}tag};

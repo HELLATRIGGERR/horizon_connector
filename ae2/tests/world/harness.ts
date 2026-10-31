@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { connect } from 'node:net';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { root, engine } from '../../scripts/common';
 import { acquireRenderLease, awakeNowMs, awakeTimeout } from './background';
@@ -16,7 +17,7 @@ export async function until<T>(read: () => Promise<T>, accept: (value: T) => boo
 }
 
 export class WorldFixture {
-  readonly binary = resolve(process.env.AE2_TEST_BINARY ?? join(engine, 'target/fast/horizon-client'));
+  readonly binary = resolve(process.env.AE2_TEST_BINARY ?? join(engine, 'target/fast', process.platform === 'win32' ? 'horizon-client.exe' : 'horizon-client'));
   readonly resources = resolve(process.env.AE2_RESOURCES ?? join(root, '.local/resources/26.3'));
   readonly content: string;
   readonly run: string;
@@ -33,7 +34,8 @@ export class WorldFixture {
     assert(/^[a-z0-9-]+$/.test(label), 'fixture label must be a safe directory name');
     const tests = join(root, '.local/world-tests'); mkdirSync(tests, { recursive: true });
     this.run = mkdtempSync(join(tests, `${label}-`)); this.game = join(this.run, 'game');
-    this.socket = join(process.platform === 'darwin' ? '/private/tmp' : '/tmp', `ae2-${process.pid}-${label.slice(0, 20)}.sock`);
+    // On Windows the game writes its localhost TCP endpoint and token to this path instead.
+    this.socket = join(process.platform === 'darwin' ? '/private/tmp' : process.platform === 'win32' ? tmpdir() : '/tmp', `ae2-${process.pid}-${label.slice(0, 20)}.sock`);
     for (const name of ['game', 'launcher', 'data', 'config']) mkdirSync(join(this.run, name), { recursive: true });
     writeFileSync(join(this.game, 'options.txt'), 'renderDistance:4\nsimulationDistance:5\nmaxFps:30\nenableVsync:false\npauseOnLostFocus:false\nfullscreen:false\nonboardAccessibility:false\n');
   }
@@ -41,17 +43,30 @@ export class WorldFixture {
   async raw(line: string): Promise<any> {
     return new Promise((resolveReply, reject) => {
       let data = '', settled = false;
-      const socket = connect({ path: this.socket });
+      // Windows: {"transport":"tcp","port","token"}, and `auth TOKEN` as the first line.
+      let endpoint: { port: number; token: string } | undefined;
+      if (process.platform === 'win32') {
+        try { endpoint = JSON.parse(readFileSync(this.socket, 'utf8')); }
+        catch (error) { reject(Object.assign(new Error(`ENOENT: no control endpoint yet at ${this.socket}`), { cause: error })); return; }
+      }
+      let authenticated = !endpoint;
+      const socket = endpoint ? connect({ host: '127.0.0.1', port: endpoint.port }) : connect({ path: this.socket });
       const finish = (error?: unknown, reply?: any) => {
         if (settled) return; settled = true; cancel(); socket.destroy();
         if (error) reject(error); else resolveReply(reply);
       };
       const cancel = awakeTimeout(() => finish(new Error(`Control timeout: ${line}`)), 45000);
-      socket.on('connect', () => socket.write(line + '\n'));
+      socket.on('connect', () => socket.write(endpoint ? `auth ${endpoint.token}\n` : line + '\n'));
       socket.on('error', error => finish(error));
       socket.on('close', () => { if (!settled) finish(new Error(`Control closed before reply: ${line}`)); });
       socket.on('data', bytes => {
         data += bytes.toString(); if (!data.includes('\n')) return;
+        if (!authenticated) {
+          const end = data.indexOf('\n'), auth = data.slice(0, end);
+          if (!auth.includes('"ok"')) { finish(new Error(`Control refused the token: ${auth}`)); return; }
+          authenticated = true; data = data.slice(end + 1); socket.write(line + '\n');
+          if (!data.includes('\n')) return;
+        }
         try {
           const reply = JSON.parse(data.trim());
           appendFileSync(join(this.run, 'transcript.jsonl'), JSON.stringify({ phase: this.phase, line, reply }) + '\n');

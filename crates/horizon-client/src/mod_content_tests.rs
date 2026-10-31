@@ -1330,7 +1330,7 @@ fn fluix_tool_overlay_components_match_host_stats_without_double_application() {
     assert!((component["minecraft:tool"]["rules"][1]["speed"].as_f64().unwrap()-7.2).abs()<0.00001);
     assert!((component["minecraft:attribute_modifiers"][0]["amount"].as_f64().unwrap()-3.4).abs()<0.00001);
     let assets=Assets::load(&root).unwrap();let facts=BlockFacts::load(&root,assets.registry).unwrap();
-    let items=Items::load(&root,assets.registry,&facts).unwrap();let pick=items.get("ae2:fluix_pickaxe").unwrap();
+    let items=Items::load(&root,assets.registry,&facts,&horizon_world::loot::PackOverlay::NONE).unwrap();let pick=items.get("ae2:fluix_pickaxe").unwrap();
     assert_eq!(pick.max_damage,750);assert!((pick.attack_damage-3.4).abs()<0.00001);
     assert!(pick.tool.iter().any(|r|r.speed.is_some_and(|s|(s-7.2).abs()<0.00001)));
     fs::remove_dir_all(scratch).unwrap();
@@ -1573,6 +1573,8 @@ fn ae2_physical_candidate_loads_real_runtime_facts_and_shapes() {
     let behaviour:serde_json::Value=serde_json::from_slice(&fs::read(root.join("block-behaviours.json")).unwrap()).unwrap();
     for name in ["ae2:paint","ae2:quartz_fixture","ae2:sky_stone_chest","ae2:wireless_access_point"] {assert_eq!(behaviour["states"][assets.registry.default_state(name).unwrap().0 as usize][0].as_u64(),Some(0),"{name}");}
     assert_eq!(behaviour["states"][assets.registry.default_state("ae2:mysterious_cube").unwrap().0 as usize][1].as_u64().unwrap() & (1<<2),0);
+    fs::remove_dir_all(scratch).unwrap();
+}
 #[test]
 #[ignore = "full content root: needs prepared vanilla data"]
 fn content_shapes_drive_outline_and_collision() {

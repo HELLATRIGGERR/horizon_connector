@@ -269,13 +269,13 @@ pub(super) fn apply_inscriber(m:&mut Machine,player:&mut Vec<Option<ItemStack>>,
         assert_eq!(card.data().unwrap().dyed_color,Some(0x123456));
     }
     #[test] fn source_survival_reconciliation_preserves_real_items_and_full_inventory_drop(){
-        let mut card=ItemStack::new("ae2:memory_card",1);card.data_mut().custom_name=Some("my named card".into());card.data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("unrelated",Tag::Int(73)),(P2P,Tag::compound([("frequency",Tag::Short(4))]))])));
-        let mut source=Machine::new(MachineKind::Inscriber);source.config.insert("auto_export".into(),Tag::String("YES".into()));source.upgrades[0]=Some(ItemStack::new("ae2:speed_card",1));source.slots[2]=Some(ItemStack::new("minecraft:gold_ingot",3));let before=source.clone();save_inscriber(&mut card,&source,Some("named machine")).unwrap();assert_eq!(source,before);assert_eq!(card.data().unwrap().custom_name.as_deref(),Some("my named card"));assert_eq!(card.data().unwrap().other("minecraft:custom_data").unwrap().get("unrelated"),Some(&Tag::Int(73)));assert!(card.data().unwrap().other("minecraft:custom_data").unwrap().get(P2P).is_none());
+        let mut card=ItemStack::new("ae2:memory_card",1);card.data_mut().custom_name=Some(horizon_client::item_data::text_name("my named card"));card.data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("unrelated",Tag::Int(73)),(P2P,Tag::compound([("frequency",Tag::Short(4))]))])));
+        let mut source=Machine::new(MachineKind::Inscriber);source.config.insert("auto_export".into(),Tag::String("YES".into()));source.upgrades[0]=Some(ItemStack::new("ae2:speed_card",1));source.slots[2]=Some(ItemStack::new("minecraft:gold_ingot",3));let before=source.clone();save_inscriber(&mut card,&source,Some("named machine")).unwrap();assert_eq!(source,before);assert_eq!(card.data().unwrap().custom_name_plain().as_deref(),Some("my named card"));assert_eq!(card.data().unwrap().other("minecraft:custom_data").unwrap().get("unrelated"),Some(&Tag::Int(73)));assert!(card.data().unwrap().other("minecraft:custom_data").unwrap().get(P2P).is_none());
         let saved=read_inscriber(&card).unwrap().unwrap();assert_eq!(saved.name.as_deref(),Some("named machine"));let mut target=Machine::new(MachineKind::Inscriber);target.slots[2]=Some(ItemStack::new("minecraft:diamond",2));target.energy=17.0;target.upgrades[0]=Some(ItemStack::new("ae2:speed_card",1));let mut player=vec![Some(ItemStack::new("minecraft:stone",64));36];let mut pocket=None;
         let result=apply_inscriber(&mut target,&mut player,&mut pocket,&saved,false).unwrap();assert_eq!(result.drops,vec![ItemStack::new("ae2:speed_card",1)]);assert_eq!(result.missing,1);assert!(target.upgrades.iter().all(Option::is_none));assert_eq!(target.slots[2].as_ref().unwrap().count,2);assert_eq!(target.energy,17.0);assert_eq!(target.config.get(&"auto_export".into()),Some(&Tag::String("YES".into())));
         let mut target=Machine::new(MachineKind::Inscriber);target.upgrades[0]=Some(ItemStack::new("ae2:speed_card",1));let mut empty=vec![None;36];let r=apply_inscriber(&mut target,&mut empty,&mut pocket,&saved,false).unwrap();assert!(r.drops.is_empty());assert_eq!(r.missing,0);assert_eq!(target.upgrades.iter().flatten().count(),1);
         let mut target=Machine::new(MachineKind::Inscriber);target.upgrades[0]=Some(ItemStack::new("ae2:speed_card",1));let mut full=vec![Some(ItemStack::new("minecraft:stone",64));36];let mut tool=Some(horizon_client::ae2_network_tool::Inventory::read(&ItemStack::new("ae2:network_tool",1)).unwrap());let r=apply_inscriber(&mut target,&mut full,&mut tool,&saved,false).unwrap();assert!(r.drops.is_empty());assert_eq!(r.missing,0);assert_eq!(target.upgrades.iter().flatten().count(),1);assert!(tool.unwrap().slots.iter().all(Option::is_none));
-        assert!(clear(&mut card).unwrap());assert!(read_inscriber(&card).unwrap().is_none());assert_eq!(card.data().unwrap().custom_name.as_deref(),Some("my named card"));assert_eq!(card.data().unwrap().other("minecraft:custom_data").unwrap().get("unrelated"),Some(&Tag::Int(73)));
+        assert!(clear(&mut card).unwrap());assert!(read_inscriber(&card).unwrap().is_none());assert_eq!(card.data().unwrap().custom_name_plain().as_deref(),Some("my named card"));assert_eq!(card.data().unwrap().other("minecraft:custom_data").unwrap().get("unrelated"),Some(&Tag::Int(73)));
     }
 }
 // Same-type I/O Port memory support, staged alongside the existing shared helpers.
@@ -659,7 +659,7 @@ mod vibration_tests {
         };
         let mut target = Machine::new(MachineKind::VibrationChamber);
         let mut old = ItemStack::new("ae2:speed_card", 1);
-        old.data_mut().custom_name = Some("discarded original".into());
+        old.data_mut().custom_name = Some(horizon_client::item_data::text_name("discarded original"));
         target.upgrades[0] = Some(old);
         let mut inventory = vec![Some(ItemStack::new("minecraft:stone", 64)); 36];
         let mut pocket = None;
@@ -674,7 +674,7 @@ mod vibration_tests {
     fn vibration_moves_real_cards_and_keeps_marked_existing_cards() {
         let mut target = Machine::new(MachineKind::VibrationChamber);
         let mut marked = ItemStack::new("ae2:speed_card", 1);
-        marked.data_mut().custom_name = Some("marked".into());
+        marked.data_mut().custom_name = Some(horizon_client::item_data::text_name("marked"));
         target.upgrades[0] = Some(marked.clone());
         target.upgrades[1] = Some(ItemStack::new("ae2:speed_card", 1));
         let saved = SavedVibration { desired: vec![ItemStack::new("ae2:speed_card", 1), ItemStack::new("ae2:energy_card", 1)], name: None };

@@ -26,9 +26,9 @@ mod tests {
         use horizon_client::{banner::Banners, brewing::Brewing, crafting::Recipes, items::Items, menu::Input};
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
         if !root.join("items.json").exists() { return; }
-        let items=Items::catalog(&root).unwrap();let recipes=Recipes::load(&root,&items).unwrap();
-        let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);
-        let station_recipes=horizon_client::stations::StationRecipes::load(&root,&items);
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root);
+        let station_recipes=horizon_client::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
         let enchantments=horizon_client::enchant::Enchantments::default();let names=horizon_client::creative::Names::default();
         let env=horizon_client::menu::Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,
             station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
@@ -183,7 +183,7 @@ impl Game<'_> {
         let Ok(inv)=Inventory::read(tool) else {return;};
         let (lines,page,pages)=status_lines.unwrap_or_else(||(vec!["Network unavailable".into()],0,1));
         let mut items:Vec<_>=if status.is_some() {
-            (0..27).map(|i|lines.get(i).map(|line|{let mut s=ItemStack::new("minecraft:paper",1);s.data_mut().custom_name=Some(line.clone());s})).collect()
+            (0..27).map(|i|lines.get(i).map(|line|{let mut s=ItemStack::new("minecraft:paper",1);s.data_mut().custom_name=Some(horizon_client::item_data::text_name(line.clone()));s})).collect()
         } else {inv.slots.into_iter().collect()};
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));
         let carried=g.carried.clone();

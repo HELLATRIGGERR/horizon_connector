@@ -912,7 +912,11 @@ pub fn decode_block_entity(tag: &Tag) -> Option<((i32, i32, i32), crate::contain
     let int = |k: &str| number(tag.get(k)).map(|v| v as i32);
     let id = text(tag.get("id"))?;
     let pos = (int("x")?, int("y")?, int("z")?);
-    if id.contains(':') && !id.starts_with("minecraft:") {
+    #[cfg(feature = "ae2-lab")]
+    let ae2_machine = crate::ae2_world::MachineKind::from_id(&id).is_some();
+    #[cfg(not(feature = "ae2-lab"))]
+    let ae2_machine = false;
+    if id.contains(':') && !id.starts_with("minecraft:") && !ae2_machine {
         return Some((
             pos,
             BlockEntity::Mod(Box::new(decode_mod_block_entity(id, tag)?)),
@@ -4706,7 +4710,7 @@ impl<G: ChunkGenerator> ChunkGenerator for Persistent<G> {
             let status = ChunkStatus::from_nbt(record.tag.get("Status").ok_or("saved chunk lacks status")?).map_err(|e|e.to_string())?;
             if status == ChunkStatus::Full { return Err("saved full chunk could not be decoded".into()); }
             if status >= ChunkStatus::Terrain {
-                Some(decode_proto(&record, self.registry.registry, &self.biomes, self.save.tables.get().map(|t|&**t)).ok_or("saved proto chunk could not be decoded")?)
+                Some(decode_proto(&record, self.registry.registry, &self.biomes, self.save.tables.get().map(|t|&**t), self.save.shape.column()).ok_or("saved proto chunk could not be decoded")?)
             } else { None }
         } else { None };
         let mut proto = self.inner.proto_checked(worker,x,z)?;
@@ -4801,7 +4805,7 @@ mod tests {
         let registry = Box::leak(Box::new(horizon_world::level::data::load_registry(&resources).unwrap()));
         let data = GeneratorData::load(&resources.join("worldgen"),registry).unwrap();
         let root = std::env::temp_dir().join(format!("horizon-failed-start-{}",std::process::id()));
-        let save = Arc::new(SaveDir::new(root.clone()));
+        let save = Arc::new(SaveDir::new(root.clone(), LevelShape::OVERWORLD));
         let malformed = NamedTag { name:"".into(), tag:Tag::compound([("Status",Tag::String("minecraft:full".into()))]) };
         save.write_records("region",vec![((0,0),Some(malformed))],true).unwrap();
         let path = root.join("region/r.0.0.mca"); let before = fs::read(&path).unwrap();
@@ -4818,8 +4822,8 @@ mod tests {
         use super::*;
         use horizon_world::worldgen::structure::extension::SavedStartSource;
         let root = std::env::temp_dir().join(format!("horizon-saved-start-source-{}",std::process::id()));
-        let first = SaveDir::new(root.join("first"));
-        let second = SaveDir::new(root.join("second"));
+        let first = SaveDir::new(root.join("first"), LevelShape::OVERWORLD);
+        let second = SaveDir::new(root.join("second"), LevelShape::OVERWORLD);
         let chunk = ChunkPos::new(0,0);
         assert_eq!(first.read_starts(chunk).unwrap(),None);
         let starts: Compound = [("ae2:meteorite".into(), Tag::compound([("id",Tag::String("INVALID".into()))]))].into_iter().collect();
@@ -4828,7 +4832,7 @@ mod tests {
         ]) };
         first.write_records("region",vec![((0,0),Some(record("minecraft:full",starts.clone())))],true).unwrap();
         second.write_records("region",vec![((0,0),Some(record("minecraft:full",Compound::new())))],true).unwrap();
-        let reopened = SaveDir::new(root.join("first"));
+        let reopened = SaveDir::new(root.join("first"), LevelShape::OVERWORLD);
         assert_eq!(reopened.read_starts(chunk).unwrap(),Some(starts));
         assert_eq!(second.read_starts(chunk).unwrap(),Some(Compound::new()));
         first.write_records("region",vec![((1,0),Some(record("minecraft:empty",Compound::new())))],true).unwrap();
@@ -4839,7 +4843,7 @@ mod tests {
     #[test]
     fn checked_entity_reads_preserve_malformed_records_and_see_pending_writes() {
         let root = std::env::temp_dir().join(format!("horizon-checked-entity-read-{}",std::process::id()));
-        let save = SaveDir::new(root.clone());
+        let save = SaveDir::new(root.clone(), LevelShape::OVERWORLD);
         assert!(save.load_entities_checked(0,0).unwrap().is_empty());
         let bad = NamedTag{name:"".into(),tag:Tag::compound([("Entities",Tag::Int(8))])};
         save.write_records("entities",vec![((0,0),Some(bad.clone()))],true).unwrap();
@@ -4851,6 +4855,7 @@ mod tests {
         save.write_records("entities",vec![((0,0),Some(NamedTag{name:"".into(),tag:Tag::compound([("Entities",Tag::List(vec![entity.clone()]))])}))],false).unwrap();
         assert_eq!(save.load_entities_checked(0,0).unwrap(),vec![entity]);
         save.flush().unwrap();
+    }
     use crate::mobs::spawner::SpawnDataExt;
 
     #[test]

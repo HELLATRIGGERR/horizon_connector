@@ -969,7 +969,7 @@ impl Game<'_> {
         if slot==2 && inputs[..2].iter().flatten().any(|s|s.item.as_ref()=="ae2:name_press"){return true}
         let check=super::super::ae2_processing::json_ingredient;
         let (top,bottom,middle)=(&inputs[0],&inputs[1],&inputs[2]);
-        self.res.recipes().custom.get("ae2:inscriber").is_some_and(|recipes|recipes.iter().any(|(_,v)|{
+        self.res.recipes().ae2_custom.get("ae2:inscriber").is_some_and(|recipes|recipes.iter().any(|(_,v)|{
             let Some(ingredients)=v.get("ingredients") else{return false};
             if middle.is_some() && !check(self.res.items(),ingredients.get("middle"),middle.as_ref()){return false}
             match (top.as_ref(),bottom.as_ref()) {

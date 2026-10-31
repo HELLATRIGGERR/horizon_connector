@@ -754,7 +754,7 @@ mod machine_owner_tests {
     #[test]
     fn terminal_view_cells_roundtrip_and_reject_invalid_physical_slots() {
         let mut cell = ItemStack::new("ae2:view_cell", 1);
-        cell.data_mut().custom_name = Some("exact physical cell".into());
+        cell.data_mut().custom_name = Some(horizon_client::item_data::text_name("exact physical cell"));
         for kind in [MachineKind::Terminal, MachineKind::CraftingTerminal, MachineKind::PatternEncodingTerminal] {
             let mut machine = Machine::new(kind);
             assert_eq!(ae2_terminal_view_cells(&machine).unwrap(), vec![None; 5]);
@@ -771,7 +771,7 @@ mod machine_owner_tests {
     #[test]
     fn part_inventory_rejects_duplicate_slots_and_roundtrips_components() {
         let mut a = ItemStack::new("minecraft:diamond", 2);
-        a.data_mut().custom_name = Some("Owned by east face".into());
+        a.data_mut().custom_name = Some(horizon_client::item_data::text_name("Owned by east face"));
         let tag = horizon_client::save::encode_items(&[Some(a.clone()), None]);
         assert_eq!(
             strict_part_items(Some(&tag), 2).unwrap()[0].as_ref(),

@@ -227,7 +227,7 @@ mod emitter_memory {
         #[test]
         fn source_only_emitter_card_preserves_key_components_and_physical_upgrades(){
             let mut source=state();source.threshold=42;source.low=true;source.fuzzy_mode="percent_75".into();source.craft_via_redstone=true;
-            let mut item=ItemStack::new("minecraft:diamond",1);item.data_mut().custom_name=Some("filter".into());source.filter=Some(EmitterFilter::Item(item));
+            let mut item=ItemStack::new("minecraft:diamond",1);item.data_mut().custom_name=Some(horizon_client::item_data::text_name("filter"));source.filter=Some(EmitterFilter::Item(item));
             source.upgrades[0]=Some(ItemStack::new("ae2:fuzzy_card",1));
             let mut card=ItemStack::new("ae2:memory_card",1);save_emitter(&mut card,&source,Some("Named")).unwrap();
             let Some(Tag::List(config))=card.data().unwrap().other("ae2:exported_config_inv")else{panic!("config")};assert_eq!(config[0].get("#"),Some(&Tag::Long(0)));

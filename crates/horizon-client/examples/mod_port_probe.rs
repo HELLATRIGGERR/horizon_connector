@@ -273,6 +273,7 @@ fn main() -> Result<()> {
             Recipe::Shapeless {
                 ingredients,
                 result,
+                ..
             } => json!({
                 "result": result.item.as_deref(), "count": result.count,
                 "ingredients": ingredients.iter().map(|i| sorted(&i.1)).collect::<Vec<_>>()}),

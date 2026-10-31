@@ -151,7 +151,7 @@ impl Game<'_> {
                         let Some(rect)=self.gui.atlas.sprites.get(key) else{continue};
                         let pts=q.positions.map(|p|pose.transform_point3(glam::Vec3::from_array(p)-glam::Vec3::splat(0.5)));
                         let normal=(pts[1]-pts[0]).cross(pts[2]-pts[0]).normalize_or_zero();
-                        for i in 0..4 {out.push(Vertex{pos:pts[i].to_array(),uv:[rect.u0+q.uv[i][0]*(rect.u1-rect.u0),rect.v0+q.uv[i][1]*(rect.v1-rect.v0)],layer:0,color:0xffffffff,light,normal:[(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127]});}
+                        for i in 0..4 {out.push(Vertex{glint_uv:[0.0,0.0],pos:pts[i].to_array(),uv:[rect.u0+q.uv[i][0]*(rect.u1-rect.u0),rect.v0+q.uv[i][1]*(rect.v1-rect.v0)],layer:0,color:0xffffffff,light,normal:[(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127]});}
                     }
                 }
                 continue;
@@ -186,7 +186,7 @@ impl Game<'_> {
                         let us=rect.u1-rect.u0; let vs=rect.v1-rect.v0;
                         for (x,y) in positions {
                             let ty=if face=="down" {y} else {1.-y};
-                            out.push(Vertex{pos:(base+n*0.5+u*(x-0.5)+w*(y-0.5)).to_array(),uv:[rect.u0+x*us,rect.v0+ty*vs],color,light:if emissive {0xF0F0}else{light},layer:0,normal:[(normal[0]*127.) as i8,(normal[1]*127.) as i8,(normal[2]*127.) as i8,-127]});
+                            out.push(Vertex{glint_uv:[0.0,0.0],pos:(base+n*0.5+u*(x-0.5)+w*(y-0.5)).to_array(),uv:[rect.u0+x*us,rect.v0+ty*vs],color,light:if emissive {0xF0F0}else{light},layer:0,normal:[(normal[0]*127.) as i8,(normal[1]*127.) as i8,(normal[2]*127.) as i8,-127]});
                         }
                     };
                     let edge=3./16.;
@@ -240,14 +240,14 @@ impl Game<'_> {
                             let positions=[[-0.15,-0.13,-0.515],[0.15,-0.13,-0.515],[0.15,0.17,-0.515],[-0.15,0.17,-0.515]];
                             let uv=[[rect.u0,rect.v1],[rect.u1,rect.v1],[rect.u1,rect.v0],[rect.u0,rect.v0]];
                             let color=if job.item=="minecraft:water" {0xffff763f} else {0xffffffff};
-                            for i in 0..4 {out.push(Vertex{pos:pose.transform_point3(glam::Vec3::from_array(positions[i])).to_array(),uv:uv[i],color,light:0xF0F0,layer:0,normal:[0;4]});}
+                            for i in 0..4 {out.push(Vertex{glint_uv:[0.0,0.0],pos:pose.transform_point3(glam::Vec3::from_array(positions[i])).to_array(),uv:uv[i],color,light:0xF0F0,layer:0,normal:[0;4]});}
                         }
                     }
                     let text=monitor_amount(job.amount,false,job.fluid);let atlas=&self.gui.atlas;
                     let mut batch=horizon_client::hud::HudBatch::new([1,1]);
                     batch.text(atlas,&text,-atlas.font.width(&text)/2.,0.,text_color,false);
                     let matrix=pose*glam::Mat4::from_translation(glam::Vec3::new(0.,-0.16,-0.525))*glam::Mat4::from_scale(glam::Vec3::new(1./124.,-1./124.,1./124.));
-                    for quad in batch.vertices.as_chunks::<6>().0 {for i in [0,1,2,5] {let v=quad[i];let p=matrix.transform_point3(glam::Vec3::new(v.pos[0],v.pos[1],v.depth));out.push(Vertex{pos:p.to_array(),uv:v.uv,color:v.color,light:0xF0F0,layer:0,normal:[0;4]});}}
+                    for quad in batch.vertices.as_chunks::<6>().0 {for i in [0,1,2,5] {let v=quad[i];let p=matrix.transform_point3(glam::Vec3::new(v.pos[0],v.pos[1],v.depth));out.push(Vertex{glint_uv:[0.0,0.0],pos:p.to_array(),uv:v.uv,color:v.color,light:0xF0F0,layer:0,normal:[0;4]});}}
                 }
                 continue;
             }
@@ -280,7 +280,7 @@ impl Game<'_> {
                                 let next=glam::Vec3::new(x+(random()-0.5)*jitter,y,z+(random()-0.5)*jitter);
                                 let a=base.transform_point3(prev);let b=base.transform_point3(next);
                                 let mut n=(b-a).cross(glam::Vec3::Y).normalize_or_zero();if n.length_squared()<0.01 {n=(b-a).cross(glam::Vec3::X).normalize_or_zero();}
-                                for point in [a-n*0.02,a+n*0.02,b+n*0.02,b-n*0.02] {out.push(Vertex{pos:point.to_array(),uv,layer:0,color:0xffffb776,light:0xF0F0,normal:[0,0,0,0]});}
+                                for point in [a-n*0.02,a+n*0.02,b+n*0.02,b-n*0.02] {out.push(Vertex{glint_uv:[0.0,0.0],pos:point.to_array(),uv,layer:0,color:0xffffb776,light:0xF0F0,normal:[0,0,0,0]});}
                                 prev=next;
                             }
                         }
@@ -318,7 +318,7 @@ impl Game<'_> {
                     let rgb=if lumen {colors[color_index as usize].1}else{colors[color_index as usize].0};
                     let color=0xff000000|((rgb&255)<<16)|(rgb&0xff00)|((rgb>>16)&255);
                     let uv=[[rect.u0,rect.v1],[rect.u1,rect.v1],[rect.u1,rect.v0],[rect.u0,rect.v0]];
-                    for j in 0..4 {out.push(Vertex{pos:(base+glam::Vec3::from_array(points[j])).to_array(),uv:uv[j],layer:0,color,light:if lumen {0xF0F0}else{packed_light},normal:[0,0,0,0]});}
+                    for j in 0..4 {out.push(Vertex{glint_uv:[0.0,0.0],pos:(base+glam::Vec3::from_array(points[j])).to_array(),uv:uv[j],layer:0,color,light:if lumen {0xF0F0}else{packed_light},normal:[0,0,0,0]});}
                 }
                 continue;
             }
@@ -355,7 +355,7 @@ impl Game<'_> {
                         let Some(rect) = self.gui.atlas.sprites.get(key) else { continue };
                         let pts = q.positions.map(|p| pose.transform_point3(glam::Vec3::from_array(p)-glam::Vec3::splat(0.5)));
                         let normal = (pts[1]-pts[0]).cross(pts[2]-pts[0]).normalize_or_zero();
-                        for n in 0..4 { out.push(Vertex {pos:pts[n].to_array(),
+                        for n in 0..4 { out.push(Vertex {glint_uv:[0.0,0.0],pos:pts[n].to_array(),
                             uv:[rect.u0+q.uv[n][0]*(rect.u1-rect.u0),rect.v0+q.uv[n][1]*(rect.v1-rect.v0)],
                             layer:0,color:tint(q.tint_index),light:if name.ends_with("_on") || name.ends_with("_has_channel") {0xF0F0} else {light},
                             normal:[(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127]}); }
@@ -454,7 +454,7 @@ impl Game<'_> {
                             let points=[[-0.2,-0.15,-0.511],[0.2,-0.15,-0.511],[0.2,0.25,-0.511],[-0.2,0.25,-0.511]];
                             let uv=[[rect.u0,rect.v1],[rect.u1,rect.v1],[rect.u1,rect.v0],[rect.u0,rect.v0]];
                             let color=if display.item=="minecraft:water" {0xffff763f} else {0xffffffff};
-                            for i in 0..4 {out.push(Vertex{pos:pose.transform_point3(glam::Vec3::from_array(points[i])).to_array(),uv:uv[i],color,light:0xF0F0,layer:0,normal:[0;4]});}
+                            for i in 0..4 {out.push(Vertex{glint_uv:[0.0,0.0],pos:pose.transform_point3(glam::Vec3::from_array(points[i])).to_array(),uv:uv[i],color,light:0xF0F0,layer:0,normal:[0;4]});}
                         }
                     }
                     let text=monitor_amount(display.amount,display.craftable,display.fluid);
@@ -467,7 +467,7 @@ impl Game<'_> {
                     for quad in batch.vertices.as_chunks::<6>().0 {
                         for i in [0,1,2,5] {
                             let v=quad[i];let point=matrix.transform_point3(glam::Vec3::new(v.pos[0],v.pos[1],v.depth));
-                            out.push(Vertex{pos:point.to_array(),uv:v.uv,color:v.color,light:0xF0F0,layer:0,normal:[0;4]});
+                            out.push(Vertex{glint_uv:[0.0,0.0],pos:point.to_array(),uv:v.uv,color:v.color,light:0xF0F0,layer:0,normal:[0;4]});
                         }
                     }
                 }
@@ -516,7 +516,7 @@ impl Game<'_> {
                             glam::Vec3::from_array(p) + origin - glam::Vec3::splat(0.5)));
                         let normal = (points[1]-points[0]).cross(points[2]-points[0]).normalize_or_zero();
                         for n in 0..4 {
-                            out.push(Vertex { pos: points[n].to_array(),
+                            out.push(Vertex {glint_uv:[0.0,0.0], pos: points[n].to_array(),
                                 uv: [rect.u0+q.uv[n][0]*(rect.u1-rect.u0), rect.v0+q.uv[n][1]*(rect.v1-rect.v0)],
                                 layer: 0, color: 0xFFFF_FFFF, light,
                                 normal: [(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127], });
@@ -537,7 +537,7 @@ impl Game<'_> {
                         [x,y,z],[x+1.0/16.0,y,z]];
                     let normal = base.transform_vector3(glam::Vec3::NEG_Z);
                     for p in points {
-                        out.push(Vertex { pos: base.transform_point3(glam::Vec3::from_array(p)).to_array(),
+                        out.push(Vertex {glint_uv:[0.0,0.0], pos: base.transform_point3(glam::Vec3::from_array(p)).to_array(),
                             uv: [(rect.u0+rect.u1)*0.5,(rect.v0+rect.v1)*0.5],
                             layer: 0,color,light:0x00F000F0,
                             normal:[(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127], });

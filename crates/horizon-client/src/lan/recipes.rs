@@ -73,7 +73,7 @@ pub(super) fn resource_recipes(resources: &Path) -> BTreeMap<String, Value> {
     namespaces.sort();namespaces.dedup();
     let mut all=BTreeMap::new();
     for namespace in namespaces {collect(&resources.join("data").join(&namespace).join("recipe"),"",&namespace,&mut all);}
-    let tags=crate::items::load_tags(resources,"item").unwrap_or_default();
+    let tags=crate::items::load_tags(resources,"item",&horizon_world::loot::PackOverlay::NONE).unwrap_or_default();
     all.retain(|_,v|crate::recipe_conditions::enabled(v,&tags));
     all
 }

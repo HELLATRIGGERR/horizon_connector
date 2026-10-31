@@ -24,7 +24,7 @@ impl Game<'_> {
         let stack=part.get("stack").and_then(save::item_from_nbt).filter(|s|s.item.as_ref()=="ae2:level_emitter"&&s.count==1).ok_or("invalid emitter stack")?;
         let Tag::Compound(data)=part else{return Err("invalid emitter part".into())};
         let address=super::ae2_parts::PartAddress{host:self.ae2_local_address(key).ok_or("invalid emitter address")?,face:face_index as u8};
-        Ok(Some(EmitterMemorySnapshot{index,face:face.to_owned(),address,host:(**host).clone(),incarnation:self.world.block_entities.incarnation(&key).ok_or("missing emitter host identity")?,state:super::ae2_emitter::emitter_read(data)?,name:stack.custom_name().map(str::to_owned),name_component:stack_name_component(&stack)}))
+        Ok(Some(EmitterMemorySnapshot{index,face:face.to_owned(),address,host:(**host).clone(),incarnation:self.world.block_entities.incarnation(&key).ok_or("missing emitter host identity")?,state:super::ae2_emitter::emitter_read(data)?,name:stack.custom_name(),name_component:stack_name_component(&stack)}))
     }
     fn emitter_memory_commit(&mut self,pos:[i32;3],snapshot:&EmitterMemorySnapshot,state:&super::ae2_emitter::EmitterState,name:Option<Option<Tag>>)->Result<(),String>{
         let key=(pos[0],pos[1],pos[2]);if self.world.block_entities.incarnation(&key)!=Some(snapshot.incarnation){return Err("emitter host identity changed".into())}

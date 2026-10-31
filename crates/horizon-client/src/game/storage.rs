@@ -527,17 +527,17 @@ impl Game<'_> {
             batch.text(atlas,"Crafting status",ox+8.0,oy+7.0,grey,false);
             batch.text(atlas,"Stored / scheduled / crafting",ox+8.0,oy+110.0,grey,false);
             if let Some(items)=self.ae2_craft_menu_items() {
-                if let Some(label)=items.get(1).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                if let Some(label)=items.get(1).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
                     batch.text(atlas,&label.chars().take(31).collect::<String>(),ox+8.0,oy+122.0,grey,false);
                 }
                 for i in 0..12 {
-                    if let Some(label)=items.get(5+i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                    if let Some(label)=items.get(5+i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
                         let amounts=label.split_once(": stored ").map(|(_,v)|v.replace(", pending ","/").replace(", active ","/")).unwrap_or_else(||label.to_owned());
                         batch.text(atlas,&amounts.chars().take(9).collect::<String>(),ox+30.0+(i%3) as f32*68.0,oy+29.0+(i/3) as f32*18.0,grey,false);
                     }
                 }
             }
-            if let Some(mode)=self.ae2_craft_menu_items().and_then(|items|items.first()).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+            if let Some(mode)=self.ae2_craft_menu_items().and_then(|items|items.first()).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
                 batch.fill(atlas,ox-18.0,oy+18.0,16.0,16.0,rgba(70,70,70,255));
                 let initial=if mode.contains("PLAYER_ONLY") {"P"} else if mode.contains("MACHINE_ONLY") {"M"} else {"A"};
                 batch.text(atlas,initial,ox-14.0,oy+22.0,grey,false);
@@ -547,7 +547,7 @@ impl Game<'_> {
                 batch.fill(atlas,ox+9.0,oy+165.0,78.0,18.0,rgba(185,185,185,255));
                 batch.text(atlas,"Back",ox+12.0,oy+170.0,grey,false);
             }
-            let suspended=self.ae2_craft_menu_items().and_then(|items|items.get(1)).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()).is_some_and(|s|s.starts_with("Suspended"));
+            let suspended=self.ae2_craft_menu_items().and_then(|items|items.get(1)).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()).is_some_and(|s|s.starts_with("Suspended"));
             for (x,w,label) in [(8.0,80.0,"Next CPU"),(103.0,50.0,if suspended {"Resume"} else {"Suspend"}),(163.0,50.0,"Cancel")] {
                 batch.fill(atlas,ox+x,oy+140.0,w,20.0,rgba(70,70,70,255));
                 batch.fill(atlas,ox+x+1.0,oy+141.0,w-2.0,18.0,rgba(185,185,185,255));
@@ -566,23 +566,23 @@ impl Game<'_> {
             } else {
                 batch.sprite_region(atlas,"ae2:guis/craftingreport",[ox,oy,238.0,206.0],256.0,256.0);
                 batch.text(atlas,"Crafting confirmation",ox+8.0,oy+7.0,grey,false);
-                if let Some(label)=self.ae2_craft_menu_items().and_then(|items|items.get(1)).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
-                    batch.text(atlas,label,ox+36.0,oy+24.0,grey,false);
+                if let Some(label)=self.ae2_craft_menu_items().and_then(|items|items.get(1)).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
+                    batch.text(atlas,&label,ox+36.0,oy+24.0,grey,false);
                 }
                 if let Some(items)=self.ae2_craft_menu_items() {
-                    if let Some(label)=items.get(17).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
-                        batch.text(atlas,label,ox+115.0,oy+119.0,grey,false);
+                    if let Some(label)=items.get(17).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
+                        batch.text(atlas,&label,ox+115.0,oy+119.0,grey,false);
                     }
-                    if items.iter().skip(5).take(12).flatten().any(|s|s.data().and_then(|d|d.custom_name.as_deref()).is_some_and(|label|label.starts_with("Missing "))) {
+                    if items.iter().skip(5).take(12).flatten().any(|s|s.data().and_then(|d|d.custom_name_plain()).is_some_and(|label|label.starts_with("Missing "))) {
                         batch.text(atlas,"! = missing",ox+12.0,oy+119.0,grey,false);
                     }
                     for i in 0..12 {
-                        if let Some(label)=items.get(5+i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                        if let Some(label)=items.get(5+i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
                             let text=label.replace("minecraft:","").replace("Missing ","!").replace("Stored ","").replace("Planned ","+").chars().take(12).collect::<String>();
                             batch.text(atlas,&text,ox+12.0+(i%3) as f32*68.0,oy+43.0+(i/3) as f32*18.0,grey,false);
                         }
                     }
-                    let label=items.get(4).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()).unwrap_or("CPU: Automatic");
+                    let label=items.get(4).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()).unwrap_or_else(||"CPU: Automatic".into());
                     batch.fill(atlas,ox+19.0,oy+138.0,180.0,20.0,rgba(70,70,70,255));
                     batch.fill(atlas,ox+20.0,oy+139.0,178.0,18.0,rgba(185,185,185,255));
                     batch.text(atlas,&label.chars().take(27).collect::<String>(),ox+23.0,oy+144.0,grey,false);
@@ -608,9 +608,9 @@ impl Game<'_> {
             batch.text(atlas,"Statistics",ox+8.0,oy+56.0,grey,false);
             if let Some(entity)=self.container_kind() {
                 for (i,y) in [(1,21.0),(2,31.0),(3,71.0),(4,81.0)] {
-                    if let Some(label)=entity.slots().get(i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {batch.text(atlas,label,ox+13.0,oy+y,grey,false);}
+                    if let Some(label)=entity.slots().get(i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {batch.text(atlas,&label,ox+13.0,oy+y,grey,false);}
                 }
-                let enabled=entity.slots().first().and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()).is_some_and(|s|s.ends_with("on"));
+                let enabled=entity.slots().first().and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()).is_some_and(|s|s.ends_with("on"));
                 batch.fill(atlas,ox-18.0,oy+18.0,16.0,16.0,rgba(70,70,70,255));
                 batch.text(atlas,if enabled {"Y"} else {"N"},ox-14.0,oy+22.0,grey,false);
             }
@@ -621,7 +621,7 @@ impl Game<'_> {
             batch.sprite_region(atlas,"ae2:guis/networkstatus",[ox,oy,195.0,157.0],256.0,256.0);
             if let Some(entity)=self.container_kind() {
                 for (i,slot) in entity.slots().iter().take(14).enumerate() {
-                    if let Some(label)=slot.as_ref().and_then(|s|s.data()).and_then(|d|d.custom_name.as_deref()) {
+                    if let Some(label)=slot.as_ref().and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
                         let (x,y)=match i {
                             0=>(8.0,6.0),1=>(13.0,16.0),2=>(13.0,26.0),
                             3..=10=>(13.0+((i-3)%2) as f32*78.0,42.0+((i-3)/2) as f32*18.0),

@@ -123,7 +123,7 @@ mod tests {
     use crate::items::ItemStack;
     #[test]
     fn item_and_fluid_components_and_empty_slots_roundtrip() {
-        let mut item=ItemStack::new("minecraft:diamond_sword",1);item.damage=4;item.data_mut().custom_name=Some("Physical".into());
+        let mut item=ItemStack::new("minecraft:diamond_sword",1);item.damage=4;item.data_mut().custom_name = Some(crate::item_data::text_name("Physical"));
         let key=ae2_cell_codec::key(&item).unwrap();let stack=GenericStack{key,fluid:false,amount:123};
         assert_eq!(decode(&encode(&stack).unwrap()).unwrap(),Some(stack));
         let components=Tag::compound([("test:variant",Tag::String("warm".into()))]);

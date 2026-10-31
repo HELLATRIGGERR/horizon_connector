@@ -882,6 +882,9 @@ enum Screen {
     DialogWarning,
     /// WinScreen: the end poem and the credits (game/win.rs).
     Win,
+    /// AE2's Guide (game/ae2_guide.rs), on the screen the WebAssembly mods had.
+    #[cfg(feature = "ae2-lab")]
+    Mod,
 }
 struct Mining {
     pos: [i32; 3],
@@ -1283,6 +1286,7 @@ impl LevelAccess for GameLevel<'_> {
             self.events.push(LevelEvent::BlockEvent{pos,state,kind:"ae2_random_tick"});return true;
         }
         false
+    }
     fn observe_block_changed(&self, pos: BlockPos, old: BlockStateId, new: BlockStateId) {
         if self.native_authoritative {
             self.native_block_changed(self.dimension, pos, old, new);
@@ -2931,6 +2935,15 @@ impl Dim {
         }
     }
     /// The level's shape in a world of vanilla's dimension types.
+    /// `Level.getMinY`.
+    fn min_y(self) -> i32 {
+        self.shape().min_y
+    }
+    /// `Level.getMaxY`: the minimum y plus the height, less one.
+    fn max_y(self) -> i32 {
+        let shape = self.shape();
+        shape.min_y + shape.height - 1
+    }
     fn shape(self) -> horizon_client::save::LevelShape {
         use horizon_client::save::LevelShape;
         match self {
@@ -3063,6 +3076,7 @@ impl Game<'_> {
         if let Some((id, _, boxes)) = self.world.dynamic_shapes.get(&(pos[0],pos[1],pos[2]))
             && *id == state {
             return boxes.iter().map(|b| std::array::from_fn(|i| f64::from(pos[i % 3]) + b[i])).collect();
+        }
         if let Some(b) = self.context_outline(pos, state) {
             return vec![std::array::from_fn(|i| f64::from(pos[i % 3]) + b[i])];
         }
@@ -4046,6 +4060,7 @@ impl Game<'_> {
             if let Err(error) = self.ae2_apply_anchor_callbacks() {
                 log::debug!("AE2 anchor callbacks deferred: {error}");
             }
+        }
         if self.lan.is_some() {
             self.flush_lan_particles();
             self.flush_native_sounds();
@@ -5716,6 +5731,8 @@ impl Game<'_> {
             if self.ae2_try_provider_memory(hit.pos,face) || self.ae2_try_machine_memory_face(hit.pos,face) { self.swing_arm(); return Ok(true); }
             if self.held().is_some_and(|s| s.item.as_ref() == "ae2:memory_card") {
                 if self.ae2_try_p2p_card((hit.pos[0], hit.pos[1], hit.pos[2]), face) { self.swing_arm(); return Ok(true); }
+            }
+        }
         // Native mods, where ServerPlayerGameMode.useItemOn starts: a
         // canceled click does nothing (a guest's block is sent back).
         if let Some(hit) = block_hit {
@@ -6161,7 +6178,10 @@ impl Game<'_> {
             let state=pending.state;
             #[cfg(feature="ae2-lab")]
             let state=game.ae2_apply_item_block_state(target,state,&stack);
-            if let Some(entity)=BlockEntity::for_block(&game.res.facts().get(state).name) {
+            #[cfg(not(feature="ae2-lab"))]
+            let state=game.apply_item_block_state(target,state,&stack).map_err(|e|e.to_string())?;
+            let name=game.res.facts().get(state).name.clone();
+            if let Some(entity)=game.new_block_entity(&name) {
                 let key=(pos.x,pos.y,pos.z);
                 game.world.block_entities.insert(key,entity);
                 let game_master=game.can_use_game_master_blocks();
@@ -6201,6 +6221,9 @@ impl Game<'_> {
                 let data=stack.data().is_some_and(|d|d.other(horizon_client::block_entity_item::BLOCK_ENTITY_DATA).is_some());
                 self.command_block_placed(key,!data);
             },
+            Some(BlockEntity::StructureBlock(_)) => self.structure_block_placed(key),
+            Some(BlockEntity::JigsawBlock(_)) => self.jigsaw_block_placed(key),
+            Some(BlockEntity::TestBlock(_)) => self.test_block_placed(key),
             Some(BlockEntity::Sign(sign)) if !sign.waxed=>self.open_sign_editor(key,true),
             _=>{},
         }
@@ -8170,6 +8193,12 @@ impl Game<'_> {
             self.screen
         };
         match screen {
+            #[cfg(feature = "ae2-lab")]
+            Screen::Mod => {
+                if self.ae2_guide_active() {
+                    self.ae2_guide_draw(&mut batch);
+                }
+            }
             Screen::Paused if self.pause_menu => self.draw_pause_menu(&mut batch),
             // PauseScreen(false): only its title, at the top.
             Screen::Paused => {
@@ -9061,6 +9090,7 @@ impl Game<'_> {
         if self.ae2_local_pattern_access_open() {
             for &(slot,button,input) in ops {self.ae2_local_pattern_access_click(slot,button,input);}
             return true;
+        }
         // BundleMouseActions.onSlotClicked: a Shift click or a swap clears the bundle's selection.
         for &(slot, _, input) in ops {
             if let (Some(slot), Input::QuickMove | Input::Swap) = (slot, input) {
@@ -9718,6 +9748,7 @@ impl Game<'_> {
                     else if (-18.0..-2.0).contains(&x) && (18.0..34.0).contains(&y) {Some(-12)} else {None};
                 if action.is_some_and(|action|self.remote_pattern_access_control(action)) {self.inv_clicks.skip_release();return;}
             }
+        }
         if self.mod_browser_press(right) {
             return;
         }
@@ -9933,6 +9964,10 @@ impl Game<'_> {
     /// `hasClickedOutside` of the open screen at the cursor.
     fn clicked_outside(&self, batch: &HudBatch) -> bool {
         use horizon_client::container_screen::{Book, clicked_outside};
+        #[cfg(feature = "ae2-lab")]
+        if let Some(outside) = self.ae2_clicked_outside(batch) {
+            return outside;
+        }
         let image = self.container_image(batch);
         let book = self
             .recipe_book_area(batch)
@@ -9947,30 +9982,30 @@ impl Game<'_> {
             book,
         )
     }
-    /// The open container screen's window: its place and size.
-    fn container_image(&self, batch: &HudBatch) -> horizon_client::container_screen::Image {
+    /// `hasClickedOutside` of AE2's own screens, whose windows are not the
+    /// vanilla container's; None for any other screen.
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_clicked_outside(&self, batch: &HudBatch) -> Option<bool> {
         let (ox, oy) = self.inventory_origin(batch);
-        #[cfg(feature="ae2-lab")]
         if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {
             let height = if self.ae2_crafting_terminal_screen() {251.0} else {self.screen_height()};
-            if (ox+174.0..ox+233.0).contains(&self.cursor.0) && (oy+height-90.0..oy+height-24.0).contains(&self.cursor.1) {return false;}
+            if (ox+174.0..ox+233.0).contains(&self.cursor.0) && (oy+height-90.0..oy+height-24.0).contains(&self.cursor.1) {return Some(false);}
         }
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_crafting_terminal_screen() {return self.cursor.0<ox-18.0 || self.cursor.0>=ox+213.0 || self.cursor.1<oy || self.cursor.1>=oy+251.0;}
-        #[cfg(feature="ae2-lab")]
-        if self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) {return self.cursor.0<ox || self.cursor.0>=ox+194.0 || self.cursor.1<oy || self.cursor.1>=oy+self.screen_height();}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_network_status_screen() {return self.cursor.0<ox || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+157.0;}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_anchor_screen() {return self.cursor.0<ox-18.0 || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+100.0;}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_pattern_access_screen() {return self.cursor.0<ox-18.0 || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+224.0;}
-        #[cfg(feature="ae2-lab")]
+        if self.ae2_crafting_terminal_screen() {return Some(self.cursor.0<ox-18.0 || self.cursor.0>=ox+213.0 || self.cursor.1<oy || self.cursor.1>=oy+251.0);}
+        if self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) {return Some(self.cursor.0<ox || self.cursor.0>=ox+194.0 || self.cursor.1<oy || self.cursor.1>=oy+self.screen_height());}
+        if self.ae2_network_status_screen() {return Some(self.cursor.0<ox || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+157.0);}
+        if self.ae2_anchor_screen() {return Some(self.cursor.0<ox-18.0 || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+100.0);}
+        if self.ae2_pattern_access_screen() {return Some(self.cursor.0<ox-18.0 || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+224.0);}
         if self.ae2_craft_screen()!=0 {
             let (w,h)=match self.ae2_craft_screen(){1=>(176.0,107.0),3=>(238.0,185.0),_=>(238.0,206.0)};
             let left=if self.ae2_craft_screen()==3 {ox-18.0} else {ox};
-            return self.cursor.0<left || self.cursor.0>=ox+w || self.cursor.1<oy || self.cursor.1>=oy+h;
+            return Some(self.cursor.0<left || self.cursor.0>=ox+w || self.cursor.1<oy || self.cursor.1>=oy+h);
         }
+        None
+    }
+    /// The open container screen's window: its place and size.
+    fn container_image(&self, batch: &HudBatch) -> horizon_client::container_screen::Image {
+        let (ox, oy) = self.inventory_origin(batch);
         let (shift, width, height) = if self.screen == Screen::Creative {
             (0.0, Creative::WIDTH as i32, Creative::HEIGHT as i32)
         } else {
@@ -10535,6 +10570,8 @@ impl Game<'_> {
         if let Some(sprite) = shadow_sprite {
             // DimensionType.ambientLight: the_nether 0.1, the_end 0.25.
             let ambient = match self.dim {
+                #[cfg(feature = "ae2-lab")]
+                Dim::Spatial => 0.0,
                 Dim::Nether => 0.1,
                 Dim::End => 0.25,
                 Dim::Overworld => 0.0,
@@ -11766,7 +11803,7 @@ impl Game<'_> {
             r.clear_sections(self.world.layout());
         }
         self.apply_settings();
-        self.streaming.sky_light = horizon_client::save::LevelShape::for_dir(&horizon_client::save::dimension_dir(&self.world_root, dim.id())).sky_light;
+        self.streaming.sky_light = dim.shape().sky_light;
         self.streaming.nether_shading = dim == Dim::Nether;
         self.load_world_state();
         Ok(())
@@ -13871,6 +13908,12 @@ impl Game<'_> {
     fn creative_origin(batch: &HudBatch) -> (f32, f32) {
         batch.centered_origin(Creative::WIDTH, Creative::HEIGHT)
     }
+    /// NeoForge's 20x20 page buttons, 50 above the screen: back at its left
+    /// edge, `next` at its right.
+    fn creative_page_button(ox: f32, oy: f32, next: bool) -> [f32; 4] {
+        let x = if next { ox + Creative::WIDTH - 20.0 } else { ox };
+        [x, oy - 50.0, 20.0, 20.0]
+    }
     /// A creative tab's title: `itemGroup.*`, else the export's English title.
     fn creative_tab_title(&self, tab: &horizon_client::creative::Tab) -> String {
         horizon_client::creative::item_group_key(&tab.id)
@@ -13942,7 +13985,7 @@ impl Game<'_> {
         );
         // Unselected tabs behind the panel, then the panel, then the selected tab.
         for (i, t) in tabs.iter().enumerate() {
-            if i != selected {
+            if i != selected && self.creative_screen.on_page(t) {
                 let (tx, ty) = Creative::tab_position(t);
                 batch.sprite(&self.gui.atlas, &tab_sprite(t, false), ox + tx, oy + ty);
                 let mouse = (self.cursor.0 - ox, self.cursor.1 - oy);
@@ -13966,8 +14009,10 @@ impl Game<'_> {
             batch.rect_uv(ox, oy, Creative::WIDTH, Creative::HEIGHT, r, u32::MAX);
         }
         let (tx, ty) = Creative::tab_position(tab);
-        batch.sprite(&self.gui.atlas, &tab_sprite(tab, true), ox + tx, oy + ty);
-        for t in &tabs {
+        if self.creative_screen.on_page(tab) {
+            batch.sprite(&self.gui.atlas, &tab_sprite(tab, true), ox + tx, oy + ty);
+        }
+        for t in tabs.iter().filter(|t| self.creative_screen.on_page(t)) {
             let (tx, ty) = Creative::tab_position(t);
             let stack = t.icon_stack.clone().unwrap_or_else(|| ItemStack {
                 item: Arc::from(t.icon.as_str()),
@@ -13983,6 +14028,29 @@ impl Game<'_> {
             );
         }
         let atlas = &self.gui.atlas;
+        let pages = self.creative_screen.pages();
+        if pages > 1 {
+            // NeoForge's page buttons above the tabs, and "page / pages"
+            // between them.
+            for (label, area) in [("<", Self::creative_page_button(ox, oy, false)), (">", Self::creative_page_button(ox, oy, true))] {
+                let hover = self.cursor.0 >= area[0]
+                    && self.cursor.0 < area[0] + area[2]
+                    && self.cursor.1 >= area[1]
+                    && self.cursor.1 < area[1] + area[3];
+                let sprite = if hover {
+                    "gui/sprites/widget/button_highlighted"
+                } else {
+                    "gui/sprites/widget/button"
+                };
+                horizon_client::ui::nine_slice(batch, atlas, sprite, area[0], area[1], area[2], area[3], u32::MAX);
+                let x = area[0] + (area[2] - atlas.font.width(label)) / 2.0;
+                batch.text(atlas, label, x, area[1] + 6.0, u32::MAX, true);
+                horizon_client::widgets::record(label, area, true);
+            }
+            let page = format!("{} / {}", self.creative_screen.page + 1, pages);
+            let x = ox + (Creative::WIDTH - atlas.font.width(&page)) / 2.0;
+            batch.text(atlas, &page, x.floor(), oy - 44.0, u32::MAX, true);
+        }
         if !tab.inventory {
             let title = self.creative_tab_title(tab);
             batch.text(
@@ -14082,7 +14150,7 @@ impl Game<'_> {
             );
         }
         let effect_tip = self.draw_inventory_effects(batch, (ox, oy), Creative::WIDTH as i32);
-        for t in &tabs {
+        for t in tabs.iter().filter(|t| self.creative_screen.on_page(t)) {
             let (tx, ty) = Creative::tab_position(t);
             if self.cursor.0 >= ox + tx
                 && self.cursor.0 < ox + tx + 26.0
@@ -14148,10 +14216,33 @@ impl Game<'_> {
         let batch = HudBatch::new(size);
         let (ox, oy) = Self::creative_origin(&batch);
         let (cx, cy) = self.cursor;
+        if self.creative_screen.pages() > 1 {
+            for next in [false, true] {
+                let [x, y, w, h] = Self::creative_page_button(ox, oy, next);
+                if cx >= x && cx < x + w && cy >= y && cy < y + h {
+                    let page = self.creative_screen.page;
+                    self.creative_screen
+                        .set_page(if next { page + 1 } else { page.saturating_sub(1) });
+                    self.audio
+                        .play("minecraft:ui.button.click", None, 0.25, 1.0);
+                    self.inv_clicks = Default::default();
+                    self.inv_clicks.skip_release();
+                    self.refresh_saved_hotbars();
+                    self.inv_drag = None;
+                    self.last_inv_click = None;
+                    return;
+                }
+            }
+        }
         let tabs = self.creative_screen.tabs.clone();
         for (i, t) in tabs.iter().enumerate() {
             let (tx, ty) = Creative::tab_position(t);
-            if cx >= ox + tx && cx < ox + tx + 26.0 && cy >= oy + ty && cy < oy + ty + 32.0 {
+            if self.creative_screen.on_page(t)
+                && cx >= ox + tx
+                && cx < ox + tx + 26.0
+                && cy >= oy + ty
+                && cy < oy + ty + 32.0
+            {
                 select_creative_tab(&mut self.creative_screen, &mut self.inv_clicks, i);
                 self.refresh_saved_hotbars();
                 self.inv_drag = None;
@@ -14682,6 +14773,7 @@ impl Game<'_> {
                             }}}
                         }
                         return edges;
+                    }
                     if let Some(b) = self.context_outline(h.pos, state) {
                         return horizon_client::blocks::cube_edges()
                             .iter()
@@ -15115,6 +15207,10 @@ impl Game<'_> {
     }
     /// A key press while a world is open (keyboard or control socket).
     fn key_pressed(&mut self, key: KeyCode) -> Result<()> {
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_guide_active() && key != KeyCode::Escape && self.ae2_guide_key(key) {
+            return Ok(());
+        }
         if self.sleeping.is_some()
             && self.screen == Screen::Playing
             && !matches!(
@@ -15166,6 +15262,8 @@ impl Game<'_> {
                 Screen::BlockEditor => self.close_block_editor(),
                 Screen::Chat => self.close_chat(chat::ChatExit::Intentional),
                 Screen::Win => self.close_win_screen()?,
+                #[cfg(feature = "ae2-lab")]
+                Screen::Mod => self.ae2_guide_close(),
             },
             KeyCode::Digit1
             | KeyCode::Digit2
@@ -16027,6 +16125,10 @@ impl ApplicationHandler for Game<'_> {
                     }
                     if self.screen == Screen::Options && d != 0.0 {
                         self.options_scroll(d)?;
+                    }
+                    #[cfg(feature = "ae2-lab")]
+                    if self.ae2_guide_active() && d != 0.0 {
+                        self.ae2_guide_scroll(d);
                     }
                     // AbstractContainerScreen.mouseScrolled: a bundle under the
                     // cursor takes the wheel before the screen's own scrolling.

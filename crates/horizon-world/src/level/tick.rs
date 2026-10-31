@@ -1789,6 +1789,7 @@ impl Behaviours {
         let mut sim = self.sim(level, ticks);
         let state = sim.state(pos);
         sim.random_tick_block(state, pos);
+    }
     /// `LightningBolt.clearCopperOnLightningStrike` for the block at `struck`.
     pub fn lightning_clear_copper<L: LevelAccess + ?Sized>(
         &self,

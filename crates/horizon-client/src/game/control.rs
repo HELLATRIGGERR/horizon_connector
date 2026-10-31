@@ -391,8 +391,12 @@ impl Game<'_> {
                 // Native mods see the key as the keyboard hook does.
                 let action = arg(2)?;
                 self.native_key_event(physical, action != "up", action == "repeat");
+                #[cfg(feature = "ae2-lab")]
+                self.ae2_hotkey_key(physical, action != "up", action == "repeat");
                 if action == "tap" {
                     self.native_key_event(physical, false, false);
+                    #[cfg(feature = "ae2-lab")]
+                    self.ae2_hotkey_key(physical, false, false);
                 }
                 // The merchant's focused offer takes Enter and Space, as the window's.
                 if action != "up" && self.screen == Screen::Inventory && self.merchant_key(physical)
@@ -978,6 +982,8 @@ impl Game<'_> {
         }
         match self.screen {
             Screen::Playing => "playing",
+            #[cfg(feature = "ae2-lab")]
+            Screen::Mod => "mod",
             Screen::GameModeSwitcher => "gamemode-switcher",
             Screen::Paused => "paused",
             Screen::Options => "options",
