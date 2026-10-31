@@ -4544,7 +4544,7 @@ mod recursive {
         }
         #[test]
         fn fluid_slots_follow_each_selected_flight_and_legacy_spec() {
-            let resources=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+            let resources=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
             if !resources.join("items.json").exists(){return;}
             let items=horizon_client::items::Items::catalog(&resources).unwrap();
             let root=std::env::temp_dir().join(format!("ae2-fluid-grid-{}",std::process::id()));
@@ -4574,7 +4574,7 @@ mod recursive {
         }
         #[test]
         fn nonunit_source_crafting_never_partially_moves_escrow_into_assembler() {
-            let resources=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+            let resources=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
             if !resources.join("items.json").exists(){return;}
             let items=horizon_client::items::Items::catalog(&resources).unwrap();
             let root=std::env::temp_dir().join(format!("ae2-nonunit-grid-{}",std::process::id()));

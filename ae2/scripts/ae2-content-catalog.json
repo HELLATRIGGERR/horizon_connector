@@ -1,0 +1,3696 @@
+{
+  "reference": {
+    "project": "Applied Energistics 2",
+    "version": "19.2.18",
+    "commit": "db17504a86128fdf3dae31f5fb7a112a646e0b93",
+    "repository": "https://github.com/AppliedEnergistics/Applied-Energistics-2",
+    "license": "LGPL-3.0-or-later (some API files MIT)",
+    "scope_warning": "Static API and literal internal identifiers, not an authoritative runtime registry dump. Dynamic and internal registrations may be absent. Block items follow AEBlocks.block registration in the source. No item or block has verified full parity in a Horizon world."
+  },
+  "entries": [
+    {
+      "id": "ae2:16k_crafting_storage",
+      "kind": "block",
+      "name": "16k Crafting Storage",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:1k_crafting_storage",
+      "kind": "block",
+      "name": "1k Crafting Storage",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:256k_crafting_storage",
+      "kind": "block",
+      "name": "256k Crafting Storage",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:4k_crafting_storage",
+      "kind": "block",
+      "name": "4k Crafting Storage",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:64k_crafting_storage",
+      "kind": "block",
+      "name": "64k Crafting Storage",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cable_bus",
+      "kind": "block",
+      "name": "AE2 Cable and/or Bus",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cell_workbench",
+      "kind": "block",
+      "name": "Cell Workbench",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:charger",
+      "kind": "block",
+      "name": "Charger",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:chest",
+      "kind": "block",
+      "name": "ME Chest",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:chipped_budding_quartz",
+      "kind": "block",
+      "name": "Chipped Budding Certus Quartz",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:chiseled_quartz_block",
+      "kind": "block",
+      "name": "Chiseled Certus Quartz Block",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:chiseled_quartz_slab",
+      "kind": "block",
+      "name": "Chiseled Certus Quartz Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:chiseled_quartz_stairs",
+      "kind": "block",
+      "name": "Chiseled Certus Quartz Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:chiseled_quartz_wall",
+      "kind": "block",
+      "name": "Chiseled Certus Quartz Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:condenser",
+      "kind": "block",
+      "name": "Matter Condenser",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:controller",
+      "kind": "block",
+      "name": "ME Controller",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_accelerator",
+      "kind": "block",
+      "name": "Crafting Co-Processing Unit",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_monitor",
+      "kind": "block",
+      "name": "Crafting Monitor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_unit",
+      "kind": "block",
+      "name": "Crafting Unit",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:crank",
+      "kind": "block",
+      "name": "Wooden Crank",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:creative_energy_cell",
+      "kind": "block",
+      "name": "Creative Energy Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:crystal_resonance_generator",
+      "kind": "block",
+      "name": "Crystal Resonance Generator",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cut_quartz_block",
+      "kind": "block",
+      "name": "Cut Certus Quartz Block",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cut_quartz_slab",
+      "kind": "block",
+      "name": "Cut Certus Quartz Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cut_quartz_stairs",
+      "kind": "block",
+      "name": "Cut Certus Quartz Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cut_quartz_wall",
+      "kind": "block",
+      "name": "Cut Certus Quartz Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:damaged_budding_quartz",
+      "kind": "block",
+      "name": "Damaged Budding Certus Quartz",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_cube_gen",
+      "kind": "block",
+      "name": "Dev.CubeGen",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_energy_gen",
+      "kind": "block",
+      "name": "Dev.EnergyGen",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_item_gen",
+      "kind": "block",
+      "name": "Dev.ItemGen",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_phantom_node",
+      "kind": "block",
+      "name": "Dev.PhantomNode",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:dense_energy_cell",
+      "kind": "block",
+      "name": "Dense Energy Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:drive",
+      "kind": "block",
+      "name": "ME Drive",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:energy_acceptor",
+      "kind": "block",
+      "name": "Energy Acceptor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:energy_cell",
+      "kind": "block",
+      "name": "Energy Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:flawed_budding_quartz",
+      "kind": "block",
+      "name": "Flawed Budding Certus Quartz",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:flawless_budding_quartz",
+      "kind": "block",
+      "name": "Flawless Budding Certus Quartz",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_block",
+      "kind": "block",
+      "name": "Fluix Block",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_slab",
+      "kind": "block",
+      "name": "Fluix Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_stairs",
+      "kind": "block",
+      "name": "Fluix Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_wall",
+      "kind": "block",
+      "name": "Fluix Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:growth_accelerator",
+      "kind": "block",
+      "name": "Growth Accelerator",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:inscriber",
+      "kind": "block",
+      "name": "Inscriber",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:interface",
+      "kind": "block",
+      "name": "ME Interface",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:io_port",
+      "kind": "block",
+      "name": "ME IO Port",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:large_quartz_bud",
+      "kind": "block",
+      "name": "Large Certus Quartz Bud",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_detector",
+      "kind": "block",
+      "name": "Light Detecting Fixture",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:matrix_frame",
+      "kind": "block",
+      "name": "Matrix Frame",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:medium_quartz_bud",
+      "kind": "block",
+      "name": "Medium Certus Quartz Bud",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:molecular_assembler",
+      "kind": "block",
+      "name": "Molecular Assembler",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:mysterious_cube",
+      "kind": "block",
+      "name": "Mysterious Cube",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:not_so_mysterious_cube",
+      "kind": "block",
+      "name": "Not So Mysterious Cube",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:paint",
+      "kind": "block",
+      "name": "Paint",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pattern_provider",
+      "kind": "block",
+      "name": "ME Pattern Provider",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quantum_link",
+      "kind": "block",
+      "name": "ME Quantum Link Chamber",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quantum_ring",
+      "kind": "block",
+      "name": "ME Quantum Ring",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_block",
+      "kind": "block",
+      "name": "Certus Quartz Block",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_brick_slab",
+      "kind": "block",
+      "name": "Certus Quartz Brick Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_brick_stairs",
+      "kind": "block",
+      "name": "Certus Quartz Brick Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_brick_wall",
+      "kind": "block",
+      "name": "Certus Quartz Brick Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_bricks",
+      "kind": "block",
+      "name": "Certus Quartz Bricks",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_cluster",
+      "kind": "block",
+      "name": "Certus Quartz Cluster",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_fixture",
+      "kind": "block",
+      "name": "Charged Quartz Fixture",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_glass",
+      "kind": "block",
+      "name": "Quartz Glass",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_pillar",
+      "kind": "block",
+      "name": "Certus Quartz Pillar",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_pillar_slab",
+      "kind": "block",
+      "name": "Certus Quartz Pillar Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_pillar_stairs",
+      "kind": "block",
+      "name": "Certus Quartz Pillar Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_pillar_wall",
+      "kind": "block",
+      "name": "Certus Quartz Pillar Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_slab",
+      "kind": "block",
+      "name": "Certus Quartz Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_stairs",
+      "kind": "block",
+      "name": "Certus Quartz Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_vibrant_glass",
+      "kind": "block",
+      "name": "Vibrant Quartz Glass",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_wall",
+      "kind": "block",
+      "name": "Certus Quartz Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_block",
+      "kind": "block",
+      "name": "Sky Stone",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_brick",
+      "kind": "block",
+      "name": "Sky Stone Brick",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_brick_slab",
+      "kind": "block",
+      "name": "Sky Stone Brick Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_brick_stairs",
+      "kind": "block",
+      "name": "Sky Stone Brick Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_brick_wall",
+      "kind": "block",
+      "name": "Sky Stone Brick Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_chest",
+      "kind": "block",
+      "name": "Sky Stone Chest",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_slab",
+      "kind": "block",
+      "name": "Sky Stone Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_small_brick",
+      "kind": "block",
+      "name": "Sky Stone Small Brick",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_small_brick_slab",
+      "kind": "block",
+      "name": "Sky Stone Small Brick Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_small_brick_stairs",
+      "kind": "block",
+      "name": "Sky Stone Small Brick Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_small_brick_wall",
+      "kind": "block",
+      "name": "Sky Stone Small Brick Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_stairs",
+      "kind": "block",
+      "name": "Sky Stone Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_tank",
+      "kind": "block",
+      "name": "Sky Stone Tank",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_wall",
+      "kind": "block",
+      "name": "Sky Stone Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:small_quartz_bud",
+      "kind": "block",
+      "name": "Small Certus Quartz Bud",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_quartz_block",
+      "kind": "block",
+      "name": "Smooth Certus Quartz Block",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_quartz_slab",
+      "kind": "block",
+      "name": "Smooth Certus Quartz Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_quartz_stairs",
+      "kind": "block",
+      "name": "Smooth Certus Quartz Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_quartz_wall",
+      "kind": "block",
+      "name": "Smooth Certus Quartz Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_block",
+      "kind": "block",
+      "name": "Sky Stone Block",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_chest",
+      "kind": "block",
+      "name": "Sky Stone Block Chest",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_slab",
+      "kind": "block",
+      "name": "Sky Stone Block Slab",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_stairs",
+      "kind": "block",
+      "name": "Sky Stone Block Stairs",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_wall",
+      "kind": "block",
+      "name": "Sky Stone Block Wall",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_anchor",
+      "kind": "block",
+      "name": "Spatial Anchor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_io_port",
+      "kind": "block",
+      "name": "Spatial IO Port",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_pylon",
+      "kind": "block",
+      "name": "Spatial Pylon",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:tiny_tnt",
+      "kind": "block",
+      "name": "Tiny TNT",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:vibration_chamber",
+      "kind": "block",
+      "name": "Vibration Chamber",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:wireless_access_point",
+      "kind": "block",
+      "name": "ME Wireless Access Point",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEBlockIds.java"
+      ]
+    },
+    {
+      "id": "ae2:16k_crafting_storage",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:1k_crafting_storage",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:256k_crafting_storage",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:4k_crafting_storage",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:64k_crafting_storage",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:cable_bus",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:cell_workbench",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:charger",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:chest",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:chipped_budding_quartz",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:chiseled_quartz_block",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:chiseled_quartz_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:chiseled_quartz_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:chiseled_quartz_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:condenser",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:controller",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_accelerator",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_monitor",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_unit",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:crank",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:creative_energy_cell",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:crystal_resonance_generator",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:cut_quartz_block",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:cut_quartz_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:cut_quartz_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:cut_quartz_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:damaged_budding_quartz",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_cube_gen",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_energy_gen",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_item_gen",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_phantom_node",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:dense_energy_cell",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:drive",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:energy_acceptor",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:energy_cell",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:flawed_budding_quartz",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:flawless_budding_quartz",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_block",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:growth_accelerator",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:inscriber",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:interface",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:io_port",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:large_quartz_bud",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:light_detector",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:matrix_frame",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:medium_quartz_bud",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:molecular_assembler",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:mysterious_cube",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:not_so_mysterious_cube",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:paint",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:pattern_provider",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quantum_link",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quantum_ring",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_block",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_brick_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_brick_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_brick_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_bricks",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_cluster",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_fixture",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_glass",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_pillar",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_pillar_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_pillar_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_pillar_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_vibrant_glass",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_block",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_brick",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_brick_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_brick_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_brick_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_chest",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_small_brick",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_small_brick_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_small_brick_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_small_brick_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_tank",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_stone_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:small_quartz_bud",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_quartz_block",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_quartz_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_quartz_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_quartz_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_block",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_chest",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_slab",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_stairs",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:smooth_sky_stone_wall",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_anchor",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_io_port",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_pylon",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:tiny_tnt",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:vibration_chamber",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:wireless_access_point",
+      "kind": "block_item",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEBlocks.java"
+      ]
+    },
+    {
+      "id": "ae2:advanced_card",
+      "kind": "item",
+      "name": "Advanced Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:annihilation_core",
+      "kind": "item",
+      "name": "Annihilation Core",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:basic_card",
+      "kind": "item",
+      "name": "Basic Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:black_lumen_paint_ball",
+      "kind": "item",
+      "name": "Black Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:black_paint_ball",
+      "kind": "item",
+      "name": "Black Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:blank_pattern",
+      "kind": "item",
+      "name": "Blank Pattern",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:blue_lumen_paint_ball",
+      "kind": "item",
+      "name": "Blue Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:blue_paint_ball",
+      "kind": "item",
+      "name": "Blue Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:brown_lumen_paint_ball",
+      "kind": "item",
+      "name": "Brown Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:brown_paint_ball",
+      "kind": "item",
+      "name": "Brown Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:calculation_processor",
+      "kind": "item",
+      "name": "Calculation Processor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:calculation_processor_press",
+      "kind": "item",
+      "name": "Inscriber Calculation Press",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:capacity_card",
+      "kind": "item",
+      "name": "Capacity Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cell_component_16k",
+      "kind": "item",
+      "name": "16k ME Storage Component",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cell_component_1k",
+      "kind": "item",
+      "name": "1k ME Storage Component",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cell_component_256k",
+      "kind": "item",
+      "name": "256k ME Storage Component",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cell_component_4k",
+      "kind": "item",
+      "name": "4k ME Storage Component",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cell_component_64k",
+      "kind": "item",
+      "name": "64k ME Storage Component",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_axe",
+      "kind": "item",
+      "name": "Certus Quartz Axe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_crystal",
+      "kind": "item",
+      "name": "Certus Quartz Crystal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_cutting_knife",
+      "kind": "item",
+      "name": "Certus Quartz Cutting Knife",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_dust",
+      "kind": "item",
+      "name": "Certus Quartz Dust",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_hoe",
+      "kind": "item",
+      "name": "Certus Quartz Hoe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_pickaxe",
+      "kind": "item",
+      "name": "Certus Quartz Pickaxe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_shovel",
+      "kind": "item",
+      "name": "Certus Quartz Shovel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_sword",
+      "kind": "item",
+      "name": "Certus Quartz Sword",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:certus_quartz_wrench",
+      "kind": "item",
+      "name": "Certus Quartz Wrench",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:charged_certus_quartz_crystal",
+      "kind": "item",
+      "name": "Charged Certus Quartz Crystal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:charged_staff",
+      "kind": "item",
+      "name": "Charged Staff",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:color_applicator",
+      "kind": "item",
+      "name": "Color Applicator",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_card",
+      "kind": "item",
+      "name": "Crafting Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_pattern",
+      "kind": "item",
+      "name": "Crafting Pattern",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:creative_storage_cell",
+      "kind": "item",
+      "name": "Creative ME Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cyan_lumen_paint_ball",
+      "kind": "item",
+      "name": "Cyan Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cyan_paint_ball",
+      "kind": "item",
+      "name": "Cyan Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_card",
+      "kind": "item",
+      "name": "Dev.DebugCard",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEItems.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_eraser",
+      "kind": "item",
+      "name": "Dev.Eraser",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEItems.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_meteorite_placer",
+      "kind": "item",
+      "name": "Dev.MeteoritePlacer",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEItems.java",
+        "src/main/java/appeng/debug/MeteoritePlacerItem.java"
+      ]
+    },
+    {
+      "id": "ae2:debug_replicator_card",
+      "kind": "item",
+      "name": "Dev.ReplicatorCard",
+      "source_files": [
+        "src/main/java/appeng/core/definitions/AEItems.java",
+        "src/main/java/appeng/debug/ReplicatorCardItem.java"
+      ]
+    },
+    {
+      "id": "ae2:ender_dust",
+      "kind": "item",
+      "name": "Ender Dust",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:energy_card",
+      "kind": "item",
+      "name": "Energy Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:engineering_processor",
+      "kind": "item",
+      "name": "Engineering Processor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:engineering_processor_press",
+      "kind": "item",
+      "name": "Inscriber Engineering Press",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:entropy_manipulator",
+      "kind": "item",
+      "name": "Entropy Manipulator",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:equal_distribution_card",
+      "kind": "item",
+      "name": "Equal Distribution Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:facade",
+      "kind": "item",
+      "name": "Cable Facade",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluid_cell_housing",
+      "kind": "item",
+      "name": "ME Fluid Cell Housing",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluid_storage_cell_16k",
+      "kind": "item",
+      "name": "16k ME Fluid Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluid_storage_cell_1k",
+      "kind": "item",
+      "name": "1k ME Fluid Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluid_storage_cell_256k",
+      "kind": "item",
+      "name": "256k ME Fluid Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluid_storage_cell_4k",
+      "kind": "item",
+      "name": "4k ME Fluid Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluid_storage_cell_64k",
+      "kind": "item",
+      "name": "64k ME Fluid Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_axe",
+      "kind": "item",
+      "name": "Fluix Axe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_crystal",
+      "kind": "item",
+      "name": "Fluix Crystal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_dust",
+      "kind": "item",
+      "name": "Fluix Dust",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_hoe",
+      "kind": "item",
+      "name": "Fluix Hoe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_pearl",
+      "kind": "item",
+      "name": "Fluix Pearl",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_pickaxe",
+      "kind": "item",
+      "name": "Fluix Pickaxe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_shovel",
+      "kind": "item",
+      "name": "Fluix Shovel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_sword",
+      "kind": "item",
+      "name": "Fluix Sword",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_upgrade_smithing_template",
+      "kind": "item",
+      "name": "Fluix Upgrade",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:formation_core",
+      "kind": "item",
+      "name": "Formation Core",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fuzzy_card",
+      "kind": "item",
+      "name": "Fuzzy Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:gray_lumen_paint_ball",
+      "kind": "item",
+      "name": "Gray Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:gray_paint_ball",
+      "kind": "item",
+      "name": "Gray Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:green_lumen_paint_ball",
+      "kind": "item",
+      "name": "Green Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:green_paint_ball",
+      "kind": "item",
+      "name": "Green Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:guide",
+      "kind": "item",
+      "name": "Guide",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:inverter_card",
+      "kind": "item",
+      "name": "Inverter Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:item_cell_housing",
+      "kind": "item",
+      "name": "ME Item Cell Housing",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:item_storage_cell_16k",
+      "kind": "item",
+      "name": "16k ME Item Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:item_storage_cell_1k",
+      "kind": "item",
+      "name": "1k ME Item Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:item_storage_cell_256k",
+      "kind": "item",
+      "name": "256k ME Item Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:item_storage_cell_4k",
+      "kind": "item",
+      "name": "4k ME Item Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:item_storage_cell_64k",
+      "kind": "item",
+      "name": "64k ME Item Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_blue_lumen_paint_ball",
+      "kind": "item",
+      "name": "Light Blue Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_blue_paint_ball",
+      "kind": "item",
+      "name": "Light Blue Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_gray_lumen_paint_ball",
+      "kind": "item",
+      "name": "Light Gray Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_gray_paint_ball",
+      "kind": "item",
+      "name": "Light Gray Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:lime_lumen_paint_ball",
+      "kind": "item",
+      "name": "Lime Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:lime_paint_ball",
+      "kind": "item",
+      "name": "Lime Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:logic_processor",
+      "kind": "item",
+      "name": "Logic Processor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:logic_processor_press",
+      "kind": "item",
+      "name": "Inscriber Logic Press",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:magenta_lumen_paint_ball",
+      "kind": "item",
+      "name": "Magenta Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:magenta_paint_ball",
+      "kind": "item",
+      "name": "Magenta Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:matter_ball",
+      "kind": "item",
+      "name": "Matter Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:matter_cannon",
+      "kind": "item",
+      "name": "Matter Cannon",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:memory_card",
+      "kind": "item",
+      "name": "Memory Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:meteorite_compass",
+      "kind": "item",
+      "name": "Meteorite Compass",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:missing_content",
+      "kind": "item",
+      "name": "Missing Content",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:name_press",
+      "kind": "item",
+      "name": "Inscriber Name Press",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:nether_quartz_axe",
+      "kind": "item",
+      "name": "Nether Quartz Axe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:nether_quartz_cutting_knife",
+      "kind": "item",
+      "name": "Nether Quartz Cutting Knife",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:nether_quartz_hoe",
+      "kind": "item",
+      "name": "Nether Quartz Hoe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:nether_quartz_pickaxe",
+      "kind": "item",
+      "name": "Nether Quartz Pickaxe",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:nether_quartz_shovel",
+      "kind": "item",
+      "name": "Nether Quartz Shovel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:nether_quartz_sword",
+      "kind": "item",
+      "name": "Nether Quartz Sword",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:nether_quartz_wrench",
+      "kind": "item",
+      "name": "Nether Quartz Wrench",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:network_tool",
+      "kind": "item",
+      "name": "Network Tool",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:orange_lumen_paint_ball",
+      "kind": "item",
+      "name": "Orange Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:orange_paint_ball",
+      "kind": "item",
+      "name": "Orange Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pink_lumen_paint_ball",
+      "kind": "item",
+      "name": "Pink Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pink_paint_ball",
+      "kind": "item",
+      "name": "Pink Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_fluid_cell_16k",
+      "kind": "item",
+      "name": "16k Portable Fluid Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_fluid_cell_1k",
+      "kind": "item",
+      "name": "1k Portable Fluid Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_fluid_cell_256k",
+      "kind": "item",
+      "name": "256k Portable Fluid Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_fluid_cell_4k",
+      "kind": "item",
+      "name": "4k Portable Fluid Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_fluid_cell_64k",
+      "kind": "item",
+      "name": "64k Portable Fluid Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_item_cell_16k",
+      "kind": "item",
+      "name": "16k Portable Item Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_item_cell_1k",
+      "kind": "item",
+      "name": "1k Portable Item Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_item_cell_256k",
+      "kind": "item",
+      "name": "256k Portable Item Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_item_cell_4k",
+      "kind": "item",
+      "name": "4k Portable Item Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:portable_item_cell_64k",
+      "kind": "item",
+      "name": "64k Portable Item Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:printed_calculation_processor",
+      "kind": "item",
+      "name": "Printed Calculation Circuit",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:printed_engineering_processor",
+      "kind": "item",
+      "name": "Printed Engineering Circuit",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:printed_logic_processor",
+      "kind": "item",
+      "name": "Printed Logic Circuit",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:printed_silicon",
+      "kind": "item",
+      "name": "Printed Silicon",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:processing_pattern",
+      "kind": "item",
+      "name": "Processing Pattern",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purified_certus_quartz_crystal",
+      "kind": "item",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purified_fluix_crystal",
+      "kind": "item",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purified_nether_quartz_crystal",
+      "kind": "item",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purple_lumen_paint_ball",
+      "kind": "item",
+      "name": "Purple Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purple_paint_ball",
+      "kind": "item",
+      "name": "Purple Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quantum_entangled_singularity",
+      "kind": "item",
+      "name": "Quantum Entangled Singularity",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:red_lumen_paint_ball",
+      "kind": "item",
+      "name": "Red Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:red_paint_ball",
+      "kind": "item",
+      "name": "Red Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:redstone_card",
+      "kind": "item",
+      "name": "Redstone Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:silicon",
+      "kind": "item",
+      "name": "Silicon",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:silicon_press",
+      "kind": "item",
+      "name": "Inscriber Silicon Press",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:singularity",
+      "kind": "item",
+      "name": "Singularity",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:sky_dust",
+      "kind": "item",
+      "name": "Sky Stone Dust",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:smithing_table_pattern",
+      "kind": "item",
+      "name": "Smithing Table Pattern",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_cell_component_128",
+      "kind": "item",
+      "name": "128³ Spatial Component",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_cell_component_16",
+      "kind": "item",
+      "name": "16³ Spatial Component",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_cell_component_2",
+      "kind": "item",
+      "name": "2³ Spatial Component",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_storage_cell_128",
+      "kind": "item",
+      "name": "128³ Spatial Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_storage_cell_16",
+      "kind": "item",
+      "name": "16³ Spatial Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:spatial_storage_cell_2",
+      "kind": "item",
+      "name": "2³ Spatial Storage Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:speed_card",
+      "kind": "item",
+      "name": "Acceleration Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:stonecutting_pattern",
+      "kind": "item",
+      "name": "Stonecutting Pattern",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:storage_cell_16k",
+      "kind": "item",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:storage_cell_1k",
+      "kind": "item",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:storage_cell_256k",
+      "kind": "item",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:storage_cell_4k",
+      "kind": "item",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:storage_cell_64k",
+      "kind": "item",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:view_cell",
+      "kind": "item",
+      "name": "View Cell",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:void_card",
+      "kind": "item",
+      "name": "Overflow Destruction Card",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:white_lumen_paint_ball",
+      "kind": "item",
+      "name": "White Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:white_paint_ball",
+      "kind": "item",
+      "name": "White Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:wireless_booster",
+      "kind": "item",
+      "name": "Wireless Booster",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:wireless_crafting_terminal",
+      "kind": "item",
+      "name": "Wireless Crafting Terminal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:wireless_receiver",
+      "kind": "item",
+      "name": "Wireless Receiver",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:wireless_terminal",
+      "kind": "item",
+      "name": "Wireless Terminal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:wrapped_generic_stack",
+      "kind": "item",
+      "name": "Wrapped Generic Stack",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:yellow_lumen_paint_ball",
+      "kind": "item",
+      "name": "Yellow Lumen Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:yellow_paint_ball",
+      "kind": "item",
+      "name": "Yellow Paint Ball",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEItemIds.java"
+      ]
+    },
+    {
+      "id": "ae2:annihilation_plane",
+      "kind": "part_item",
+      "name": "ME Annihilation Plane",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:black_covered_cable",
+      "kind": "part_item",
+      "name": "Black ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:black_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Black ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:black_glass_cable",
+      "kind": "part_item",
+      "name": "Black ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:black_smart_cable",
+      "kind": "part_item",
+      "name": "Black ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:black_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Black ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:blue_covered_cable",
+      "kind": "part_item",
+      "name": "Blue ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:blue_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Blue ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:blue_glass_cable",
+      "kind": "part_item",
+      "name": "Blue ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:blue_smart_cable",
+      "kind": "part_item",
+      "name": "Blue ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:blue_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Blue ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:brown_covered_cable",
+      "kind": "part_item",
+      "name": "Brown ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:brown_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Brown ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:brown_glass_cable",
+      "kind": "part_item",
+      "name": "Brown ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:brown_smart_cable",
+      "kind": "part_item",
+      "name": "Brown ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:brown_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Brown ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cable_anchor",
+      "kind": "part_item",
+      "name": "Cable Anchor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cable_energy_acceptor",
+      "kind": "part_item",
+      "name": "Energy Acceptor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cable_interface",
+      "kind": "part_item",
+      "name": "ME Interface",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cable_pattern_provider",
+      "kind": "part_item",
+      "name": "ME Pattern Provider",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:conversion_monitor",
+      "kind": "part_item",
+      "name": "ME Conversion Monitor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:crafting_terminal",
+      "kind": "part_item",
+      "name": "ME Crafting Terminal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cyan_covered_cable",
+      "kind": "part_item",
+      "name": "Cyan ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cyan_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Cyan ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cyan_glass_cable",
+      "kind": "part_item",
+      "name": "Cyan ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cyan_smart_cable",
+      "kind": "part_item",
+      "name": "Cyan ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:cyan_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Cyan ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:dark_monitor",
+      "kind": "part_item",
+      "name": "Dark Illuminated Panel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:energy_level_emitter",
+      "kind": "part_item",
+      "name": "ME Energy Level Emitter",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:export_bus",
+      "kind": "part_item",
+      "name": "ME Export Bus",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fe_p2p_tunnel",
+      "kind": "part_item",
+      "name": "Energy P2P Tunnel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluid_p2p_tunnel",
+      "kind": "part_item",
+      "name": "Fluid P2P Tunnel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_covered_cable",
+      "kind": "part_item",
+      "name": "Fluix ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Fluix ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_glass_cable",
+      "kind": "part_item",
+      "name": "Fluix ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_smart_cable",
+      "kind": "part_item",
+      "name": "Fluix ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:fluix_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Fluix ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:formation_plane",
+      "kind": "part_item",
+      "name": "ME Formation Plane",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:gray_covered_cable",
+      "kind": "part_item",
+      "name": "Gray ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:gray_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Gray ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:gray_glass_cable",
+      "kind": "part_item",
+      "name": "Gray ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:gray_smart_cable",
+      "kind": "part_item",
+      "name": "Gray ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:gray_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Gray ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:green_covered_cable",
+      "kind": "part_item",
+      "name": "Green ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:green_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Green ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:green_glass_cable",
+      "kind": "part_item",
+      "name": "Green ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:green_smart_cable",
+      "kind": "part_item",
+      "name": "Green ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:green_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Green ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:import_bus",
+      "kind": "part_item",
+      "name": "ME Import Bus",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:inverted_toggle_bus",
+      "kind": "part_item",
+      "name": "ME Inverted Toggle Bus",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:item_p2p_tunnel",
+      "kind": "part_item",
+      "name": "Item P2P Tunnel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:level_emitter",
+      "kind": "part_item",
+      "name": "ME Level Emitter",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_blue_covered_cable",
+      "kind": "part_item",
+      "name": "Light Blue ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_blue_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Light Blue ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_blue_glass_cable",
+      "kind": "part_item",
+      "name": "Light Blue ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_blue_smart_cable",
+      "kind": "part_item",
+      "name": "Light Blue ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_blue_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Light Blue ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_gray_covered_cable",
+      "kind": "part_item",
+      "name": "Light Gray ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_gray_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Light Gray ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_gray_glass_cable",
+      "kind": "part_item",
+      "name": "Light Gray ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_gray_smart_cable",
+      "kind": "part_item",
+      "name": "Light Gray ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_gray_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Light Gray ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:light_p2p_tunnel",
+      "kind": "part_item",
+      "name": "Light P2P Tunnel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:lime_covered_cable",
+      "kind": "part_item",
+      "name": "Lime ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:lime_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Lime ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:lime_glass_cable",
+      "kind": "part_item",
+      "name": "Lime ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:lime_smart_cable",
+      "kind": "part_item",
+      "name": "Lime ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:lime_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Lime ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:magenta_covered_cable",
+      "kind": "part_item",
+      "name": "Magenta ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:magenta_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Magenta ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:magenta_glass_cable",
+      "kind": "part_item",
+      "name": "Magenta ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:magenta_smart_cable",
+      "kind": "part_item",
+      "name": "Magenta ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:magenta_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Magenta ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:me_p2p_tunnel",
+      "kind": "part_item",
+      "name": "ME P2P Tunnel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:monitor",
+      "kind": "part_item",
+      "name": "Bright Illuminated Panel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:orange_covered_cable",
+      "kind": "part_item",
+      "name": "Orange ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:orange_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Orange ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:orange_glass_cable",
+      "kind": "part_item",
+      "name": "Orange ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:orange_smart_cable",
+      "kind": "part_item",
+      "name": "Orange ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:orange_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Orange ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pattern_access_terminal",
+      "kind": "part_item",
+      "name": "ME Pattern Access Terminal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pattern_encoding_terminal",
+      "kind": "part_item",
+      "name": "ME Pattern Encoding Terminal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pink_covered_cable",
+      "kind": "part_item",
+      "name": "Pink ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pink_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Pink ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pink_glass_cable",
+      "kind": "part_item",
+      "name": "Pink ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pink_smart_cable",
+      "kind": "part_item",
+      "name": "Pink ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:pink_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Pink ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purple_covered_cable",
+      "kind": "part_item",
+      "name": "Purple ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purple_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Purple ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purple_glass_cable",
+      "kind": "part_item",
+      "name": "Purple ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purple_smart_cable",
+      "kind": "part_item",
+      "name": "Purple ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:purple_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Purple ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:quartz_fiber",
+      "kind": "part_item",
+      "name": "Quartz Fiber",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:red_covered_cable",
+      "kind": "part_item",
+      "name": "Red ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:red_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Red ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:red_glass_cable",
+      "kind": "part_item",
+      "name": "Red ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:red_smart_cable",
+      "kind": "part_item",
+      "name": "Red ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:red_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Red ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:redstone_p2p_tunnel",
+      "kind": "part_item",
+      "name": "Redstone P2P Tunnel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:semi_dark_monitor",
+      "kind": "part_item",
+      "name": "Illuminated Panel",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:storage_bus",
+      "kind": "part_item",
+      "name": "ME Storage Bus",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:storage_monitor",
+      "kind": "part_item",
+      "name": "ME Storage Monitor",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:terminal",
+      "kind": "part_item",
+      "name": "ME Terminal",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:toggle_bus",
+      "kind": "part_item",
+      "name": "ME Toggle Bus",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:white_covered_cable",
+      "kind": "part_item",
+      "name": "White ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:white_covered_dense_cable",
+      "kind": "part_item",
+      "name": "White ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:white_glass_cable",
+      "kind": "part_item",
+      "name": "White ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:white_smart_cable",
+      "kind": "part_item",
+      "name": "White ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:white_smart_dense_cable",
+      "kind": "part_item",
+      "name": "White ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:yellow_covered_cable",
+      "kind": "part_item",
+      "name": "Yellow ME Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:yellow_covered_dense_cable",
+      "kind": "part_item",
+      "name": "Yellow ME Dense Covered Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:yellow_glass_cable",
+      "kind": "part_item",
+      "name": "Yellow ME Glass Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:yellow_smart_cable",
+      "kind": "part_item",
+      "name": "Yellow ME Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    },
+    {
+      "id": "ae2:yellow_smart_dense_cable",
+      "kind": "part_item",
+      "name": "Yellow ME Dense Smart Cable",
+      "source_files": [
+        "src/main/java/appeng/api/ids/AEPartIds.java"
+      ]
+    }
+  ]
+}

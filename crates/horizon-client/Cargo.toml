@@ -8,11 +8,11 @@ rust-version = "1.90"
 description = "Horizon native development client"
 
 [dependencies]
-ae2-crafting-core = { path = "../../../ae2-crafting-core", optional = true }
-ae2-machines-core = { path = "../../../ae2-machines-core", optional = true }
-ae2-network-core = { path = "../../../ae2-network-core", optional = true }
-ae2-cell-core = { path = "../../../ae2-cell-core", optional = true }
-ae2-links-core = { path = "../../../ae2-links-core", optional = true }
+ae2-crafting-core = { path = "../ae2-crafting-core", optional = true }
+ae2-machines-core = { path = "../ae2-machines-core", optional = true }
+ae2-network-core = { path = "../ae2-network-core", optional = true }
+ae2-cell-core = { path = "../ae2-cell-core", optional = true }
+ae2-links-core = { path = "../ae2-links-core", optional = true }
 horizon-assets = { path = "../horizon-assets" }
 horizon-core = { path = "../horizon-core" }
 # The server thread ahead of the workers (MinecraftServer.spin's Thread.setPriority).

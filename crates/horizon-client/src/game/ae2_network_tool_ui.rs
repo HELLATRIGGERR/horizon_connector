@@ -24,7 +24,7 @@ mod tests {
     #[test]
     fn standalone_network_tool_source_order_and_filters() {
         use horizon_client::{banner::Banners, brewing::Brewing, crafting::Recipes, items::Items, menu::Input};
-        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
         if !root.join("items.json").exists() { return; }
         let items=Items::catalog(&root).unwrap();let recipes=Recipes::load(&root,&items).unwrap();
         let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);

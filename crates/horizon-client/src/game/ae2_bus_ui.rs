@@ -1367,7 +1367,7 @@ mod emitter_menu_tests {
     #[test]
     fn emitter_physical_upgrade_slot_filters_conserves_and_orders() {
         use horizon_client::{banner::Banners,brewing::Brewing,crafting::Recipes,items::Items,menu::Env};
-        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
         let items=Items::catalog(&root).unwrap();let recipes=Recipes::load(&root,&items).unwrap();let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);
         let stations=horizon_client::stations::StationRecipes::load(&root,&items);let enchantments=horizon_client::enchant::Enchantments::default();let names=horizon_client::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&stations,enchantments:&enchantments,names:&names,trade:None,maps:None};

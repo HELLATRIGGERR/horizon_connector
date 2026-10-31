@@ -3264,7 +3264,7 @@ pub(crate) mod tests {
     #[cfg(feature = "ae2-lab")]
     #[test]
     fn wrapped_stack_refuses_pickup_and_pours_only_real_fluid_into_buckets() {
-        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
         let items=Items::catalog(&root).unwrap();let recipes=Recipes::load(&root,&items).unwrap();let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root,&items);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
         let value=crate::ae2_generic_stack::GenericStack{key:crate::ae2_cell_codec::fluid_key("minecraft:water"),fluid:true,amount:1500};
@@ -3286,7 +3286,7 @@ pub(crate) mod tests {
     #[cfg(feature = "ae2-lab")]
     #[test]
     fn quartz_knife_menu_consumes_one_ingot_and_locks_the_physical_knife() {
-        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
         let mut items=Items::catalog(&root).unwrap();items.item_tags.insert("ae2:metal_ingots".into(),std::collections::HashSet::from(["minecraft:iron_ingot".into()]));
         let recipes=Recipes::load(&root,&items).unwrap();let brewing=Brewing::load(&root,&items);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root,&items);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
@@ -3300,7 +3300,7 @@ pub(crate) mod tests {
     #[test]
     fn ae2_fresh_crafting_menus_preserve_player_output_across_refills() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../.local/resources/26.3");
+            .join("../../.local/resources/26.3");
         if !root.join("items.json").exists() { return; }
         let items = Items::catalog(&root).unwrap();
         let recipes = Recipes::load(&root, &items).unwrap();

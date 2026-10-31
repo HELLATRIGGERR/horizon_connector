@@ -1,0 +1,48 @@
+/** Sparse fluid-before-item provider input order is observable at a blocking real Condenser. */
+import assert from 'node:assert/strict';
+import { WorldFixture, until, type Mode } from './harness';
+const mode:Mode=process.argv.includes('--in-frame')?'in-frame':'server-thread';const fixture=new WorldFixture('processing-mixed-ordered',mode);
+const water='ae2:fluid_storage_cell_1k[ae2:storage_cell_inv=[{"#t":"ae2:f",id:"minecraft:water","#":1377L}]]';
+const stone='ae2:item_storage_cell_1k[ae2:storage_cell_inv=[{"#t":"ae2:i",id:"minecraft:stone",components:{"minecraft:custom_data":{variant:"second"}},"#":1L}]]';
+const pattern='ae2:processing_pattern[ae2:encoded_processing_pattern={sparseInputs:[{"#t":"ae2:f",id:"minecraft:water","#":1377L},{"#t":"ae2:i",id:"minecraft:stone",components:{"minecraft:custom_data":{variant:"second"}},"#":1L}],sparseOutputs:[{"#t":"ae2:i",id:"minecraft:diamond","#":1L}]}]';
+try {
+ const state=await fixture.start(),[px,py,pz]=state.player.position;const x=Math.floor(px)+32,y=Math.ceil(py)+5,z=Math.floor(pz)+32;
+ const at=(dx:number,dy=0,dz=0)=>`${x+dx} ${y+dy} ${z+dz}`;
+ const drive=at(1),terminal=at(2),cpu=at(2,1),provider=at(3),condenser=at(3,0,-1);
+ await fixture.command(`tp @s ${x+.5} ${y} ${z+.5}`);
+ for(const dx of [-2,6]) for(const dz of [-3,3]) await until(async()=>(await fixture.command(`execute if loaded ${at(dx,0,dz)}`)).chat??[],lines=>lines.includes('Test passed'),'loaded build corner',30000);
+ await fixture.command('clear @s');await fixture.command(`fill ${at(-2,0,-3)} ${at(6,5,3)} minecraft:air`);await fixture.command(`fill ${at(-2,-1,-3)} ${at(6,-1,3)} minecraft:stone`);
+ for(const [pos,id] of [[at(0),'creative_energy_cell'],[drive,'drive'],[terminal,'cable_bus'],[cpu,'64k_crafting_storage'],[provider,'pattern_provider'],[condenser,'condenser']] as const) await fixture.command(`setblock ${pos} ae2:${id}`);
+ await fixture.command(`item replace block ${drive} container.0 with ${water}`);await fixture.command(`item replace block ${drive} container.1 with ${stone}`);
+ await fixture.command(`item replace block ${condenser} container.1 with ae2:cell_component_1k`);assert.equal((await fixture.ae(`condenser output ${condenser} matter_balls`)).output,'matter_balls');
+ await fixture.command(`item replace block ${condenser} container.0 with ae2:matter_ball 63`);
+ await fixture.command(`data merge block ${condenser} {ae2_lab_config:{condenser_power:247.0d}}`);
+ const matter=()=>fixture.ae(`condenser status ${condenser}`);assert.equal((await matter()).stored,247);
+ await fixture.replace('hotbar.0','ae2:terminal');await fixture.select(0,'ae2:terminal');assert.equal((await fixture.ae(`grid part ${terminal} north`)).attached,true);
+ const ready=()=>until(()=>fixture.ae(`grid status ${drive}`),s=>s.online&&s.powered,'mixed processing network online',30000);
+ await ready();await until(()=>fixture.ae(`grid status ${provider}`),s=>s.online&&s.powered,'provider online',30000);
+ const fluids=()=>fixture.ae(`fluid grid status ${drive}`);
+ await until(fluids,s=>s.entries?.some((e:any)=>e.fluid==='minecraft:water'&&e.amount_mb===1377),'source water present');
+ await until(ready,s=>s.items?.some((e:any)=>e.item==='minecraft:stone'&&e.count===1),'exact stone present');
+ await fixture.replace('hotbar.0',pattern);await fixture.replace('hotbar.8','minecraft:blaze_rod');await fixture.select(8,'minecraft:blaze_rod');await fixture.command(`tp @s ${x+5.5} ${y} ${z+.5}`);await fixture.raw(`interact ${provider} east`);
+ const menu=await until(()=>fixture.raw('screen'),s=>s.slots?.some((v:any)=>v.slot<36&&v.item==='ae2:processing_pattern'),'mixed physical pattern');
+ await fixture.raw(`click-slot ${menu.slots.find((v:any)=>v.slot<36&&v.item==='ae2:processing_pattern').slot} shift`);await until(()=>fixture.raw('inventory'),s=>!s.counts?.['ae2:processing_pattern'],'pattern installed');await fixture.raw('close');
+ await fixture.command(`tp @s ${x+2.5} ${y} ${z-2.5}`);await fixture.raw(`interact ${terminal} north`);
+ const screen=await until(()=>fixture.raw('screen'),s=>s.slots?.some((v:any)=>v.slot>=300&&v.slot<345&&v.item==='minecraft:diamond'),'processing output shown');
+ await fixture.raw(`click-slot ${screen.slots.find((v:any)=>v.slot>=300&&v.slot<345&&v.item==='minecraft:diamond').slot} shift`);await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Amount'),'amount');await fixture.raw('click-slot 302');
+ const confirm=await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Confirm')&&/bytes|Missing materials|craft planning:/.test(JSON.stringify(s)),'mixed processing plan');assert.doesNotMatch(JSON.stringify(confirm),/Missing materials|craft planning:/);
+ await fixture.raw('click-slot 302');await fixture.raw('close');
+ const queued=async()=>(await fixture.command(`data get block ${provider}`)).chat?.join('\n')??'';
+ const first=await until(queued,text=>text.includes('ae2_provider_send_queue'),'blocked second sparse input',90000);
+ const queueRecord=first.slice(first.indexOf('ae2_provider_send_queue:'));
+ assert.match(queueRecord,/amount: 1L/);assert.match(queueRecord,/minecraft:stone/);assert.match(queueRecord,/second/);
+ assert.equal((await matter()).stored,2,'the 1,377 mB fluid was accepted first and made a matter ball');
+ const output=await fixture.raw(`container ${condenser}`);assert(output.slots?.some((v:any)=>v?.item==='ae2:matter_ball'&&v.count===64));
+ assert(!((await fluids()).entries??[]).some((e:any)=>e.fluid==='minecraft:water'&&e.amount_mb));
+ fixture.mark('the fluid input reaches the Condenser first, fills its output, and the exact later item remains queued');
+ await fixture.restart();const saved=await queued();assert.match(saved,/ae2_provider_send_queue/);assert.match(saved,/second/);assert.equal((await matter()).stored,2);
+ await fixture.command(`item replace block ${condenser} container.0 with ae2:matter_ball 63`);
+ await until(queued,text=>!text.includes('ae2_provider_send_queue'),'queued item retries after output space opens',90000);assert.equal((await matter()).stored,3);
+ await fixture.restart();assert.equal((await matter()).stored,3);assert.doesNotMatch(await queued(),/ae2_provider_send_queue/);fixture.assertHidden(await fixture.raw('status'));
+ fixture.mark('the queued exact item and resulting power survive both restarts without fabricating the processing output');fixture.report('passed');
+}catch(error){fixture.report('failed',error);throw error;}finally{await fixture.close();}

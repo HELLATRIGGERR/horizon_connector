@@ -7446,7 +7446,7 @@ mod terminal_filter_tests {
         assert!(toolbox_pickup_locked(17,8,Some(0)));
         assert!(!toolbox_pickup_locked(0,8,Some(0)));
         assert!(!toolbox_pickup_locked(45,8,Some(0)));
-        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
         assert!(root.join("items.json").exists(), "native test resources are required");
         let items=Items::catalog(&root).unwrap(); let recipes=Recipes::load(&root,&items).unwrap();
         let brewing=Brewing::load(&root,&items); let banners=Banners::load(&root);
@@ -7470,7 +7470,7 @@ mod terminal_filter_tests {
     fn terminal_toolbox_menu_respects_source_slot_rules() {
         use horizon_client::{banner::Banners, brewing::Brewing, crafting::Recipes,
             items::Items, menu::{Env, Kind, Menu}};
-        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+        let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
         assert!(root.join("items.json").exists(), "native test resources are required");
         let items=Items::catalog(&root).unwrap(); let recipes=Recipes::load(&root,&items).unwrap();
         let brewing=Brewing::load(&root,&items); let banners=Banners::load(&root);

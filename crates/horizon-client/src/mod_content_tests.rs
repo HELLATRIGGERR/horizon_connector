@@ -882,7 +882,7 @@ fn a_replacing_mod_tag_reaches_the_root() {
 #[cfg(feature = "ae2-lab")]
 #[test]
 fn ae2_machine_overlay_sets_world_block_entity_flag() {
-    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
     if !base.join("gameplay-facts.json").exists() {
         return;
     }
@@ -920,7 +920,7 @@ fn ae2_machine_overlay_sets_world_block_entity_flag() {
 #[cfg(feature = "ae2-lab")]
 #[test]
 fn fluix_tool_overlay_components_match_host_stats_without_double_application() {
-    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
     if !base.join("items.json").exists(){return;}
     let scratch=std::env::temp_dir().join(format!("horizon-fluix-overlay-{}",std::process::id()));
     let _=fs::remove_dir_all(&scratch);
@@ -944,7 +944,7 @@ fn fluix_tool_overlay_components_match_host_stats_without_double_application() {
 #[test]
 fn declared_custom_states_survive_registry_and_resource_tables() {
     use horizon_world::chunk::BlockState;
-    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
     if !base.join("facts.json").exists() {
         return;
     }
@@ -1098,7 +1098,7 @@ fn declared_custom_states_survive_registry_and_resource_tables() {
 #[test]
 fn ae2_physical_candidate_loads_real_runtime_facts_and_shapes() {
     let Some(candidate)=std::env::var_os("AE2_PHYSICAL_CANDIDATE") else{return};
-    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.local/resources/26.3");
+    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
     assert!(base.join("facts.json").exists());
     let candidate=PathBuf::from(candidate);
     let package=horizon_mods::Package::read(&candidate).unwrap();

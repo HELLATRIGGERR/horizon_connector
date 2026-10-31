@@ -34,3 +34,6 @@
 
 # Release-only compiled original exporter bundle.
 /exporters/
+# AE2's pinned source and the content generated from it stay local.
+/ae2-reference
+/content/

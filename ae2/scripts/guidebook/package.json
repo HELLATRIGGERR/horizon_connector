@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compile": "bun run compile-guide.ts",
+    "verify": "bun run verify-guide.ts"
+  },
+  "devDependencies": {
+    "marked": "17.0.5",
+    "yaml": "2.8.3"
+  }
+}
