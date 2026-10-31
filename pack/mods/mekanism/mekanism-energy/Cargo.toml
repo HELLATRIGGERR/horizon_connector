@@ -1,0 +1,9 @@
+[package]
+name = "mekanism-energy"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Mekanism 10.7's energy rules (Joules, tiers, the even split, FE at the edges) for the pack's Mekanism port"
+
+[dependencies]
+toml = "1"

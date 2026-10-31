@@ -1,0 +1,42 @@
+# This fork as a modpack: which mods the build turns on, and the settings each
+# takes from an installed All the Mods 10 (ATM10), as ATM10 ships them.
+#
+# `feature` is the Cargo feature of horizon-client that builds the mod in.
+# `configs` are paths under ATM10's `config/` that `pack/scripts/sync-atm10.ts`
+# copies into the game's `config/`. ATM10's files are not stored here: they
+# come from the player's own instance (`ATM10_DIR`).
+
+[mods.ae2]
+name = "Applied Energistics 2"
+enabled = true
+feature = "ae2-lab"
+configs = ["ae2-common.toml", "ae2-client.toml"]
+
+# Planned: energy first (generators, universal cables, energy cubes).
+# ATM10 runs Mekanism 10.7.19: energy in Joules, FE * feConversionRate = J
+# (general.toml), tier sizes in tiers.toml.
+[mods.mekanism]
+name = "Mekanism"
+enabled = false
+configs = [
+  "Mekanism/general.toml", "Mekanism/tiers.toml", "Mekanism/startup.toml",
+  "Mekanism/common.toml", "Mekanism/client.toml", "Mekanism/world.toml",
+  "Mekanism/machine-storage.toml", "Mekanism/machine-usage.toml",
+  "Mekanism/generators.toml", "Mekanism/generator-storage.toml",
+]
+
+[mods.powah]
+name = "Powah"
+enabled = false
+configs = ["powah.json5"]
+
+[mods.fluxnetworks]
+name = "Flux Networks"
+enabled = false
+configs = ["fluxnetworks-common.toml", "fluxnetworks-server.toml", "fluxnetworks-client.toml"]
+
+# AE2 addon: FE stored in ME cells and the Flux Accessor.
+[mods.appflux]
+name = "Applied Flux"
+enabled = false
+configs = ["appflux-common.toml"]
