@@ -3251,58 +3251,12 @@ impl Game<'_> {
     /// Suffocating is a full collision cube that is also a full render cube,
     /// as `in_wall` has it.
     fn closest_space_nudge(&self) -> [Option<f64>; 2] {
-        use horizon_core::geometry::Axis;
-        let mut out = [None; 2];
-        let Some(p) = self.player.as_ref() else {
-            return out;
-        };
-        if p.spectator || self.riding.is_some() {
-            return out;
+        match self.player.as_ref() {
+            Some(p) if !p.spectator && self.riding.is_none() => {
+                closest_space_nudge(p, &self.world, self.res.facts())
+            }
+            _ => [None; 2],
         }
-        let body = p.bounds();
-        let (min_y, max_y) = (body.min(Axis::Y) + 1.0e-7, body.max(Axis::Y) - 1.0e-7);
-        let suffocates_at = |x: i32, z: i32| {
-            ((min_y.floor() as i32 - 1)..=(max_y.ceil() as i32 + 1)).any(|y| {
-                f64::from(y) < max_y && f64::from(y + 1) > min_y && {
-                    let f = self.res.facts().get(self.world.block(x, y, z));
-                    f.full_collision && f.solid_render
-                }
-            })
-        };
-        let side = f64::from(p.dimensions.width) * 0.35;
-        let (px, pz) = (p.position.x, p.position.z);
-        for (x, z) in [
-            (px - side, pz + side),
-            (px - side, pz - side),
-            (px + side, pz - side),
-            (px + side, pz + side),
-        ] {
-            let (bx, bz) = (x.floor() as i32, z.floor() as i32);
-            if !suffocates_at(bx, bz) {
-                continue;
-            }
-            let (xd, zd) = (x - f64::from(bx), z - f64::from(bz));
-            // WEST, EAST, NORTH, SOUTH: (axis, step, distance to that edge).
-            let mut closest = 1.797_693_134_862_315_7e308; // Double.MAX_VALUE
-            let mut chosen = None;
-            for (axis, step, distance) in
-                [(0, -1, xd), (0, 1, 1.0 - xd), (1, -1, zd), (1, 1, 1.0 - zd)]
-            {
-                let (nx, nz) = if axis == 0 {
-                    (bx + step, bz)
-                } else {
-                    (bx, bz + step)
-                };
-                if distance < closest && !suffocates_at(nx, nz) {
-                    closest = distance;
-                    chosen = Some((axis, step));
-                }
-            }
-            if let Some((axis, step)) = chosen {
-                out[axis] = Some(0.1 * f64::from(step));
-            }
-        }
-        out
     }
     /// What the window decides for its player's body every tick, in frame and
     /// on a server alike: the look (Player.travel steers sprint-swimming by
@@ -14309,6 +14263,17 @@ impl Game<'_> {
     pub(super) fn sync_level(&mut self) {
         // Level.write saves the game rules (game_rules.dat) with the rest.
         self.level.game_rules = self.ui.rules.by_name();
+        // PrimaryLevelData.setDifficulty: /difficulty and the options button change it.
+        self.level.difficulty =
+            horizon_client::title::DIFFICULTIES[usize::from(self.ui.difficulty) & 3].into();
+        self.level.time = self.world.game_time;
+        self.level.weather = self.world.weather;
+        self.level.day_time = self.world.day_time;
+        // A server has no in-frame player of its own; `enter_guest` puts one in
+        // `self.player` only while a command reads it.
+        if self.player.is_none() && self.options.dedicated.is_some() {
+            return;
+        }
         self.level.selected_slot = self.selected as i32;
         let mode = self.mode_id();
         // The vehicle the player rides (`ServerPlayer.saveParentVehicle`).
@@ -14317,12 +14282,6 @@ impl Game<'_> {
         level.creative = self.creative;
         level.game_mode = mode;
         level.previous_game_mode = self.previous_mode.map(game_mode::mode_id_of);
-        // PrimaryLevelData.setDifficulty: /difficulty and the options button change it.
-        level.difficulty =
-            horizon_client::title::DIFFICULTIES[usize::from(self.ui.difficulty) & 3].into();
-        level.time = self.world.game_time;
-        level.weather = self.world.weather;
-        level.day_time = self.world.day_time;
         level.spawn = self.spawn.map(|s| [s.x, s.y, s.z]);
         level.respawn_elsewhere = self.respawn_config.map(|c| c.saved());
         level.rotation = [self.yaw, self.pitch];
@@ -14430,11 +14389,11 @@ impl Game<'_> {
         self.store_owner();
         #[cfg(feature = "ae2-lab")]
         self.ae2_save_anchor_tickets()?;
-        if self.options.dedicated.is_some() {
-            self.level.write_without_player(&self.world_root)?;
-        } else {
-            self.level.write(&self.world_root)?;
-        }
+        write_level_for_role(
+            &mut self.level,
+            &self.world_root,
+            self.options.execution_role,
+        )?;
         self.save_world_state();
         self.message = Some(("Saved the game".into(), Instant::now()));
         Ok(())
@@ -18038,7 +17997,12 @@ fn load_core(
                 .map_err(|e| e.to_string());
                 Ok((render, item_renderer))
             });
+            // Nor the face visibility the mesher and the block entity
+            // renderer cull with (19 MB).
             let visibility = Step::spawn(scope, parallel, || {
+                if headless {
+                    return Ok(horizon_world::block_render::FaceVisibility::empty());
+                }
                 models::load_visibility(root, registry).map_err(|e| e.to_string())
             });
             let biomes = Step::spawn(scope, parallel, || {
@@ -18280,6 +18244,7 @@ fn load_resources(
                     visibility,
                     &progress,
                     started,
+                    true,
                 )
                 .map_err(|error| error.to_string())?;
                 resources
@@ -18308,6 +18273,7 @@ fn load_resources(
             visibility,
             progress,
             started,
+            !headless,
         )?;
         resources
             .rest
@@ -18336,6 +18302,9 @@ fn load_world_rest(
     visibility: horizon_world::block_render::FaceVisibility,
     progress: &Progress,
     started: Instant,
+    // False on a dedicated server, which draws nothing: no block entity
+    // renderer or animate tables (client-side display ticks).
+    draws: bool,
 ) -> Result<WorldRest> {
     let facts = resources.facts();
     let biomes = resources.biomes();
@@ -18356,12 +18325,19 @@ fn load_world_rest(
     let load_behaviours =
         || Behaviours::load_with_gameplay(registry, root, behaviour_json, gameplay_projection);
     let load_block_entity_render = || {
+        if !draws {
+            return Ok(Default::default());
+        }
         horizon_client::block_entity_render::BlockEntityRenderer::load_with_visibility(
             root, registry, visibility,
         )
     };
     let load_animate = || -> Result<_> {
-        let animate = horizon_client::animate_tick::AnimateTables::load(root, registry, biomes)?;
+        let animate = if draws {
+            horizon_client::animate_tick::AnimateTables::load(root, registry, biomes)?
+        } else {
+            Default::default()
+        };
         Ok((animate, horizon_client::fog::FogTables::load(root, biomes)))
     };
     let load_mobs = || -> Result<_> {
@@ -19554,6 +19530,62 @@ mod runtime_reset_tests {
 #[cfg(test)]
 mod entity_model_loading_tests;
 
+/// `LocalPlayer.moveTowardsClosestSpace` at the body's four corners (aiStep, unless a spectator or a
+/// passenger): a corner inside a suffocating block sets a 0.1 speed towards the nearest side that is
+/// free, on that side's axis; a later corner overwrites an earlier one. Suffocating is a full
+/// collision cube that is also a full render cube, as `in_wall` has it.
+pub(crate) fn closest_space_nudge(
+    p: &PlayerMotion,
+    world: &World,
+    facts: &BlockFacts,
+) -> [Option<f64>; 2] {
+    use horizon_core::geometry::Axis;
+    let mut out = [None; 2];
+    let body = p.bounds();
+    let (min_y, max_y) = (body.min(Axis::Y) + 1.0e-7, body.max(Axis::Y) - 1.0e-7);
+    let suffocates_at = |x: i32, z: i32| {
+        ((min_y.floor() as i32 - 1)..=(max_y.ceil() as i32 + 1)).any(|y| {
+            f64::from(y) < max_y && f64::from(y + 1) > min_y && {
+                let f = facts.get(world.block(x, y, z));
+                f.full_collision && f.solid_render
+            }
+        })
+    };
+    let side = f64::from(p.dimensions.width) * 0.35;
+    let (px, pz) = (p.position.x, p.position.z);
+    for (x, z) in [
+        (px - side, pz + side),
+        (px - side, pz - side),
+        (px + side, pz - side),
+        (px + side, pz + side),
+    ] {
+        let (bx, bz) = (x.floor() as i32, z.floor() as i32);
+        if !suffocates_at(bx, bz) {
+            continue;
+        }
+        let (xd, zd) = (x - f64::from(bx), z - f64::from(bz));
+        // WEST, EAST, NORTH, SOUTH: (axis, step, distance to that edge).
+        let mut closest = 1.797_693_134_862_315_7e308; // Double.MAX_VALUE
+        let mut chosen = None;
+        for (axis, step, distance) in [(0, -1, xd), (0, 1, 1.0 - xd), (1, -1, zd), (1, 1, 1.0 - zd)]
+        {
+            let (nx, nz) = if axis == 0 {
+                (bx + step, bz)
+            } else {
+                (bx, bz + step)
+            };
+            if distance < closest && !suffocates_at(nx, nz) {
+                closest = distance;
+                chosen = Some((axis, step));
+            }
+        }
+        if let Some((axis, step)) = chosen {
+            out[axis] = Some(0.1 * f64::from(step));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -19877,5 +19909,75 @@ mod tests {
             ModifiersState::empty(),
             &HashSet::new()
         ));
+    }
+
+    #[test]
+    fn integrated_server_save_persists_owner_player_data() {
+        let dir = std::env::temp_dir().join(format!(
+            "horizon-integrated-player-save-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Initial world creation writes `level.dat` before the player spawns.
+        let mut level = Level {
+            name: "Creative".into(),
+            creative: true,
+            game_mode: 1,
+            ..Level::default()
+        };
+        level.write(&dir).unwrap();
+
+        // The integrated server stores the owner's state in `level` and saves the world.
+        level.position = Some([128.5, 72.0, -64.25]);
+        level.inventory = vec![(0, "minecraft:diamond_pickaxe".into(), 1, 0)];
+        write_level_for_role(
+            &mut level,
+            &dir,
+            execution_role::ExecutionRole::IntegratedServer,
+        )
+        .unwrap();
+
+        let reopened = Level::read(&dir).unwrap();
+        assert_eq!(reopened.position, Some([128.5, 72.0, -64.25]));
+        assert_eq!(
+            reopened.inventory,
+            vec![(0, "minecraft:diamond_pickaxe".into(), 1, 0)]
+        );
+
+        // A dedicated server save updates world metadata without overwriting the player file.
+        let mut dedicated = Level {
+            player_uuid: level.player_uuid,
+            day_time: 6000,
+            ..Level::default()
+        };
+        write_level_for_role(
+            &mut dedicated,
+            &dir,
+            execution_role::ExecutionRole::DedicatedServer,
+        )
+        .unwrap();
+
+        let reopened = Level::read(&dir).unwrap();
+        assert_eq!(reopened.day_time, 6000);
+        assert_eq!(reopened.position, Some([128.5, 72.0, -64.25]));
+        assert_eq!(
+            reopened.inventory,
+            vec![(0, "minecraft:diamond_pickaxe".into(), 1, 0)]
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+fn write_level_for_role(
+    level: &mut Level,
+    dir: &std::path::Path,
+    role: execution_role::ExecutionRole,
+) -> Result<()> {
+    if role.writes_singleplayer_player() {
+        level.write(dir)
+    } else {
+        level.write_without_player(dir)
     }
 }

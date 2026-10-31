@@ -1,4 +1,4 @@
-//! Native mods (docs/native-mods.md), experimental and off by default: mixin bundles that
+//! Native mods (docs/native-mods.md): mixin bundles that
 //! levzzz5154's horizon-mixins (MIT, <https://github.com/horizon-rust/horizon-mixins>) applies to
 //! Horizon's source, which the launcher then compiles into a game of its own with its portable Rust
 //! ([`rust_toolchain`]). Unlike `.hmod` mods they are not sandboxed: their code runs with the
@@ -12,8 +12,9 @@
 //! by default, so such mods always build together. The build compiles that revision's source, from
 //! GitHub, never a checkout on this computer, and installs as its own version,
 //! `native-<revision>-<key>` (the key hashes the revision, the mods' files, the tool's commit and
-//! the profile, so the same set builds once). It plays in its own instance, "Native mods", so a
-//! mod never touches the player's worlds.
+//! the profile, so the same set builds once). The instance the mods are installed in plays it, and
+//! its next build stays on the same revision ([`base_for`]) until the player asks to update
+//! ([`update_for`]), so a rebuild compiles only what the mods changed.
 use crate::backend;
 use crate::instances::{self, Instance};
 use crate::rust_toolchain::{self, Toolchain};
@@ -23,36 +24,17 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// The Native mods instance's id (its folder in `instances/`) and name.
-pub const INSTANCE: &str = "native-mods";
-const NAME: &str = "Native mods";
 const PREFIX: &str = "native-";
 /// horizon-mixins, for bundles that don't name the revision they were tested with.
 const MIXINS_GIT: &str = "https://github.com/horizon-rust/horizon-mixins";
 pub const MIXINS_REV: &str = "3f99a5c60dfa311cc365524c44ae2fd799bfa1de";
-/// The profile and features of the release's own game (game-build.yml).
-const PROFILE: &str = "release";
+/// The profile builds use: the workspace's `fast` (the release's optimizations without its
+/// link-time ones, incremental), so a rebuild recompiles and links only what the mods changed.
+/// A revision without it builds with `release` ([`profile_of`]).
+const PROFILE: &str = "fast";
+const FALLBACK_PROFILE: &str = "release";
+/// The features of the release's own game (game-build.yml).
 const FEATURES: &str = "horizon-client/mods";
-
-/// Whether Native mods are on after an install into a game folder whose list is `installed`:
-/// installing a native mod turns them on, so the player only has to build. A player who never
-/// installs one keeps them off; one already on stays on.
-pub fn turns_on(on: bool, installed: &[crate::browser::installed::Entry]) -> bool {
-    on || installed.iter().any(|e| {
-        e.file
-            .strip_prefix(INSTALLED)
-            .is_some_and(|rest| rest.starts_with('/'))
-    })
-}
-
-/// Whether installing a native mod shows its notice first (what the first build takes): once,
-/// for a player whose Native mods are still off.
-pub fn needs_notice(on: bool, noticed: bool) -> bool {
-    !on && !noticed
-}
-
-/// The notice before the first native mod is installed.
-pub const NOTICE: &str = "Native mods compile into a game of their own. Installing one turns Native mods on: you then build the game with it in Settings > Native mods. The first build downloads Rust and can take 20 to 30 minutes; later builds are faster.";
 
 /// Whether an installed version is a native-mods build.
 pub fn is_native(version: &str) -> bool {
@@ -440,6 +422,16 @@ fn has_mods_feature(source: &Path) -> bool {
     value.get("features").and_then(|f| f.get("mods")).is_some()
 }
 
+/// The profile the source at `source` builds with: [`PROFILE`] where its Cargo.toml has it.
+fn profile_of(source: &Path) -> &'static str {
+    let text = fs::read_to_string(source.join("Cargo.toml")).unwrap_or_default();
+    let value: toml::Table = text.parse().unwrap_or_default();
+    match value.get("profile").and_then(|p| p.get(PROFILE)) {
+        Some(_) => PROFILE,
+        None => FALLBACK_PROFILE,
+    }
+}
+
 /// The Horizon commit `version` (an installed release or Nightly) was built from, from GitHub.
 pub fn revision_of(version: &str) -> Result<String, String> {
     let reference = match version.strip_prefix("nightly-") {
@@ -457,6 +449,58 @@ pub fn revision_of(version: &str) -> Result<String, String> {
         .filter(|s| is_revision(s))
         .map(str::to_owned)
         .ok_or_else(|| format!("GitHub doesn't know the commit of {version}."))
+}
+
+/// What a native build was made from: its `native-mods.json`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct About {
+    /// The release or Nightly it started from.
+    pub base: String,
+    /// The Horizon commit it compiled.
+    pub horizon: String,
+}
+
+/// What installed native build `version` was made from; None for any other version.
+pub fn about(version: &str) -> Option<About> {
+    if !is_native(version) {
+        return None;
+    }
+    let path = backend::version_dir(version).join("native-mods.json");
+    let json: serde_json::Value = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
+    let field = |name: &str| json[name].as_str().map(str::to_owned);
+    Some(About {
+        base: field("base")?,
+        horizon: field("horizon").filter(|r| is_revision(r))?,
+    })
+}
+
+/// The newest installed release or Nightly in `installed` (newest first).
+fn newest_installed(installed: &[String]) -> Option<&String> {
+    installed
+        .iter()
+        .find(|t| backend::is_game_tag(t) || t.starts_with("nightly-"))
+}
+
+/// The installed version a build for an instance that plays `current` starts from: `current`
+/// itself, so a rebuild stays on the Horizon it plays (a native build's own revision, [`about`]).
+/// With `update`, or when it plays nothing installed, the newest installed release or Nightly.
+pub fn base_for(current: Option<&str>, installed: &[String], update: bool) -> Option<String> {
+    match current {
+        Some(v) if !update && installed.iter().any(|t| t == v) => Some(v.to_owned()),
+        _ => newest_installed(installed).cloned(),
+    }
+}
+
+/// The newer Horizon a build with `update` would move native build `version` to: the newest
+/// installed release or Nightly, when it is newer than the one the build started from.
+pub fn update_for(version: &str, installed: &[String]) -> Option<String> {
+    newer_than(&about(version)?.base, installed)
+}
+
+pub fn newer_than(base: &str, installed: &[String]) -> Option<String> {
+    newest_installed(installed)
+        .filter(|n| *n != base && backend::compare_versions(n, base).is_gt())
+        .cloned()
 }
 
 /// Every file under `dir`, by its path relative to `dir` (with `/`), sorted. A symlink is refused:
@@ -510,6 +554,18 @@ pub fn version_for(revision: &str, mixins: &str, bundles: &[Bundle]) -> Result<S
         .map(|b| format!("{b:02x}"))
         .collect();
     Ok(format!("{PREFIX}{}-{key}", &revision[..7]))
+}
+
+/// A digest of a mod's files (name, length, bytes, sorted by name), kept in `native-mods.json` so
+/// the Mods page sees a mod edited or reinstalled without a version bump.
+pub fn digest<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> String {
+    let mut hash = Sha256::new();
+    for (name, bytes) in files {
+        hash.update(name.as_bytes());
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(bytes);
+    }
+    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Where a build is.
@@ -628,6 +684,7 @@ fn tool(rust: &Toolchain, rev: &str) -> Result<PathBuf, String> {
         .join(format!("horizon-mixins{}", std::env::consts::EXE_SUFFIX));
     if !bin.is_file() {
         let mut cmd = rust.command(&rust.cargo());
+        rust_toolchain::low_priority(&mut cmd);
         cmd.args([
             "install", "--locked", "--git", MIXINS_GIT, "--rev", rev, "--root",
         ])
@@ -645,6 +702,27 @@ fn apply(rust: &Toolchain, tool: &Path, source: &Path, mods: &Path, out: &Path) 
     let mut cmd = rust.command(tool);
     cmd.arg("apply").arg("--workspace").arg(source);
     cmd.arg("--mods").arg(mods).arg("--out").arg(out);
+    cmd
+}
+
+/// The release's own build of the game in `stage` (game-build.yml), into `target`. It starts
+/// outside any Cargo configuration of the player's ([`rust_toolchain::outside_configs`]), so only
+/// the workspace's own (`stage/.cargo/config.toml`, when it has one) applies.
+fn compile(rust: &Toolchain, stage: &Path, target: &Path) -> Command {
+    let mut cmd = rust.command(&rust.cargo());
+    rust_toolchain::low_priority(&mut cmd);
+    cmd.env("CARGO_TARGET_DIR", target);
+    cmd.arg("build");
+    let config = stage.join(".cargo").join("config.toml");
+    if config.is_file() {
+        cmd.arg("--config").arg(config);
+    }
+    cmd.arg("--manifest-path").arg(stage.join("Cargo.toml"));
+    cmd.args(["--locked", "--profile", profile_of(stage)]);
+    if has_mods_feature(stage) {
+        cmd.args(["--features", FEATURES]);
+    }
+    cmd.args(["-p", "horizon-client", "--bin", "horizon-client"]);
     cmd
 }
 
@@ -718,15 +796,16 @@ fn sync(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 /// Builds `folder`'s mods on the Horizon revision they pin (else `base`'s, the installed version
-/// whose game files the build reuses) and points `instance` at the build: the instance the mods
-/// were installed in, else (None, or the game's own home) the Native mods instance. Returns the
-/// build's version; a build already made is used again. Mods pinning different revisions build on
-/// the newest one, with the newest horizon-mixins they name, only when the player agreed to try
-/// (`anyway`): else the error starts with [`MISMATCH`] and says which.
+/// whose game files the build reuses: a native build's own revision when it is one, [`base_for`])
+/// and points `instance` at the build: the instance the mods were installed in, else (None, or
+/// the game's own home) the Native mods instance. Returns the build's version; a build already
+/// made is used again. Mods pinning different revisions build on the newest one, with the newest
+/// horizon-mixins they name, only when the player agreed to try (`anyway`): else the error starts
+/// with [`MISMATCH`] and says which.
 pub fn build(
     base: &str,
     folder: &Path,
-    instance: Option<&Instance>,
+    instance: &Instance,
     anyway: bool,
     progress: impl Fn(Step),
 ) -> Result<String, String> {
@@ -738,6 +817,9 @@ pub fn build(
     let incoming = root().join("mods.incoming");
     let _ = fs::remove_dir_all(&incoming);
     let found = bundles(folder)?;
+    // A native build starts from the release or Nightly it was made from, on its own revision.
+    let built_on = about(base);
+    let origin = built_on.as_ref().map_or(base, |a| a.base.as_str());
     for b in &found {
         backend::copy_dir(&b.dir, &incoming.join(&b.id)).map_err(|e| e.to_string())?;
     }
@@ -755,7 +837,10 @@ pub fn build(
         &pins,
         "Horizon",
         |b| b.horizon.as_ref(),
-        || revision_of(base),
+        || match &built_on {
+            Some(about) => Ok(about.horizon.clone()),
+            None => revision_of(base),
+        },
         None,
         |r| committed(backend::REPO, r),
     )?;
@@ -804,47 +889,49 @@ pub fn build(
             |_| {},
         )
         .map_err(blame)?;
-        let stage = root().join("stage");
+        // Absolute: the compiler runs from elsewhere (`compile`).
+        let stage = real.join("stage");
         sync(&fresh, &stage)?;
         let _ = fs::remove_dir_all(&fresh);
-        let target = root().join("target");
-        let mut compile = rust.command(&rust.cargo());
-        compile.current_dir(&stage).env("CARGO_TARGET_DIR", &target);
-        compile.args(["build", "--locked", "--profile", PROFILE]);
-        if has_mods_feature(&stage) {
-            compile.args(["--features", FEATURES]);
-        }
-        compile.args(["-p", "horizon-client", "--bin", "horizon-client"]);
+        let target = real.join("target");
+        let profile = profile_of(&stage);
         let mut crates = 0;
-        run(compile, "Compiling the game", |line| {
-            if let Some(name) = line.trim_start().strip_prefix("Compiling ") {
-                crates += 1;
-                let name = name.split_whitespace().next().unwrap_or(name);
-                progress(Step::Compile(crates, name.to_owned()));
-            }
-        })
+        run(
+            compile(&rust, &stage, &target),
+            "Compiling the game",
+            |line| {
+                if let Some(name) = line.trim_start().strip_prefix("Compiling ") {
+                    crates += 1;
+                    let name = name.split_whitespace().next().unwrap_or(name);
+                    progress(Step::Compile(crates, name.to_owned()));
+                }
+            },
+        )
         .map_err(blame)?;
         progress(Step::Install);
         let about = serde_json::json!({
-            "base": base,
+            "base": origin,
             "horizon": revision,
             "horizon_mixins": mixins,
             "hooks": mods.iter().find_map(|m| m.hooks),
             "rust": rust_toolchain::VERSION,
-            "mods": mods.iter().map(|m| serde_json::json!({"id": m.id, "version": m.version})).collect::<Vec<_>>(),
+            "profile": profile,
+            "mods": mods.iter().map(|m| serde_json::json!({
+                "id": m.id,
+                "version": m.version,
+                "sha256": files(&m.dir).ok().map(|list| {
+                    let read: Vec<_> = list.iter().filter_map(|(n, p)| Some((n.clone(), fs::read(p).ok()?))).collect();
+                    digest(read.iter().map(|(n, b)| (n.as_str(), b.as_slice())))
+                }),
+            })).collect::<Vec<_>>(),
         });
-        let binary = target.join(PROFILE).join(backend::CLIENT);
+        let binary = target.join(profile).join(backend::CLIENT);
         install(base, &version, &binary, &about)?;
+    } else {
+        // Used again: it counts as the newest of the builds kept (`prune`).
+        let _ = fs::write(backend::version_dir(&version).join(".installed"), "");
     }
-    match instance.filter(|i| i.kind != instances::Kind::Default) {
-        Some(own) => instances::edit(&own.id, |meta| meta.version = Some(version.clone()))?,
-        None => {
-            let native = instance_on(&version)?;
-            let ids: Vec<&str> = mods.iter().map(|m| m.id.as_str()).collect();
-            carry_settings(&backend::game_home(), &native.home, &ids)?;
-            native
-        }
-    };
+    instances::edit(&instance.id, |meta| meta.version = Some(version.clone()))?;
     prune(&version);
     let _ = fs::remove_dir_all(&incoming);
     Ok(version)
@@ -879,7 +966,9 @@ fn install(
         let copied = if entry.path().is_dir() {
             backend::copy_dir(&entry.path(), &to)
         } else {
+            // A clone is a new file: horizon-ctl and horizon-server keep their permissions.
             horizon_prepare::clone_or_copy(&entry.path(), &to)
+                .and_then(|()| fs::set_permissions(&to, entry.metadata()?.permissions()))
         };
         copied.map_err(|e| format!("Could not copy {}: {e}", entry.path().display()))?;
     }
@@ -892,149 +981,57 @@ fn install(
     fs::write(dir.join(".installed"), "").map_err(|e| e.to_string())
 }
 
-/// The Native mods instance, made empty the first time, playing `version`.
-fn instance_on(version: &str) -> Result<Instance, String> {
-    if instances::find(INSTANCE).is_err() {
-        instances::create(NAME, None)?;
-    }
-    instances::edit(INSTANCE, |meta| meta.version = Some(version.to_owned()))
-}
+/// How many native builds no instance plays stay installed, the newest first: switching a mod
+/// off and on again plays the kept build again, without compiling.
+const SPARE_BUILDS: usize = 3;
 
-/// The mods' settings from the game's own home `from` (where their WebAssembly versions kept
-/// them) into the Native mods instance's `to`, for each mod `to` has none of yet: its storage
-/// folder (`horizon-mods/.horizon-mod-data/<id>/`) and its keys (`key.<id>.<name>:…` lines of
-/// `horizon-mods.txt`). Nothing is overwritten.
-fn carry_settings(from: &Path, to: &Path, ids: &[&str]) -> Result<(), String> {
-    const DATA: &str = "horizon-mods/.horizon-mod-data";
-    const LIST: &str = "horizon-mods.txt";
-    let read = |home: &Path| fs::read_to_string(home.join(LIST)).unwrap_or_default();
-    let (theirs, mut ours) = (read(from), read(to));
-    let before = ours.len();
-    for id in ids {
-        let data = from.join(DATA).join(id);
-        let target = to.join(DATA).join(id);
-        if data.is_dir() && !target.exists() {
-            backend::copy_dir(&data, &target).map_err(|e| format!("{}: {e}", data.display()))?;
-        }
-        let prefix = format!("key.{id}.");
-        let has_keys = ours.lines().any(|l| l.starts_with(&prefix));
-        for line in theirs
-            .lines()
-            .filter(|l| l.starts_with(&prefix) && !has_keys)
-        {
-            if !ours.is_empty() && !ours.ends_with('\n') {
-                ours.push('\n');
-            }
-            ours += line;
-            ours.push('\n');
-        }
-    }
-    if ours.len() != before {
-        fs::create_dir_all(to).map_err(|e| e.to_string())?;
-        fs::write(to.join(LIST), ours).map_err(|e| format!("{LIST}: {e}"))?;
-    }
-    Ok(())
-}
-
-/// Removes the native builds other than `keep` that no instance plays. The compiled crates
-/// (`native/target`) stay, so the next build only compiles what changed.
+/// Removes the native builds no instance plays, but `keep` and the [`SPARE_BUILDS`] newest. The
+/// compiled crates (`native/target`) stay, so the next build only compiles what changed.
 pub fn prune(keep: &str) {
     let played: Vec<String> = instances::list()
         .into_iter()
         .filter_map(|i| i.version)
         .collect();
-    for old in backend::installed() {
-        if is_native(&old) && old != keep && !played.contains(&old) {
-            let _ = backend::remove(&old);
-        }
+    let builds = backend::installed()
+        .into_iter()
+        .filter(|v| is_native(v))
+        .map(|v| {
+            let made = fs::metadata(backend::version_dir(&v).join(".installed"))
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            (v, made)
+        })
+        .collect();
+    for old in stale(builds, keep, &played) {
+        let _ = backend::remove(&old);
     }
+}
+
+/// The native `builds` (with when each was made or last used) to remove: those no instance plays
+/// (`played`), other than `keep`, past the [`SPARE_BUILDS`] newest.
+fn stale(
+    mut builds: Vec<(String, std::time::SystemTime)>,
+    keep: &str,
+    played: &[String],
+) -> Vec<String> {
+    builds.retain(|(v, _)| v != keep && !played.contains(v));
+    builds.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    builds
+        .into_iter()
+        .skip(SPARE_BUILDS)
+        .map(|(v, _)| v)
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Ludovic's decision (2026-10-29): installing a native mod turns Native mods on, after a
-    /// notice shown once; players who never install one keep them off.
-    #[test]
-    fn installing_a_native_mod_turns_native_mods_on() {
-        let entry = |file: &str| {
-            serde_json::from_value::<crate::browser::installed::Entry>(serde_json::json!({
-                "source": "horizon", "project": "p", "slug": "p", "title": "P", "kind": "mod",
-                "version": "1", "number": "1", "file": file, "checksum": "", "page": ""
-            }))
-            .unwrap()
-        };
-        let plain = [
-            entry("horizon-mods/zoom.hmod"),
-            entry("resourcepacks/x.zip"),
-        ];
-        assert!(!turns_on(false, &[]));
-        assert!(!turns_on(false, &plain), "no native mod: they stay off");
-        assert!(!turns_on(
-            false,
-            &[entry("horizon-native-mods-old/x.hnmod")]
-        ));
-        let native = [
-            plain[0].clone(),
-            entry("horizon-native-mods/veinminer.hnmod"),
-        ];
-        assert!(turns_on(false, &native));
-        assert!(turns_on(true, &plain), "on stays on");
-        // The notice: before the first one only.
-        assert!(needs_notice(false, false));
-        assert!(!needs_notice(false, true));
-        assert!(!needs_notice(true, false));
-        // Settings without the fields read as off and not noticed.
-        let s: backend::Settings = serde_json::from_str("{}").unwrap();
-        assert!(!s.native_mods && !s.native_mods_noticed);
-    }
-
     fn dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("horizon-native-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
-    }
-
-    #[test]
-    fn the_native_mods_instance_gets_the_mods_settings_once() {
-        let (from, to) = (dir("carry-from"), dir("carry-to"));
-        let data = from.join("horizon-mods/.horizon-mod-data");
-        fs::create_dir_all(data.join("zoom")).unwrap();
-        fs::write(data.join("zoom/level"), "8").unwrap();
-        fs::create_dir_all(data.join("other")).unwrap();
-        fs::write(
-            from.join("horizon-mods.txt"),
-            "mod.zoom:true\nkey.zoom.zoom:key.keyboard.c\nkey.other.x:key.keyboard.x\n",
-        )
-        .unwrap();
-        fs::write(
-            to.join("horizon-mods.txt"),
-            "key.minimap.map:key.keyboard.m",
-        )
-        .unwrap();
-        carry_settings(&from, &to, &["zoom", "minimap"]).unwrap();
-        let ours = to.join("horizon-mods/.horizon-mod-data");
-        assert_eq!(fs::read_to_string(ours.join("zoom/level")).unwrap(), "8");
-        assert!(!ours.join("other").exists());
-        assert_eq!(
-            fs::read_to_string(to.join("horizon-mods.txt")).unwrap(),
-            "key.minimap.map:key.keyboard.m\nkey.zoom.zoom:key.keyboard.c\n"
-        );
-        // Changed in the instance since: kept.
-        fs::write(ours.join("zoom/level"), "4").unwrap();
-        fs::write(
-            from.join("horizon-mods.txt"),
-            "key.zoom.zoom:key.keyboard.v\n",
-        )
-        .unwrap();
-        carry_settings(&from, &to, &["zoom"]).unwrap();
-        assert_eq!(fs::read_to_string(ours.join("zoom/level")).unwrap(), "4");
-        assert!(fs::read_to_string(to.join("horizon-mods.txt"))
-            .unwrap()
-            .contains("key.zoom.zoom:key.keyboard.c"));
-        let _ = (fs::remove_dir_all(&from), fs::remove_dir_all(&to));
     }
 
     fn write_bundle(at: &Path, id: &str, helper: &str) {
@@ -1435,6 +1432,119 @@ mod tests {
         );
         assert_eq!(fs::read_to_string(to.join("src/b.rs")).unwrap(), "b2");
         assert!(!to.join("gone.rs").exists());
+    }
+
+    /// levzzz5154's decision (2026-10-29): a rebuild stays on the Horizon the instance plays;
+    /// only "Rebuild on Horizon {version}" moves it to a newer one.
+    #[test]
+    fn a_rebuild_stays_on_the_instances_horizon_until_an_update() {
+        let installed: Vec<String> = [
+            "nightly-2026-10-29-4baa571",
+            "v2026.10.20",
+            "native-83f15fa-0123456789ab",
+            "v2026.10.13",
+        ]
+        .map(String::from)
+        .to_vec();
+        let base = |current: Option<&str>, update| base_for(current, &installed, update);
+        let native = "native-83f15fa-0123456789ab";
+        assert_eq!(base(Some(native), false).as_deref(), Some(native));
+        assert_eq!(
+            base(Some("v2026.10.13"), false).as_deref(),
+            Some("v2026.10.13")
+        );
+        let newest = Some("nightly-2026-10-29-4baa571");
+        assert_eq!(base(Some(native), true).as_deref(), newest);
+        assert_eq!(base(None, false).as_deref(), newest);
+        assert_eq!(base(Some("native-gone"), false).as_deref(), newest);
+        assert_eq!(base_for(Some(native), &[native.into()], true), None);
+        // Update offers the newest release or Nightly, when newer than the build's own.
+        assert_eq!(newer_than("v2026.10.20", &installed).as_deref(), newest);
+        assert_eq!(newer_than("nightly-2026-10-29-4baa571", &installed), None);
+        let releases = ["v2026.10.20".to_string(), "v2026.10.13".to_string()];
+        assert_eq!(newer_than("v2026.10.20", &releases), None);
+        assert_eq!(
+            newer_than("v2026.10.13", &releases).as_deref(),
+            Some("v2026.10.20")
+        );
+    }
+
+    #[test]
+    fn the_newest_builds_no_instance_plays_are_kept() {
+        let at = |s: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(s);
+        let builds: Vec<(String, std::time::SystemTime)> = [
+            ("native-a", 1),
+            ("native-b", 6),
+            ("native-c", 3),
+            ("native-d", 5),
+            ("native-e", 4),
+            ("native-f", 2),
+            ("native-g", 7),
+        ]
+        .map(|(v, s)| (v.to_string(), at(s)))
+        .to_vec();
+        // g was just built, b another instance plays: d, e and c are the newest spare ones.
+        let mut gone = stale(builds.clone(), "native-g", &["native-b".into()]);
+        gone.sort();
+        assert_eq!(gone, ["native-a", "native-f"]);
+        assert!(stale(builds[..4].to_vec(), "native-a", &[]).is_empty());
+    }
+
+    #[test]
+    fn the_game_compiles_outside_the_players_cargo_configuration() {
+        let rust = Toolchain {
+            dir: PathBuf::from("/rust/1.99.1-x"),
+        };
+        let stage = dir("stage-config");
+        let cmd = compile(&rust, &stage, Path::new("/native/target"));
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args[..3],
+            [
+                "build",
+                "--manifest-path",
+                &*stage.join("Cargo.toml").to_string_lossy()
+            ]
+        );
+        assert!(
+            args.ends_with(&["-p", "horizon-client", "--bin", "horizon-client"].map(String::from))
+        );
+        let dir = cmd.get_current_dir().expect("a folder of its own");
+        assert!(
+            dir.has_root() && dir.parent().is_none(),
+            "{}",
+            dir.display()
+        );
+        // The workspace's own configuration still applies.
+        fs::create_dir_all(stage.join(".cargo")).unwrap();
+        fs::write(stage.join(".cargo/config.toml"), "").unwrap();
+        let cmd = compile(&rust, &stage, Path::new("/native/target"));
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(args[1], "--config");
+        assert_eq!(args[2], stage.join(".cargo/config.toml"));
+    }
+
+    #[test]
+    fn builds_use_the_fast_profile_where_the_source_has_it() {
+        let d = dir("profile");
+        assert_eq!(profile_of(&d), "release");
+        fs::write(d.join("Cargo.toml"), "[profile.release]\nlto = \"thin\"\n").unwrap();
+        assert_eq!(profile_of(&d), "release");
+        fs::write(
+            d.join("Cargo.toml"),
+            "[profile.release]\nlto = \"thin\"\n[profile.fast]\ninherits = \"release\"\n",
+        )
+        .unwrap();
+        assert_eq!(profile_of(&d), "fast");
+        let rust = Toolchain {
+            dir: PathBuf::from("/rust/1.99.1-x"),
+        };
+        let cmd = compile(&rust, &d, Path::new("/native/target"));
+        let args: Vec<_> = cmd.get_args().collect();
+        assert!(args.windows(2).any(|w| w == ["--profile", "fast"]));
     }
 
     #[test]

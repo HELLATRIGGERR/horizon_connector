@@ -1,11 +1,13 @@
 //! `horizon-server`: host a Horizon server (docs/server.md). It keeps the server's settings in `server.toml`,
 //! runs the game headless as the engine, and manages the vanilla files around it.
 
+mod admin;
 mod api;
 mod backup;
 mod cli;
 mod config;
 mod engine;
+mod events;
 mod http;
 mod init;
 mod lists;
@@ -76,6 +78,10 @@ Usage: horizon-server [--dir DIR] <command>
   op NAME, deop NAME
   whitelist on|off|list, whitelist add|remove NAME
               Who may join (on the running server, or in the files when it is stopped)
+  players [--json]
+              Who is online, the operators, the whitelist and the bans
+  kick NAME [REASON], ban NAME [REASON], pardon NAME, ban-ip ADDRESS|NAME [REASON], pardon-ip ADDRESS
+              Moderate the running server (vanilla's commands, as from its console)
 
   --dir DIR   The server folder (default: the current folder)
 
@@ -124,6 +130,10 @@ fn main() -> ExitCode {
         Some("update") => update::command(&dir, &args[1..]),
         Some("rollback") => update::rollback(&dir, &args[1..]),
         Some(command @ ("op" | "deop" | "whitelist")) => lists::run(&dir, command, &args[1..]),
+        Some("players") => cli::players(&dir, args[1..].iter().any(|a| a == "--json")),
+        Some(command @ ("kick" | "ban" | "pardon" | "ban-ip" | "pardon-ip")) => {
+            cli::moderate(&dir, command, &args[1..])
+        }
         Some(other) => Err(format!(
             "unknown command {other}; `horizon-server help` lists them"
         )),
