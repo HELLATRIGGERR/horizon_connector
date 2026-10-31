@@ -491,8 +491,13 @@ impl Game<'_> {
         };
         let mut data = Vec::new();
         match m.kind {
-            // `InscriberMenu` and `MolecularAssemblerMenu`: progress of 100.
-            MachineKind::Inscriber | MachineKind::MolecularAssembler => {
+            // `InscriberMenu`: processingTime of MAX_PROCESSING_STEPS (200).
+            MachineKind::Inscriber => {
+                data.extend(wide(m.progress.min(200.0)));
+                data.extend(wide(200.0));
+            }
+            // `MolecularAssemblerMenu`: craftProgress of 100.
+            MachineKind::MolecularAssembler => {
                 data.extend(wide(m.progress.min(100.0)));
                 data.extend(wide(100.0));
             }
@@ -797,7 +802,7 @@ impl Game<'_> {
     /// GUI pixels (the help button first), each toggle's menu entry and
     /// value, the priority tab, and the data slots.
     pub(super) fn ae2_screen_agent_value(&self, origin: (f32, f32)) -> Option<serde_json::Value> {
-        let s = self.mod_screen_ae2()?;
+        let s = self.mod_screen_extra()?.as_ref()?;
         let data = self.mod_screen_data();
         let rect = |[x, y, w, h]: [i32; 4]| [origin.0 + x as f32, origin.1 + y as f32, w as f32, h as f32];
         let toolbar: Vec<serde_json::Value> = s
@@ -824,7 +829,8 @@ impl Game<'_> {
     pub(super) fn ae2_screen_help(&mut self, at: [f32; 2]) -> bool {
         let data = self.mod_screen_data();
         let Some(block) = self
-            .mod_screen_ae2()
+            .mod_screen_extra()
+            .and_then(|e| e.as_ref())
             .filter(|s| s.buttons(&data).first().is_some_and(|b| inside(b.rect, at)))
             .map(|s| s.block.clone())
         else {

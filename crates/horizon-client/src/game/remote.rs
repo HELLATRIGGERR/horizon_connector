@@ -336,7 +336,7 @@ pub(super) struct Remote {
     #[cfg(feature = "ae2-lab")]
     ae2_encoding_processing: bool,
     #[cfg(feature = "ae2-lab")]
-    ae2_priority_screen: bool,
+    pub(super) ae2_priority_screen: bool,
     #[cfg(feature = "ae2-lab")]
     ae2_priority_token: Option<u64>,
     #[cfg(feature = "ae2-lab")]

@@ -47,6 +47,7 @@ mod ae2_autocrafting;
 mod ae2_channels;
 #[cfg(feature = "ae2-lab")]
 mod ae2_screens;
+mod screen_extras;
 #[cfg(feature = "ae2-lab")]
 mod ae2_debug;
 #[cfg(feature = "ae2-lab")]

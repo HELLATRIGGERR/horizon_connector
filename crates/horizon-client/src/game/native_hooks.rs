@@ -416,9 +416,8 @@ pub(super) struct OpenNativeScreen {
     block: String,
     screen: NativeScreen,
     data: Vec<i32>,
-    /// An AE2 machine's screen, drawn from its screen style.
-    #[cfg(feature = "ae2-lab")]
-    ae2: Option<super::ae2_screens::Ae2Screen>,
+    /// A screen of the game's own built on this path (`screen_extras`).
+    extra: super::screen_extras::Extra,
 }
 
 impl OpenNativeScreen {
@@ -1998,15 +1997,7 @@ impl Game<'_> {
         }
         let mut screen = None;
         self.native_screen(&block, &mut screen);
-        #[cfg(feature = "ae2-lab")]
-        let mut ae2 = None;
-        #[cfg(feature = "ae2-lab")]
-        if screen.is_none()
-            && let Some((laid_out, style)) = self.ae2_native_screen(&block)
-        {
-            screen = Some(laid_out);
-            ae2 = Some(style);
-        }
+        let extra = self.extra_native_screen(&block, &mut screen);
         if let Some(screen) = screen {
             self.mod_screen = Some(OpenNativeScreen {
                 key,
@@ -2014,26 +2005,26 @@ impl Game<'_> {
                 block,
                 screen,
                 data: Vec::new(),
-                #[cfg(feature = "ae2-lab")]
-                ae2,
+                extra,
             });
         }
     }
-    /// The AE2 machine screen showing now, if any.
-    #[cfg(feature = "ae2-lab")]
-    pub(super) fn mod_screen_ae2(&self) -> Option<&super::ae2_screens::Ae2Screen> {
-        self.shown_native_screen().and_then(|s| s.ae2.as_ref())
+    /// The extra screen showing now, if any (`screen_extras`).
+    pub(super) fn mod_screen_extra(&self) -> Option<&super::screen_extras::Extra> {
+        self.shown_native_screen().map(|s| &s.extra)
     }
     /// The data slots of the mod screen showing now.
-    #[cfg(feature = "ae2-lab")]
     pub(super) fn mod_screen_data(&self) -> Vec<i32> {
         self.shown_native_screen().map(|s| s.data.clone()).unwrap_or_default()
     }
     /// The mod screen showing now, if any.
     fn shown_native_screen(&self) -> Option<&OpenNativeScreen> {
+        // An extra screen can step aside for a menu of its own in the window.
+        let editing = self.extra_screen_stepped_aside();
         self.mod_screen
             .as_ref()
             .filter(|s| self.screen == Screen::Inventory && self.container == Some(s.key))
+            .filter(|_| !editing)
     }
     /// A data slot of window `window`'s menu (`ContainerSetData`); false
     /// when no mod screen is showing for that window.
@@ -2089,9 +2080,7 @@ impl Game<'_> {
         let Some(s) = self.shown_native_screen() else {
             return false;
         };
-        #[cfg(feature = "ae2-lab")]
-        if let Some(ae2) = s.ae2.as_ref() {
-            self.ae2_draw_screen(batch, ox, oy, ae2, &s.data);
+        if self.extra_screen_draw(batch, ox, oy, &s.extra, &s.data) {
             return true;
         }
         let atlas = &self.gui.atlas;
@@ -2233,18 +2222,14 @@ impl Game<'_> {
         let Some((block, data, at)) = self.native_screen_at() else {
             return false;
         };
-        #[cfg(feature = "ae2-lab")]
-        if !right && self.ae2_screen_help(at) {
+        if self.extra_screen_local_press(at, right) {
             self.audio.play_button_click();
             return true;
         }
         let mut button = None;
         self.native_screen_click(&block, &data, at, right, &mut button);
-        #[cfg(feature = "ae2-lab")]
-        if button.is_none()
-            && let Some(ae2) = self.shown_native_screen().and_then(|s| s.ae2.as_ref())
-        {
-            button = self.ae2_screen_button(ae2, &data, at, right);
+        if button.is_none() {
+            button = self.extra_screen_button(&data, at, right);
         }
         let Some(button) = button else {
             return false;
@@ -2274,10 +2259,7 @@ impl Game<'_> {
         };
         let mut lines = Vec::new();
         self.native_screen_tooltip(&block, &data, at, &mut lines);
-        #[cfg(feature = "ae2-lab")]
-        if let Some(ae2) = self.shown_native_screen().and_then(|s| s.ae2.as_ref()) {
-            self.ae2_screen_tooltip(ae2, &data, at, &mut lines);
-        }
+        self.extra_screen_tooltip(&data, at, &mut lines);
         let lines: Vec<(horizon_client::text::Text, u32)> = lines
             .into_iter()
             .map(|l| (horizon_client::text::Text::literal(l), u32::MAX))
@@ -2481,6 +2463,7 @@ mod tests {
             block: "gtmod:machine".into(),
             screen: super::NativeScreen::default(),
             data: Vec::new(),
+            extra: Default::default(),
         };
         assert!(s.set_data(4, 1, 7));
         assert!(!s.set_data(3, 1, 99));
