@@ -397,6 +397,7 @@ impl Game<'_> {
         s.rows=rows;s.pinned=pins;s.page=page;s.state=(state+1)&0x7fff;let state=s.state;
         s.sent_views.push_back((state,owners));while s.sent_views.len()>64 {s.sent_views.pop_front();}
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items:wire,carried}));
+        host.hub.inventory_told_by(conn,&items);
     }
     pub(super) fn lan_pattern_access_search(&mut self,host:&mut LanHost,conn:u32,value:&str)->bool {
         let Some((pos,face,dim,terminal,window))=host.play.get(&conn).and_then(|p|p.ae2_pattern_access.as_ref()).map(|s|(s.pos,s.face.clone(),s.dim.clone(),s.terminal,s.window)) else{return false};

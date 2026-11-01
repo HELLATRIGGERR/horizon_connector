@@ -30,6 +30,7 @@ impl Game<'_> {
         let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else{return;};
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));let carried=g.carried.clone();
         let Some(s)=host.play.get_mut(&conn).and_then(|p|p.ae2_anchor.as_mut()) else{return;};s.state=(state+1)&0x7fff;let state=s.state;
+        host.hub.inventory_told_by(conn,&items);
         let items=items.iter().map(|i|host.hub.stack(i)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }

@@ -193,6 +193,7 @@ impl Game<'_> {
         let wire_items=items.iter().map(|v|host.hub.stack(v)).collect();
         let wire_carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent {container:window,state:next_state,items:wire_items,carried:wire_carried}));
+        host.hub.inventory_told_by(conn,&items);
     }
     pub(super) fn lan_ae2_network_tool_click(&mut self,host:&mut LanHost,conn:u32,p:&play::ContainerClick)->bool {
         let Some(mut session)=host.play.get_mut(&conn).and_then(|v|v.ae2_network_tool.take()) else {return false;};

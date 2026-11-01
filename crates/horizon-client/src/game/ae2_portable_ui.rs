@@ -735,6 +735,7 @@ impl Game<'_> {
         let (window, state) = (menu.window, menu.state);
         let repo_slots:Vec<u8>=(0..PAGE as u8).collect();
         Self::lan_ae2_repo_slots(host,conn,window,&repo_slots);
+        host.hub.inventory_told_by(conn,&items);
         let items = items.iter().map(|s| host.hub.stack(s)).collect();
         let carried = host.hub.stack(&carried);
         host.hub.send_to(

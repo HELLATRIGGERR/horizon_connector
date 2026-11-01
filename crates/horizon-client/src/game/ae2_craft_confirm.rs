@@ -377,6 +377,7 @@ impl Game<'_> {
             while s.status_versions.len()>32 {s.status_versions.pop_front();}
         }
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state:next_state,items:wire_items,carried:wire_carried}));
+        host.hub.inventory_told_by(conn,&items);
     }
     pub(super) fn lan_craft_confirm_amount(&mut self,host:&mut LanHost,conn:u32,value:&str)->bool {
         let Some(s)=host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.as_mut()) else{return false;};

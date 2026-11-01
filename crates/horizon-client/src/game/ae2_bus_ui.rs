@@ -462,6 +462,7 @@ impl Game<'_> {
         let next = s.state;
         s.fake_revisions.push_back((next,page,state.slots()));
         while s.fake_revisions.len()>64 {s.fake_revisions.pop_front();}
+        host.hub.inventory_told_by(conn,&items);
         let items = items.iter().map(|v| host.hub.stack(v)).collect();
         let carried = host.hub.stack(&carried);
         host.hub.send_to(
@@ -1067,6 +1068,7 @@ impl Game<'_> {
         let Some(signature)=stable(&data) else{return};
         session.signature=signature;session.state=(session.state+1)&0x7fff;
         let state_id=session.state;
+        host.hub.inventory_told_by(conn,&items);
         let items=items.iter().map(|item|host.hub.stack(item)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state:state_id,items,carried}));
     }
@@ -1207,6 +1209,7 @@ impl Game<'_> {
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));let carried=g.carried.clone();
         let Some(session)=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.as_mut()) else{return};
         let Some(signature)=stable(&data) else{return};session.signature=signature;session.state=(session.state+1)&0x7fff;
+        host.hub.inventory_told_by(conn,&items);
         let items=items.iter().map(|item|host.hub.stack(item)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state:session.state,items,carried}));
     }

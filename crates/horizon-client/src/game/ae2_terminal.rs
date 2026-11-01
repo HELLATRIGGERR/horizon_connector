@@ -2519,6 +2519,7 @@ impl Game<'_> {
             carried: host.hub.stack(&carried),
         });
         host.hub.send_to(conn, &packet);
+        host.hub.inventory_told_by(conn, &items);
     }
     /// Refresh only when the backing inventory changes, or close a removed part.
     pub(super) fn lan_refresh_ae2_terminals(&mut self, host: &mut super::lan::LanHost) {
@@ -5369,6 +5370,7 @@ impl Game<'_> {
             if let Some(settings)=chest_settings {if (t.sort_mode,t.filter_mode,t.sort_descending)!=(settings.sort,settings.view,settings.descending){t.page=0;}t.sort_mode=settings.sort;t.filter_mode=settings.view;t.sort_descending=settings.descending;}
             t.state=(t.state+1)&0x7fff;t.state
         };
+        host.hub.inventory_told_by(conn,&items);
         let items=items.iter().map(|item|host.hub.stack(item)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }
@@ -5471,6 +5473,7 @@ impl Game<'_> {
         items[11]=Some(navigation(&format!("Processing amount: {}{}",edit.text,if edit.unit==1000 {" buckets"}else{""})));
         items.extend((9..36).chain(0..9).map(|i|guest.inventory[i].clone()));let carried=guest.carried.clone();
         let Some(terminal)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()) else{return};terminal.state=(terminal.state+1)&0x7fff;let state=terminal.state;
+        host.hub.inventory_told_by(conn,&items);
         let items=items.iter().map(|item|host.hub.stack(item)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }
@@ -5620,6 +5623,7 @@ impl Game<'_> {
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));let carried=g.carried.clone();
         let Some(menu)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()) else{return};
         menu.snapshot=snapshot;menu.state=(menu.state+1)&0x7fff;let state=menu.state;
+        host.hub.inventory_told_by(conn,&items);
         let items=items.iter().map(|item|host.hub.stack(item)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }
@@ -6347,6 +6351,7 @@ impl Game<'_> {
             carried: host.hub.stack(&carried),
         });
         host.hub.send_to(conn, &packet);
+        host.hub.inventory_told_by(conn, &items);
         self.lan_send_ae2_screen_data(host, conn, true);
     }
     pub(super) fn lan_refresh_ae2_machines(&mut self, host: &mut super::lan::LanHost) {

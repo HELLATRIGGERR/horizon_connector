@@ -641,6 +641,20 @@ impl Guest {
             self.menu_sent[slot] = self.menu_slot(slot);
         }
     }
+    /// A container menu's content ends with the player's inventory (the main
+    /// slots, then the hotbar): inventory menu slots 9 to 44, which is what the
+    /// client now has there (`InventoryMenu.transferState` when the menu
+    /// closes). Without it the inventory menu's sync would send on its own
+    /// only the slots the server changed: a client that closed the menu before
+    /// the content arrived drops the content, and such a slot then lands beside
+    /// the stack it predicted elsewhere for the same click, until the close
+    /// resends the inventory.
+    pub fn inventory_told_by(&mut self, content: &[Option<ItemStack>]) {
+        let Some(start) = content.len().checked_sub(36) else {
+            return;
+        };
+        self.menu_sent[9..45].clone_from_slice(&content[start..]);
+    }
     pub fn set_menu_slot(&mut self, slot: usize, item: Option<ItemStack>) {
         match slot {
             0 => self.craft_result = item,
@@ -1326,6 +1340,30 @@ mod tests {
             position,
             10,
         )
+    }
+
+    #[test]
+    fn menu_content_tells_the_inventory_sync_what_the_client_has() {
+        let mut g = guest_at([0.0; 3]);
+        g.inventory[0] = Some(ItemStack::new("ae2:crafting_pattern", 1));
+        g.inventory[8] = Some(ItemStack::new("minecraft:stick", 1));
+        g.inventory_told();
+        let unsent = |g: &Guest| (0..46).filter(|&s| g.menu_slot(s) != g.menu_sent[s]).collect::<Vec<_>>();
+        // A quick move out of a 27-slot menu: the server's stack lands in
+        // hotbar slot 3, where the client may have predicted another slot.
+        g.inventory[3] = Some(ItemStack::new("minecraft:iron_ingot", 5));
+        assert_eq!(unsent(&g), [39], "on its own the sync sends only the server's slot");
+        let mut content = vec![None; 27];
+        content.extend((9..36).chain(0..9).map(|i| g.inventory[i].clone()));
+        g.inventory_told_by(&content);
+        assert!(unsent(&g).is_empty(), "the menu content told every inventory slot");
+        // The told stacks are compared, not the current ones: a change the
+        // content did not show still goes out.
+        g.inventory[20] = Some(ItemStack::new("minecraft:diamond", 7));
+        g.inventory_told_by(&content);
+        assert_eq!(unsent(&g), [20]);
+        g.inventory_told_by(&content[..35]);
+        assert_eq!(unsent(&g), [20], "content without the inventory tells nothing");
     }
 
     #[test]
