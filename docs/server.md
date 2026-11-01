@@ -324,6 +324,7 @@ horizon-server run                       supervisor + engine in the foreground; 
 horizon-server start | stop | restart    in the background (detached `run`); each waits for the game
 horizon-server status [--json]           up?, uptime, TPS, MSPT, players, RAM, CPU, crashes
 horizon-server cmd <command…>            one console command, with its output
+horizon-server console                   attach: the live log, and send commands (Ctrl-D detaches)
 horizon-server logs [-f] [-n N]
 horizon-server op|deop <player>
 horizon-server whitelist on|off|list|add|remove [player]
@@ -336,18 +337,18 @@ horizon-server service install|uninstall|print [--system]
 horizon-server panel                     the panel's address and a one-time login link
 horizon-server update [--check] [--version vX.Y.Z] [--timeout S]     rollback [--timeout S]
 horizon-server update --archive FILE --version NAME     an archive you have (your own build)
+horizon-server mcp                       MCP server on stdio (section 8)
 
 Planned:
-horizon-server console                   attach: the live log, and send commands (Ctrl-D detaches)
 horizon-server import-resources <dir>      prepare --server-jar PATH
-horizon-server mcp                       MCP server on stdio (section 8)
 ```
 
 - Every command takes `--dir` (the server folder; default: the current folder).
 - While the server runs, management commands go through the control API, so the engine applies them as
   vanilla's console would and its lists stay right. While it's stopped, they edit the vanilla files directly
   with the same code the engine uses (`horizon_server_files::user_lists`).
-- **The TUI** is `horizon-server console`: the log, a one-line header (TPS, MSPT, players, RAM) that updates
+- **The TUI** is `horizon-server console` (built, `console.rs`): the recent log and then the live one (the
+  control API's event stream), a one-line header (TPS, MSPT, players, RAM) that updates
   every second, and a command line. It uses plain ANSI with no TUI framework, and falls back to plain lines
   when stdout isn't a terminal.
 
@@ -461,15 +462,29 @@ runtime or new dependency. Server-sent events can replace the polling later if a
   `Host` header must name the address it listens on (as the panel's). `[api] bind` and `[api] token` fix the
   address and the token for a program that runs elsewhere (a moderation bot); `bind` takes loopback or a
   tailnet address unless `allow_public = true`, which drops the Host check and warns at every start.
-- **MCP.** `horizon-server mcp` is an MCP server on stdio, for Claude Code or any MCP client run as the same OS
-  user. It reads the token itself, and its tools map one to one onto the API: `status`, `players`,
-  `run_command`, `logs`, `backup`, `list_backups`, `restore` (needs `confirm: true`), `start`, `stop`,
-  `restart`, `get_config` and `set_config`. It's the same idea as the game's `horizon-ctl`
+- **MCP** (built, `mcp.rs`). `horizon-server mcp` is an MCP server on stdio, for Claude Code or any MCP client
+  run as the same OS user. It reads the token itself, and its tools map one to one onto the API: `status`,
+  `players`, `run_command`, `logs`, `events`, `kick`, `ban`, `pardon`, `ban_ip`, `pardon_ip`, `op`, `deop`,
+  `whitelist`, `list_backups`, `backup`, `delete_backup` and `restore` (both need `confirm: true`), `get_config`,
+  `set_config`, `start`, `restart` and `stop` (needs `confirm: true`). Tools that send someone away or can't be
+  undone carry MCP's `destructiveHint`. It's the same idea as the game's `horizon-ctl`
   (docs/agent-control.md): an AI can run and diagnose a server, and every action it takes shows in the log.
 - **Vanilla's own management protocol.** Vanilla 26.3 has a server management protocol: JSON-RPC over a
-  WebSocket, set up by the `management-server-*` keys in server.properties. Horizon's engine already parses
-  those keys but doesn't serve the protocol. Serving it later, on the engine or the supervisor, would let tools
-  written for vanilla manage a Horizon server too. That is not part of the MVP.
+  WebSocket, set up by the `management-server-*` keys in server.properties, so tools written for vanilla can
+  manage a Horizon server too. The supervisor serves it (`management.rs`, the WebSocket in `websocket.rs`, std
+  only like `http.rs`; TLS, on by default as in vanilla, through rustls in `management_tls.rs`, from a PKCS12
+  keystore, or a self-signed one Horizon makes when none is set), so it answers while the game restarts
+  (`server/status` says `started: false` then); calls that change the game go through its console.
+  Authentication, errors and replies follow vanilla's `net.minecraft.server.jsonrpc` (`AuthenticationHandler`,
+  `Connection`, `methods/*Service`), and `rpc.discover` gives vanilla's OpenRPC document (`management_schema.rs`).
+  `tools/test_management_protocol_parity.py` sends vanilla's server and Horizon's the same messages over TLS
+  (one keystore for both) and compares the answers, and the document with the data generator's
+  `json-rpc-api-schema.json`.
+  - built: the WebSocket and its authentication, TLS, `rpc.discover`, `players`, `players/kick`,
+    `server/{status,save,stop,system_message}`, and the four lists (`allowlist/*`, `bans/*`, `ip_bans/*`,
+    `operators/*`), whose changes the game applies itself (its control endpoint's `management` request, in
+    `game/dedicated/management.rs`), so the source, expiry, log lines and kicks are vanilla's;
+  - planned: `serversettings/*` and `gamerules`, the notifications and heartbeat (from the event stream).
 
 ## 9. Benchmark plan (bots against vanilla and Paper)
 
@@ -499,6 +514,9 @@ reproducible by anyone, and show the same gameplay on both sides.
   - `walk`: flies to random points within 48 blocks of spawn at sprint speed (5.6 blocks/s);
   - `explore`: flies straight outwards at creative flying speed (22 blocks/s), which forces chunk generation;
   - `mixed`: 60 % walk, 20 % explore, 20 % idle.
+  - `fight`: survival bots (`gamemode=survival`, `force-gamemode=true`, `allow-flight=true`) that track the entities the server
+    sends, walk to the nearest living one and attack it every 5 ticks, vanilla's bare-hand cooldown; with `--pvp true` (the
+    default) they attack each other too, which needs `pvp=true` on the server. The report counts `attacks`.
 
   A `build` behaviour (breaking and placing blocks) needs the bots to read terrain and comes later. Runs use
   1, 10, 25, 50 and 100 bots, joining 1 per second. Bots are needed because 100 real vanilla clients can't run

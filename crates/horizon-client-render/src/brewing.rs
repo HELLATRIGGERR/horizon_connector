@@ -13,7 +13,8 @@ use std::{collections::HashSet, fs, path::Path};
 
 pub use horizon_client_core::potions::{
     BASE_POTION_COLOR, Category, EFFECTS, EffectDef, POTIONS, PotionDef, all_effects,
-    description_id, effect, mod_effects, namespaced, potion, potion_color, register_mod_effects,
+    description_id, effect, is_mod_effect, mod_effects, namespaced, potion, potion_color,
+    register_mod_effects,
 };
 /// `MobEffectUtil.formatDuration` at 20 TPS.
 pub fn format_duration(ticks: i32) -> String {

@@ -1,10 +1,12 @@
 //! The anticheat on a dedicated server's hub (docs/anticheat.md): the checks run where the hub handles
-//! what players send, and a flag is carried out here (send back, alert, kick). The rules and the
-//! violation levels are `horizon_anticheat`'s. The hub holds none of this unless `server.toml` turns it
-//! on, so a server without it does exactly what vanilla's does.
+//! what players send, and a flag is carried out here (send back, alert, kick, or a ban the game adds to
+//! `banned-players.json`: [`HostEvent::Ban`]). The rules and the
+//! violation levels are `horizon_anticheat`'s. A dedicated server has it on by default; the hub holds
+//! none of this when `server.toml` turns it off (or for a LAN world), and then does exactly what vanilla's
+//! server does.
 use super::hub::{HostEvent, Hub, TickCtx};
 use crate::collisions::SceneCollisions;
-use horizon_anticheat::{Check, Config};
+use horizon_anticheat::{Check, Config, Strikes};
 use horizon_core::geometry::{Aabb, Vec3};
 use horizon_world::nbt::{JavaString, Tag};
 use std::{io::Write, time::Instant};
@@ -13,6 +15,8 @@ pub struct Anticheat {
     pub config: Config,
     /// `log`, opened at the first flag.
     log: Option<std::fs::File>,
+    /// The players' kicks by check, read from `strikes` at the first kick.
+    strikes: Option<Strikes>,
     /// When the previous server tick started, for the timer's balance.
     last_tick: Option<Instant>,
     tick_rate: f32,
@@ -23,6 +27,7 @@ impl Anticheat {
         Self {
             config,
             log: None,
+            strikes: None,
             last_tick: None,
             tick_rate: 20.0,
         }
@@ -48,6 +53,39 @@ impl Anticheat {
             let _ = writeln!(file, "[{time}] {line}");
         }
     }
+
+    /// Player `uuid` was kicked by `check`: its kicks by it so far and whether this one bans. The
+    /// count is saved at once, so a restart doesn't forgive it.
+    fn strike(&mut self, uuid: u128, check: Check) -> (u32, bool) {
+        let path = std::path::Path::new(&self.config.strikes);
+        let strikes = self.strikes.get_or_insert_with(|| {
+            std::fs::read(path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                .unwrap_or_default()
+        });
+        let ban_after = self.config.actions(check).ban_after;
+        let kick = strikes.kick(&uuid_text(uuid), check, ban_after);
+        if !self.config.strikes.is_empty()
+            && let Ok(json) = serde_json::to_vec_pretty(strikes)
+        {
+            let _ = std::fs::write(path, json);
+        }
+        kick
+    }
+}
+
+/// A UUID as `banned-players.json` writes it.
+fn uuid_text(uuid: u128) -> String {
+    let h = format!("{uuid:032x}");
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..]
+    )
 }
 
 /// Server ticks a claim of the ground keeps its height after the ground last held the player.
@@ -109,6 +147,14 @@ impl Hub {
         let Some(ac) = self.anticheat.as_deref() else {
             return;
         };
+        if ac.config.runs(Check::Combat)
+            && let Some(foul) = self.guests[i].anticheat.attacks.tick_end()
+        {
+            self.combat_foul(i, foul, events);
+        }
+        let Some(ac) = self.anticheat.as_deref() else {
+            return;
+        };
         if ac.config.runs(Check::Prediction) {
             let g = &mut self.guests[i];
             let (input, sprinting) = (g.input, g.sprinting);
@@ -130,6 +176,61 @@ impl Hub {
                 events,
             );
         }
+    }
+
+    /// ServerboundAttackPacket on entity `target`: `combat`. Returns whether the attack is dropped:
+    /// from `setback` on, every attack is, until the level decays below it.
+    pub(super) fn anticheat_attack(
+        &mut self,
+        i: usize,
+        target: i32,
+        events: &mut Vec<HostEvent>,
+    ) -> bool {
+        let Some(ac) = self.anticheat.as_deref() else {
+            return false;
+        };
+        if !ac.config.runs(Check::Combat) {
+            return false;
+        }
+        if let Some(foul) = self.guests[i].anticheat.attacks.attack(target)
+            && self.combat_foul(i, foul, events)
+        {
+            return true;
+        }
+        let Some(ac) = self.anticheat.as_deref() else {
+            return false;
+        };
+        let setback = ac.config.combat.setback;
+        setback > 0.0
+            && self.guests[i]
+                .anticheat
+                .vl(&ac.config, Check::Combat, self.ticks)
+                >= setback
+    }
+
+    /// ServerboundPunchPacket: the arm swung, for `combat`.
+    pub(super) fn anticheat_swing(&mut self, i: usize) {
+        if self.anticheat.is_some() {
+            self.guests[i].anticheat.attacks.swing();
+        }
+    }
+
+    fn combat_foul(
+        &mut self,
+        i: usize,
+        foul: horizon_anticheat::combat::Foul,
+        events: &mut Vec<HostEvent>,
+    ) -> bool {
+        use horizon_anticheat::combat::Foul;
+        let detail = match foul {
+            Foul::NoSwing(n) => {
+                format!("attacked without swinging ({n} more attacks than swings in a tick)")
+            }
+            Foul::TwoTargets(first, then) => {
+                format!("attacked entities {first} and {then} in one tick")
+            }
+        };
+        self.flag(i, Check::Combat, 1.0, &detail, events)
     }
 
     /// Whether the prediction records the players' client ticks.
@@ -197,7 +298,8 @@ impl Hub {
 
     /// `ground`, for a move from guest `i` that says it ends on the ground at `to` (`stands`: the move
     /// itself was stopped by something below): None when the claim stands (or isn't judged), else whether
-    /// the player was sent back. A false claim is dropped either way. A claim at the height where the
+    /// the player was sent back. A false claim is dropped either way, unless the check only logs
+    /// (`setback = 0`). A claim at the height where the
     /// ground last held the player, within half a second, isn't judged: the block may have gone
     /// server-side (broken, pushed) before the client heard.
     pub(super) fn anticheat_ground(
@@ -209,6 +311,11 @@ impl Hub {
         events: &mut Vec<HostEvent>,
     ) -> Option<bool> {
         if !self.anticheat.as_deref()?.config.runs(Check::Ground) {
+            return None;
+        }
+        // Standing still: no fall to skip, whatever holds the player up (a block the server doesn't
+        // have, seen on the official server after a long teleport). Hovering is vanilla's floating kick.
+        if self.guests[i].position == to {
             return None;
         }
         let ticks = self.ticks;
@@ -234,7 +341,9 @@ impl Hub {
             "claims the ground {below} at {:.1} {:.1} {:.1}",
             to[0], to[1], to[2]
         );
-        Some(self.flag(i, Check::Ground, 1.0, &detail, events))
+        let back = self.flag(i, Check::Ground, 1.0, &detail, events);
+        let logs_only = self.anticheat.as_deref()?.config.ground.setback == 0.0;
+        (!logs_only).then_some(back)
     }
 
     /// Whether something at `to` can hold guest `i` up; None: not judged. Only blocks that can't hold
@@ -346,23 +455,43 @@ impl Hub {
         let Some(ac) = self.anticheat.as_deref_mut() else {
             return false;
         };
+        // Kicked or banned already, and leaving: what it still had queued (a lagging client's ticks)
+        // is dropped, and counts no second strike in the session the first kick warned.
+        if !self.guests[i].left_reason.is_empty() {
+            return true;
+        }
         let g = &mut self.guests[i];
         let v = g.anticheat.flag(&ac.config, check, weight, ticks);
-        let action = if v.kick {
+        let (uuid, name) = (g.uuid, g.name.clone());
+        let ban_after = ac.config.actions(check).ban_after;
+        let (kicks, ban) = if v.kick {
+            ac.strike(uuid, check)
+        } else {
+            (0, false)
+        };
+        let warned;
+        let action = if ban {
+            ", banned"
+        } else if v.kick && ban_after > 0 {
+            warned = format!(", kicked ({kicks} of {ban_after} before a ban)");
+            &warned
+        } else if v.kick {
             ", kicked"
+        } else if v.setback && check == Check::Combat {
+            ", attacks dropped"
         } else if v.setback {
             ", sent back"
         } else {
             ""
         };
         let line = format!(
-            "{} failed {} (VL {:.1}): {detail}{action}",
-            g.name,
+            "{name} failed {} (VL {:.1}): {detail}{action}",
             check.name(),
             v.vl
         );
         ac.write_log(&line);
-        if v.alert {
+        // A kick or a ban is always told, so an operator can undo one that was wrong.
+        if v.alert || v.kick {
             events.push(HostEvent::Warn(format!("[Anticheat] {line}")));
             if ac.config.alerts {
                 let level = ac.config.alert_level;
@@ -386,19 +515,40 @@ impl Hub {
                 }
             }
         }
-        if v.kick {
-            let conn = self.guests[i].conn;
-            self.kick(conn, text("Kicked by the server's anticheat", "white"));
-        } else if v.setback && self.guests[i].awaiting_teleport.is_none() {
+        if ban {
+            // The game bans as `/ban` does, and its kick says so.
+            events.push(HostEvent::Ban {
+                uuid,
+                name,
+                reason: format!("Horizon anticheat: {}", check.name()),
+            });
+        } else if v.kick {
+            self.anticheat_kick(self.guests[i].conn);
+        } else if v.setback && check != Check::Combat && self.guests[i].awaiting_teleport.is_none()
+        {
+            // A combat setback drops the attack (`anticheat_attack`); the others send the player back.
             self.resend_teleport(i, back);
         }
         v.setback || v.kick
+    }
+
+    /// Disconnects `conn` for the anticheat.
+    pub fn anticheat_kick(&mut self, conn: u32) {
+        self.kick(conn, text("Kicked by the server's anticheat", "white"));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uuids_are_written_as_the_ban_list_writes_them() {
+        assert_eq!(
+            uuid_text(0x069a79f4_44e9_4726_a5be_fca90e38aaf5),
+            "069a79f4-44e9-4726-a5be-fca90e38aaf5"
+        );
+    }
 
     #[test]
     fn a_happy_ghasts_rider_and_a_boats_are_carried() {

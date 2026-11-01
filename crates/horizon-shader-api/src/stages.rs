@@ -34,7 +34,7 @@ const FRAME: Resource = Resource {
     doc: "The frame (`Frame`).",
 };
 
-const POST_RESOURCES: [Resource; 6] = [
+const POST_RESOURCES: [Resource; 7] = [
     FRAME,
     Resource {
         binding: 1,
@@ -66,6 +66,42 @@ const POST_RESOURCES: [Resource; 6] = [
         ty: "var nearest_sampler: sampler",
         doc: "Nearest texel, clamped to the edges.",
     },
+    Resource {
+        binding: 8,
+        name: "history",
+        ty: "var history: texture_2d<f32>",
+        doc: "Last frame's input to the last pass (what the pass before it wrote), for temporal passes (TAA, denoising): put such a pass second to last and it reads its own previous output; reproject with `frame.previous_view_projection`. Black on the first frame, after a gap of over half a second, and with a single pass.",
+    },
+];
+
+/// The material stage's resources: the frame, and the world as it was before translucent
+/// terrain drew (for water and glass to see what lies behind them).
+const MATERIAL_RESOURCES: [Resource; 5] = [
+    FRAME,
+    Resource {
+        binding: 1,
+        name: "reflection",
+        ty: "var reflection: texture_2d<f32>",
+        doc: "The water mirror: the world as a camera mirrored about the horizontal water plane around the camera (`frame.water_plane`) sees it, at half resolution, mapped like the world's picture, so water samples it at `input.screen`. Solid terrain, cut away below the plane, over the vanilla sky gradient: not the pack's `sky` stage, nor the sun, moon and stars. Drawn only for a pack whose material reads it, while `frame.has_reflection` is 1; else a 1×1 blank.",
+    },
+    Resource {
+        binding: 2,
+        name: "reflection_sampler",
+        ty: "var reflection_sampler: sampler",
+        doc: "Bilinear filtering, clamped to the edges.",
+    },
+    Resource {
+        binding: 6,
+        name: "opaque_depth",
+        ty: "var opaque_depth: texture_depth_2d",
+        doc: "The world's depth before translucent terrain (reversed, like `scene_depth`), for the translucent pass: `textureLoad(opaque_depth, vec2<i32>(input.screen * frame.resolution), 0)` is what lies behind water or glass. Stale while solid terrain draws.",
+    },
+    Resource {
+        binding: 11,
+        name: "opaque_color",
+        ty: "var opaque_color: texture_2d<f32>",
+        doc: "The world's picture before translucent terrain (sky, solid terrain, entities), the size of `opaque_depth`, for the translucent pass: what a surface refracts. Read it with `textureLoad`. Stale while solid terrain draws; black when the world draws straight to the window (a pack without `[[post]]` passes, at full resolution).",
+    },
 ];
 
 /// Functions the post prelude gives packs.
@@ -81,6 +117,41 @@ fn view_position(uv: vec2<f32>, depth: f32) -> vec3<f32> {
     let clip = vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth, 1.0);
     let view = frame.projection_inverse * clip;
     return (frame.view_inverse * vec4<f32>(view.xyz / view.w, 0.0)).xyz;
+}
+";
+
+/// What the material entries (the checker's below and the renderer's) share: the
+/// surface's normal and tangent from the derivatives of its position and uv.
+const MATERIAL_HELPERS: &str = "\
+// Block faces are flat: the derivatives of the position give the face's normal, turned
+// toward the camera. Far away they lose precision, so a normal within about 3.6 degrees of
+// an axis (every full block face) is that axis exactly: no shimmer on distant faces. The
+// gentlest slope of flowing water, one level over a block, tilts about 6 degrees.
+fn horizon_material_normal(position: vec3<f32>) -> vec3<f32> {
+    let n = normalize(cross(dpdx(position), dpdy(position)));
+    let a = abs(n);
+    let m = max(a.x, max(a.y, a.z));
+    let axis = select(select(vec3(0.0, 0.0, sign(n.z)), vec3(0.0, sign(n.y), 0.0), a.y == m),
+        vec3(sign(n.x), 0.0, 0.0), a.x == m);
+    let flat_n = select(n, axis, m > 0.998);
+    return select(flat_n, -flat_n, dot(flat_n, position) > 0.0);
+}
+// The direction `uv.x` grows along on the surface, and the sign of the one `uv.y` grows
+// along against `cross(normal, tangent)`.
+fn horizon_material_tangent(position: vec3<f32>, uv: vec2<f32>, normal: vec3<f32>) -> vec4<f32> {
+    let dp1 = dpdx(position);
+    let dp2 = dpdy(position);
+    let duv1 = dpdx(uv);
+    let duv2 = dpdy(uv);
+    let dp2perp = cross(dp2, normal);
+    let dp1perp = cross(normal, dp1);
+    let t = dp2perp * duv1.x + dp1perp * duv2.x;
+    let b = dp2perp * duv1.y + dp1perp * duv2.y;
+    if length(t) < 1e-12 {
+        return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    }
+    let tangent = normalize(t - normal * dot(normal, t));
+    return vec4<f32>(tangent, select(-1.0, 1.0, dot(cross(normal, tangent), b) >= 0.0));
 }
 ";
 
@@ -116,9 +187,17 @@ struct HorizonMaterialIn {
     @location(4) world: vec3<f32>,
     @location(5) uv: vec2<f32>,
     @location(6) @interpolate(flat) translucent: u32,
+    @location(7) @interpolate(flat) tags: u32,
+    @location(8) @interpolate(flat) face: u32,
+    @location(9) @interpolate(flat) fluid_quad: u32,
+    @location(10) @interpolate(flat) emission: f32,
 }
 @fragment fn horizon_fs_material(in: HorizonMaterialIn) -> @location(0) vec4<f32> {
-    let input = MaterialInput(in.albedo, in.tint, in.light, in.lightmap, in.world, in.uv, in.translucent != 0u);
+    let fluid = select(0u, select(2u, 1u, in.translucent != 0u), in.fluid_quad != 0u);
+    let normal = horizon_material_normal(in.world);
+    let tangent = horizon_material_tangent(in.world, in.uv, normal);
+    let input = MaterialInput(in.albedo, in.tint, in.light, in.lightmap, in.world, in.uv, in.translucent != 0u, in.tags,
+        in.position.xy / frame.resolution, in.face, fluid, in.emission, normal, tangent);
     return material(input).color;
 }
 ";
@@ -182,7 +261,8 @@ impl StageKind {
     pub fn resources(self) -> &'static [Resource] {
         match self {
             StageKind::Post => &POST_RESOURCES,
-            StageKind::Sky | StageKind::Material => std::slice::from_ref(&FRAME),
+            StageKind::Sky => std::slice::from_ref(&FRAME),
+            StageKind::Material => &MATERIAL_RESOURCES,
         }
     }
 
@@ -198,8 +278,10 @@ impl StageKind {
         for r in self.resources() {
             out += &format!("@group({GROUP}) @binding({}) {};\n", r.binding, r.ty);
         }
-        if self == StageKind::Post {
-            out += POST_HELPERS;
+        match self {
+            StageKind::Post => out += POST_HELPERS,
+            StageKind::Material => out += MATERIAL_HELPERS,
+            StageKind::Sky => {}
         }
         out
     }

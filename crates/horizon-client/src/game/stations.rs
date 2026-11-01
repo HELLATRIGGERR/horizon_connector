@@ -1536,6 +1536,7 @@ impl Game<'_> {
                     .and_then(|s| self.world.block_names.get(&(s.pos[0], s.pos[1], s.pos[2])));
                 Text::literal(named.cloned().unwrap_or(default)).resolve_legacy()
             });
+            super::screen_info::name_container(|| title.plain());
             let tw = atlas.font.width_text(&title);
             batch.text_styled(
                 atlas,
@@ -1568,6 +1569,7 @@ impl Game<'_> {
             let title = self
                 .remote_menu_title()
                 .unwrap_or_else(|| Text::literal(self.translate(kind.title_key(), "")));
+            super::screen_info::name_container(|| title.plain());
             {
                 let atlas = &self.gui.atlas;
                 #[cfg(feature = "ae2-lab")]
@@ -2110,6 +2112,8 @@ impl Game<'_> {
                 .names
                 .display_get(&key)
                 .unwrap_or_else(|| self.pack.names.display_item(&stack.item))
+        } else if let Some(head) = horizon_client::item_tooltip::player_head_name(stack) {
+            head.title(&|key| self.pack.names.display_get(key))
         } else {
             self.pack.names.display_item(&stack.item)
         };
@@ -2192,9 +2196,24 @@ impl Game<'_> {
                 lines.push((random.with_color(horizon_client::text::GRAY), u32::MAX));
             }
         }
+        // TropicalFish.Pattern.addToTooltip.
+        for text in horizon_client::item_tooltip::tropical_fish_lines(stack, &display) {
+            lines.push((text, gray));
+        }
         // InstrumentComponent.addToTooltip.
         if let Some(text) =
             horizon_client::item_tooltip::instrument_line(stack, &display, &translate)
+        {
+            push(&mut lines, text, gray);
+        }
+        // MapId.addToTooltip: the saved data's lock and scale, when it is known.
+        let map = stack
+            .data()
+            .and_then(|d| d.map_id)
+            .and_then(|id| self.maps.data.get(&id))
+            .map(|m| (m.locked, m.scale));
+        for text in
+            horizon_client::item_tooltip::map_id_lines(stack, &display, advanced, map, &translate)
         {
             push(&mut lines, text, gray);
         }
@@ -2953,6 +2972,7 @@ const ANVIL_NAME_CHARS: usize = 50;
 
 fn anvil_box() -> horizon_client::ui::EditBox {
     let mut edit = horizon_client::ui::EditBox::new(0.0, 0.0, 103.0, 12.0);
+    edit.message = super::screen_info::tr("container.repair", &[]);
     edit.bordered = false;
     edit.max_length = ANVIL_NAME_CHARS;
     edit.text_color = u32::MAX;

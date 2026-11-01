@@ -117,10 +117,13 @@ one is selected. "Sign out" deletes the account's secrets from the keychain.
   keychain, one item per account: Keychain on macOS, Credential Manager on Windows, the Secret
   Service (GNOME Keyring, KWallet) on Linux. Service name `dev.playhorizon.launcher`, account = the
   Minecraft UUID. Credential Manager takes at most 2560 bytes per item, which the secrets of a sign-in
-  exceed: on macOS and Windows a longer secret is split over the items `<uuid>`, `<uuid>.1`, `<uuid>.2`...
-  A write that stops partway (the store refused a piece) puts the old secret back: new pieces in
-  front of old ones would read back as no secret, and the account would be signed out at the next
-  start.
+  exceed: on Windows a longer secret is split over the items `<uuid>`, `<uuid>.1`, `<uuid>.2`... The
+  Keychain has no such limit, and every item is a consent prompt for a launcher signature it doesn't
+  know yet, so on macOS a secret is one item (#4912); pieces older launchers left fold into it on the
+  first read, and launchers that still split read a merged item as its first piece. A write or a
+  clean-up delete the store refuses puts the old secret back: on Windows new pieces in front of old
+  ones would read back as no secret, and the account would be signed out at the next start; on macOS
+  a merged item beside leftover pieces would read as a longer secret that doesn't parse.
 - **Windows: "Windows Credential Manager is full" (Windows error 8, #4313, #4366).** Credential
   Manager refuses every new item with `ERROR_NOT_ENOUGH_MEMORY` once the player's store reaches an
   undocumented total size, whatever the item's size; it is not the computer's memory. The Xbox app
@@ -204,16 +207,28 @@ player renderer. Until a skin arrives the default skin for the UUID shows (as to
 26.3's dedicated servers default to `enforce-secure-profile=true`. A client without a chat session
 can join and play, but every chat message and signed command argument is refused with "Chat
 disabled due to missing profile public key. Please try reconnecting." (`SignedMessageChain.Decoder.unsigned`).
-To chat on such servers the game will:
+To chat on such servers the game (`auth.rs`, `game/remote_chat.rs`, `horizon_protocol::secure_chat`):
 
-- fetch the profile key pair from the services `player/getCertificates` endpoint (Minecraft token);
-- send `ServerboundChatSessionUpdatePacket` (random session UUID, key expiry, public key, Mojang's
-  key signature) after joining;
-- sign each chat message and signable command argument with SHA256withRSA over vanilla's
-  `SignedMessageBody` layout and keep the last-seen message tracker and acknowledgements.
+- fetches the profile key pair from the services `player/getCertificates` endpoint with the Minecraft
+  token, on a background thread at start and on each join (AccountProfileKeyPairManager): the PKCS#8
+  private key, the X.509 public key, `publicKeySignatureV2`, `expiresAt` and `refreshedAfter`. Like the
+  token, the pair stays in memory (vanilla's `profilekeys/` file is not written). Past `refreshedAfter` a
+  new pair is fetched (checked at most hourly while playing, and on every join); a failed fetch keeps the
+  old pair and tries again an hour later;
+- sends `ServerboundChatSessionUpdatePacket` (random session UUID, key expiry, public key, Mojang's
+  key signature) after each login packet, and again when the pair is renewed, only when the server
+  plays the account under its own profile id (`isLocalPlayer`): an offline-mode server's offline id
+  gets no session, so chat stays unsigned there as before;
+- signs each chat message and each message argument of a command (`SignableCommand.of` over the
+  server's command tree, e.g. `/msg`'s `message`) with SHA256withRSA over vanilla's
+  `PlayerChatMessage.updateSignature` layout, one chain link each, and keeps the last-seen tracker
+  (`LastSeenMessagesTracker`: the 20-message window, offsets, checksums, a `ServerboundChatAckPacket`
+  past 64) and the 128-entry signature cache that unpacks other players' last-seen lists.
 
-Until part d lands, Horizon joins online servers but chat works only where
-`enforce-secure-profile=false` (or the server can't validate keys).
+`tools/secure_chat_client_e2e.py` checks it against vanilla 26.3's server with a mock of the services
+that issues certificates: online mode with `enforce-secure-profile=true` (signed chat logged as secure,
+a `/msg` whisper delivered, a message flushed from Chat Delay still counted as seen, nothing refused) and
+offline mode (unsigned chat, as before). Other players' signatures are not verified yet.
 
 ## Harnesses
 

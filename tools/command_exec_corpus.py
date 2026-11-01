@@ -516,6 +516,35 @@ def execute():
         cmd('/data get entity @e[tag=implicit_tp,limit=1] Pos'),
         cmd('/kill @e[tag=implicit_tp]'),
         cmd('/execute if entity @e[tag=ex]'),
+        # A UUID names any entity (ServerLevel.getEntity), not only mobs (#4966).
+        cmd('/execute if entity 00000001-0000-0002-0000-000300000004'),
+        cmd('/data get entity 00000001-0000-0002-0000-000300000004 Tags'),
+        cmd('/summon minecraft:item_display 2.5 210 2.5 {UUID:[I;5,6,7,8],Tags:["uuid_display"]}'),
+        cmd('/data get entity 00000005-0000-0006-0000-000700000008 Tags'),
+        cmd('/tp 00000005-0000-0006-0000-000700000008 2.5 215 2.5'),
+        cmd('/data get entity 00000005-0000-0006-0000-000700000008 Pos'),
+        cmd('/kill 00000005-0000-0006-0000-000700000008'),
+        # The killed id stays in the UUID map. A re-summon of that UUID must
+        # still resolve to the entity the level holds.
+        cmd('/summon minecraft:item_display 2.5 210 2.5 {UUID:[I;5,6,7,8],Tags:["uuid_display_2"]}'),
+        cmd('/data get entity 00000005-0000-0006-0000-000700000008 Tags'),
+        cmd('/kill 00000005-0000-0006-0000-000700000008'),
+        cmd('/summon minecraft:marker 2.5 210 8.5 {UUID:[I;13,14,15,16],Tags:["uuid_marker"]}'),
+        cmd('/execute as 0000000d-0000-000e-0000-000f00000010 run data get entity @s Tags'),
+        cmd('/kill 0000000d-0000-000e-0000-000f00000010'),
+        cmd('/data get entity 00000015-0000-0016-0000-001700000018'),
+        cmd('/summon minecraft:pig 2.5 210 6.5 {NoAI:1b,NoGravity:1b,UUID:[I;9,10,11,12]}'),
+        cmd('/kill 00000009-0000-000a-0000-000b0000000c'),
+        # OwnableEntity.getOwner → EntityReference.getLivingEntity: an armor
+        # stand is an owner, a marker is not.
+        cmd('/summon minecraft:wolf 2.5 210 14.5 {NoAI:1b,NoGravity:1b,Sitting:1b,Tags:["uuid_pet"],Owner:[I;1,2,3,4]}'),
+        cmd('/execute as @e[tag=uuid_pet,limit=1] on owner run data get entity @s Tags'),
+        cmd('/summon minecraft:marker 4.5 210 14.5 {UUID:[I;17,18,19,20]}'),
+        cmd('/summon minecraft:wolf 6.5 210 14.5 {NoAI:1b,NoGravity:1b,Sitting:1b,Tags:["uuid_pet_marker"],Owner:[I;17,18,19,20]}'),
+        cmd('/execute as @e[tag=uuid_pet_marker,limit=1] on owner run say reached'),
+        cmd('/kill @e[tag=uuid_pet]'),
+        cmd('/kill @e[tag=uuid_pet_marker]'),
+        cmd('/kill 00000011-0000-0012-0000-001300000014'),
         cmd('/execute as @e[tag=ex] run data get entity @s Pos'),
         cmd('/data get entity @e[tag=ex,limit=1]'),
         cmd('/data get entity @e[tag=ex,limit=1] Pose'),
@@ -1195,6 +1224,29 @@ def wither_breaks():
     ]
 
 
+def tnt_minecart_rails():
+    """A primed TNT minecart (MinecartTNT.isPrimed) on a powered activator rail inside an obsidian box: its
+    blast neither resists on nor breaks a rail or the block under one (getBlockExplosionResistance and
+    shouldBlockExplode, #4992), but breaks the stone beside them; the obsidian holds."""
+    return [
+        *setup('/fill 3 203 3 7 207 7 minecraft:obsidian', '/fill 4 204 4 6 206 6 minecraft:air',
+               '/setblock 5 204 5 minecraft:redstone_block', '/setblock 5 205 5 minecraft:activator_rail',
+               '/setblock 4 204 5 minecraft:stone', '/setblock 2 205 5 minecraft:stone'),
+        cmd('/summon minecraft:tnt_minecart 5.5 205.0625 5.5'),
+        {'op': 'tick', 'n': 5},
+        cmd('/execute if entity @e[type=minecraft:tnt_minecart]'),
+        {'op': 'tick', 'n': 100},
+        cmd('/execute if entity @e[type=minecraft:tnt_minecart]'),
+        cmd('/execute if block 5 205 5 minecraft:activator_rail'),
+        cmd('/execute if block 5 204 5 minecraft:redstone_block'),
+        cmd('/execute if block 4 204 5 minecraft:stone'),
+        cmd('/execute if block 3 205 5 minecraft:obsidian'),
+        cmd('/execute if block 2 205 5 minecraft:stone'),
+        *setup('/kill @e[type=!player]', '/fill 2 203 3 7 207 7 minecraft:air'),
+        {'op': 'tick', 'n': 5},
+    ]
+
+
 def ender_dragon():
     """`/kill` on the fight's dragon ends the fight (#3319): `EnderDragon.kill` removes it and calls
     `EnderDragonFight.setDragonKilled`, so no new dragon takes its place, the exit portal opens and the
@@ -1295,6 +1347,7 @@ def groups():
         ('social and scoreboard', social()),
         ('test', test_command()),
         ('wither breaks', wither_breaks()),
+        ('tnt minecart rails', tnt_minecart_rails()),
         ('ender dragon', ender_dragon()),
         ('place structure', place_structure()),
         ('tame wolf kills', tame_wolf_kills()),

@@ -137,6 +137,7 @@ impl Game<'_> {
                     self.mobs.push(mob);
                     self.native_mobs_joined(self.mobs.len() - 1, false);
                     self.enchant_spawn_equipment(id);
+                    self.halloween_spawn_head(id);
                     self.spawn_jockeys(id, true);
                     Some((id, equipment))
                 }
@@ -212,7 +213,12 @@ impl Game<'_> {
                 tag.insert("PersistenceRequired".into(), Tag::Byte(1));
             }
             let tag = Tag::Compound(tag);
-            let mob = horizon_client::entity_nbt::mob_from_nbt(&tag, self.res.mob_types(), 0)?;
+            let mob = horizon_client::entity_nbt::mob_from_nbt(
+                &tag,
+                self.res.mob_types(),
+                0,
+                Some(self.pack.assets.registry),
+            )?;
             let bounds = mob.bounds();
             planned.push(Planned::Loaded(tag, r.equipment.cloned()));
             bounds
@@ -402,10 +408,13 @@ impl Game<'_> {
             return Some(false);
         }
         if trial {
-            // TrialSpawnerBlockEntity.setEntityId: overrideEntityToSpawn, which
-            // ends in setState(INACTIVE).
+            // TrialSpawnerBlockEntity.setEntityId and setEntityData:
+            // overrideEntityToSpawn, which ends in setState(INACTIVE).
             if let Some(BlockEntity::TrialSpawner(t)) = self.world.block_entities.get_mut(&key) {
-                t.override_entity(kind);
+                match data {
+                    Some(data) => t.override_entity_data(kind, data),
+                    None => t.override_entity(kind),
+                }
             }
             let ominous = self.trial_spawner_block(key).is_some_and(|(_, o)| o);
             let _ = self.set_trial_spawner_state(key, TrialState::Inactive, ominous);

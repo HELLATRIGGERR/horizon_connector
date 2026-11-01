@@ -685,6 +685,8 @@ impl SourceArg {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Write a shell completion script to stdout
+    Completions { shell: clap_complete::Shell },
     /// List Horizon releases, or the installed versions
     Versions {
         /// Only the versions installed here (no network)
@@ -771,6 +773,10 @@ enum Cmd {
         /// Build mods made for different Horizon versions together anyway, on the newest of them
         #[arg(long)]
         allow_version_mismatch: bool,
+        /// The Cargo profile: fast (the default: incremental, quick to rebuild) or release
+        /// (thin LTO: slower to build, slightly faster game). Default: the native-profile setting
+        #[arg(long, value_parser = ["fast", "release"])]
+        profile: Option<String>,
     },
     /// Show a release's patch notes (default: the newest)
     Notes { tag: Option<String> },
@@ -789,7 +795,8 @@ enum Cmd {
     /// ("default" removes it), while-playing stay|minimize|hide (what the window does while the game runs), language
     /// system|en|fr|ru|de|zh|es|uk|pl (the window's language; system follows the computer's), accent
     /// violet|blue|teal|green|amber|red|pink, background PATH (a picture behind Home; "default"
-    /// shows Horizon's landscape)
+    /// shows Horizon's landscape), native-profile fast|release (the Cargo profile native mods
+    /// build with: fast is incremental, release is slower to build and slightly faster to play)
     Settings {
         #[arg(value_parser = SETTING_KEYS)]
         key: Option<String>,
@@ -937,7 +944,7 @@ pub fn command() -> clap::Command {
 pub const AI_COMMANDS: [&str; 2] = ["mcp", "agent-config"];
 
 /// The keys `settings` sets.
-const SETTING_KEYS: [&str; 12] = [
+const SETTING_KEYS: [&str; 13] = [
     "selected-version",
     "minecraft-dir",
     "server-dir",
@@ -950,6 +957,7 @@ const SETTING_KEYS: [&str; 12] = [
     "language",
     "accent",
     "background",
+    "native-profile",
 ];
 
 fn on_off(value: &str) -> Result<bool, String> {
@@ -988,7 +996,10 @@ fn set_setting(s: &mut backend::Settings, key: &str, value: &str) -> Result<(), 
             use horizon_launcher::themes::Accent;
             s.accent = Accent::parse(value).ok_or_else(|| {
                 let names: Vec<_> = Accent::ALL.iter().map(|a| a.name()).collect();
-                format!("{value}: say {}", names.join(", "))
+                format!(
+                    "{value}: say {} or a hue in degrees (0 to 360)",
+                    names.join(", ")
+                )
             })?
         }
         "background" => {
@@ -1005,8 +1016,15 @@ fn set_setting(s: &mut backend::Settings, key: &str, value: &str) -> Result<(), 
             s.language = match value.trim() {
                 "system" | "default" => None,
                 code => Some(Language::parse(code).ok_or_else(|| {
-                    format!("{value}: say system, en, fr, ru, de, zh, es, uk or pl")
+                    format!("{value}: say system, en, fr, ru, de, zh, es, uk, pl or pt-br")
                 })?),
+            }
+        }
+        "native-profile" => {
+            s.native_release = match value {
+                "fast" | "default" => false,
+                "release" => true,
+                _ => return Err(format!("{value}: say fast or release")),
             }
         }
         "proxy" => {
@@ -1040,6 +1058,7 @@ fn settings_json(s: &backend::Settings) -> serde_json::Value {
         "language": s.language.map_or("system", |l| l.code()),
         "accent": s.accent.name(),
         "background": horizon_launcher::themes::background(&backend::data_dir(), s.background.as_deref()),
+        "native_profile": native_mods::Profile::from_setting(s.native_release).name(),
         "no_ai": backend::no_ai(),
     })
 }
@@ -1120,6 +1139,14 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
         }
     }
     match command {
+        Cmd::Completions { shell } => {
+            clap_complete::generate(
+                shell,
+                &mut self::command(),
+                "horizon-launcher",
+                &mut std::io::stdout(),
+            );
+        }
         Cmd::Versions { installed: true } => {
             let installed = backend::installed();
             let selected = backend::resolve_version(None).ok();
@@ -1184,11 +1211,18 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
             update,
             trust_native_code,
             allow_version_mismatch,
+            profile,
         } => {
             if !trust_native_code {
                 return Err("Native mods run with full access to this computer. Read their source, then pass --trust-native-code.".into());
             }
             let started = std::time::Instant::now();
+            let profile = match profile.as_deref().and_then(native_mods::Profile::parse) {
+                Some(profile) => profile,
+                None => {
+                    native_mods::Profile::from_setting(backend::Settings::load().native_release)
+                }
+            };
             let target = match &instance {
                 Some(name) => instances::find(name)?,
                 None => instances::selected(),
@@ -1205,16 +1239,23 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
                 Some(folder) => folder,
                 None => native_mods::installed_mods(&target.home)?,
             };
-            let built =
-                native_mods::build(&base, &folder, &target, allow_version_mismatch, |step| {
-                    eprintln!("{}", step.label())
-                })
-                .map_err(|e| match e.starts_with(native_mods::MISMATCH) {
-                    true => {
-                        format!("{e} They often still build: pass --allow-version-mismatch to try.")
-                    }
-                    false => e,
-                })?;
+            let built = native_mods::build(
+                &base,
+                &folder,
+                &target,
+                allow_version_mismatch,
+                profile,
+                |step| {
+                    let secs = started.elapsed().as_secs();
+                    eprintln!("[{:>2}:{:02}] {}", secs / 60, secs % 60, step.label())
+                },
+            )
+            .map_err(|e| match e.starts_with(native_mods::MISMATCH) {
+                true => {
+                    format!("{e} They often still build: pass --allow-version-mismatch to try.")
+                }
+                false => e,
+            })?;
             println!(
                 "{built} built and selected for its instance ({:.0} s).",
                 started.elapsed().as_secs_f64()
@@ -1383,7 +1424,7 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
             }
         }
         Cmd::AgentConfig { test: true, .. } => {
-            let tools = horizon_launcher::agents::self_test(backend::exe_path())?;
+            let tools = horizon_launcher::agents::self_test(&backend::update_target())?;
             if as_json {
                 json(serde_json::json!({ "answered": true, "tools": tools }));
             } else {
@@ -1392,7 +1433,7 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
         }
         Cmd::AgentConfig { client, .. } => {
             use horizon_launcher::agents;
-            let exe = backend::exe_path();
+            let exe = &backend::update_target();
             if as_json {
                 let mut all = agents::json(exe);
                 if let Some(id) = &client {
@@ -2859,7 +2900,7 @@ fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String> {
                 None => instances::selected(),
             };
             let paths = match remove {
-                false => shortcut::make(backend::exe_path(), &i.id, &i.name)?,
+                false => shortcut::make(&backend::update_target(), &i.id, &i.name)?,
                 true => shortcut::remove(&i.id)?,
             };
             if as_json {
@@ -3403,6 +3444,30 @@ mod tests {
     use clap::Parser;
 
     #[test]
+    fn completions_cover_each_shell_and_nested_commands() {
+        for shell in [
+            clap_complete::Shell::Bash,
+            clap_complete::Shell::Zsh,
+            clap_complete::Shell::Fish,
+            clap_complete::Shell::Elvish,
+            clap_complete::Shell::PowerShell,
+        ] {
+            let shell_name = shell.to_string();
+            let args = ["horizon-launcher", "completions", shell_name.as_str()].map(str::to_owned);
+            let cli = Cli::try_parse_from(args).unwrap();
+            assert!(matches!(cli.command, Some(Cmd::Completions { .. })));
+            let mut output = Vec::new();
+            clap_complete::generate(shell, &mut command(), "horizon-launcher", &mut output);
+            let script = String::from_utf8(output).unwrap();
+            assert!(script.contains("horizon-launcher"));
+            assert!(script.contains("versions"));
+            assert!(script.contains("multiplayer"));
+        }
+        assert!(Cli::try_parse_from(["horizon-launcher", "completions"]).is_err());
+        assert!(Cli::try_parse_from(["horizon-launcher", "completions", "unknown"]).is_err());
+    }
+
+    #[test]
     fn settings_accepts_german_and_chinese() {
         use crate::i18n::Language;
         let mut settings = backend::Settings::default();
@@ -3412,7 +3477,7 @@ mod tests {
         }
         assert_eq!(
             set_setting(&mut settings, "language", "xx").unwrap_err(),
-            "xx: say system, en, fr, ru, de, zh, es, uk or pl"
+            "xx: say system, en, fr, ru, de, zh, es, uk, pl or pt-br"
         );
         set_setting(&mut settings, "language", "system").unwrap();
         assert_eq!(settings.language, None);

@@ -387,7 +387,14 @@ impl Game<'_> {
             .get(&conn)
             .and_then(|p| p.station.as_ref())
             .is_some_and(|s| s.kind == StationKind::Anvil);
-        if anvil {
+        if anvil
+            && self.chat_filter_text(
+                host,
+                conn,
+                &[name],
+                horizon_client::lan::hub::chat_filter::Place::Anvil,
+            )
+        {
             self.lan_station_op(host, conn, None, |menu, env| {
                 menu.rename(env, name);
             });
@@ -438,7 +445,19 @@ impl Game<'_> {
             && self.mod_menu_at(pos).is_some()
         {
             if !g.spectator() && menu.slots.still_valid(&self.world, g, menu.pos) {
-                self.mod_menu_button(pos, id);
+                // The clicking player's cursor stack (`clickMenuButton`'s
+                // other half). Single player's own player is a guest of
+                // its own host too (`lan.rs:165`), so this one path covers
+                // both single player and a LAN guest.
+                let mut carried = g.carried.clone();
+                self.mod_menu_button(pos, id, &mut carried);
+                if host.hub.guest(conn).is_some_and(|g| g.carried != carried) {
+                    let net = host.hub.stack(&carried);
+                    if let Some(g) = host.hub.guest_mut(conn) {
+                        g.carried = carried;
+                        g.send(&C::SetCursorItem(play::SetCursorItem { item: net }));
+                    }
+                }
             }
             return;
         }

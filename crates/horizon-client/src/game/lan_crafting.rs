@@ -419,9 +419,10 @@ impl Game<'_> {
         if g.spectator() {
             return;
         }
-        let Some(id) = self
-            .res
-            .stations()
+        // The server menu uses the world's active data-pack tables, the same
+        // tables used by the guest menu below. The base resources can have a
+        // different display registry or placement for an overridden recipe.
+        let Some(id) = world_stations!(self)
             .recipe_index
             .recipe_of_display(p.recipe)
             .map(str::to_owned)
@@ -430,9 +431,7 @@ impl Game<'_> {
         };
         // An unknown or impossible recipe is refused outright.
         if !g.recipe_book.knows(&id)
-            || self
-                .res
-                .recipes()
+            || world_recipes!(self)
                 .placement(&id)
                 .is_none_or(|placement| placement.impossible())
         {

@@ -11,9 +11,35 @@
       "target": "horizon_client::game::native_hooks::Game<'_>::native_tick"
     },
     {
+      "name": "visuals",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_visuals"
+    },
+    {
+      "name": "emissive",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_emissive"
+    },
+    {
       "name": "world_lifecycle",
       "version": 1,
       "target": "horizon_client::game::native_hooks::Game<'_>::native_world_lifecycle"
+    },
+    {
+      "name": "server_about_to_start",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_server_about_to_start",
+      "neoforge": "ServerAboutToStartEvent",
+      "side": "server",
+      "cancellable": false
+    },
+    {
+      "name": "server_stopping",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_server_stopping",
+      "neoforge": "ServerStoppingEvent",
+      "side": "server",
+      "cancellable": false
     },
     {
       "name": "server_tick",
@@ -124,6 +150,11 @@
       "name": "block_entity_tick",
       "version": 1,
       "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_tick"
+    },
+    {
+      "name": "block_entity_update_tag",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_update_tag"
     },
     {
       "name": "block_entity_container",
@@ -309,6 +340,86 @@
       "name": "player_tick",
       "version": 1,
       "target": "horizon_client::game::native_hooks::Game<'_>::native_player_tick"
+    },
+    {
+      "name": "entity_join_level",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_join_level"
+    },
+    {
+      "name": "living_incoming_damage",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_living_incoming_damage"
+    },
+    {
+      "name": "menu_button_v2",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_menu_button_v2"
+    },
+    {
+      "name": "entity_leave_level",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_leave_level"
+    },
+    {
+      "name": "block_entity_fluids",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_fluids"
+    },
+    {
+      "name": "should_apply_effect_tick_this_tick",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_should_apply_effect_tick_this_tick"
+    },
+    {
+      "name": "apply_effect_tick",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_apply_effect_tick"
+    },
+    {
+      "name": "on_effect_added",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_on_effect_added"
+    },
+    {
+      "name": "mob_effect_added",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_mob_effect_added"
+    },
+    {
+      "name": "chunk_load",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_chunk_load"
+    },
+    {
+      "name": "chunk_unload",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_chunk_unload"
+    },
+    {
+      "name": "player_logged_in",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_logged_in"
+    },
+    {
+      "name": "player_logged_out",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_player_logged_out"
+    },
+    {
+      "name": "world_drawn",
+      "version": 1,
+      "target": "horizon_client_render::gfx::native_render::native_world_drawn"
+    },
+    {
+      "name": "render_needs",
+      "version": 1,
+      "target": "horizon_client_render::gfx::native_render::native_render_needs"
+    },
+    {
+      "name": "item_bar",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_item_bar"
     }
   ]
 }

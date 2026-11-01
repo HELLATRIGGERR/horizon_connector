@@ -374,6 +374,11 @@ impl ItemStack {
             .map(collapsed_text);
         self.tidy();
     }
+    /// `ResolvableProfile.name`: a bare profile string or its `name` field.
+    pub fn profile_name(&self) -> Option<String> {
+        let profile = self.data()?.other("minecraft:profile")?;
+        string(profile).or_else(|| profile.get("name").and_then(string))
+    }
     /// `minecraft:item_name` in the current language (`getItemName`'s
     /// component). It stays in the patch as loaded, so a translatable name
     /// saves and reaches clients unchanged; the ominous banner's is modelled

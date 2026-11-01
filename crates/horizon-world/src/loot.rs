@@ -39,6 +39,19 @@ impl PackOverlay<'_> {
             .iter()
             .filter_map(move |(key, files)| Some((key.strip_prefix(&prefix)?, files)))
     }
+    /// The overlay's tag files of one registry, over every namespace: the
+    /// keys are `tags/<ns>:<registry>/<path>`, and the yielded id is the
+    /// tag id `<ns>:<path>` the game's own tags are keyed by
+    /// (`TagLoader`'s ids).
+    pub fn tag_kind(&self, registry: &str) -> impl Iterator<Item = (String, &Vec<Vec<u8>>)> {
+        let prefix = format!("{registry}/");
+        self.files.iter().filter_map(move |(key, files)| {
+            let rest = key.strip_prefix("tags/")?;
+            let (ns, path) = rest.split_once(':')?;
+            let path = path.strip_prefix(&prefix)?;
+            Some((format!("{ns}:{path}"), files))
+        })
+    }
     /// The last pack's file for an id, which is the one
     /// `ResourceManager.listMatchingResources` hands out.
     pub fn top(files: &[Vec<u8>]) -> &[u8] {
@@ -245,6 +258,18 @@ fn slot_in_group(slot: &str, group: &str) -> bool {
         "hand" => slot == "mainhand" || slot == "offhand",
         "armor" => matches!(slot, "feet" | "legs" | "chest" | "head" | "body"),
         _ => slot == group,
+    }
+}
+/// The item a recipe's `result` names. `ItemStackTemplate.CODEC` and `TransmuteResult.CODEC`
+/// read a stack's fields (`id`, `count`, `components`) or, as their alternative, a bare item id
+/// (`Item.CODEC`): `"result": {"id": "mod:item"}` and `"result": "mod:item"` are the same item.
+/// None for a stack without an `id` and for anything else, such as the `item` key of older
+/// versions.
+pub fn recipe_result_id(result: &Value) -> Option<&str> {
+    match result {
+        Value::String(id) => Some(id),
+        Value::Object(fields) => fields.get("id")?.as_str(),
+        _ => None,
     }
 }
 /// `LevelBasedValue.calculate`.
@@ -517,7 +542,7 @@ impl LootData {
             // The packs' entries join the game's own, in pack order; a
             // `replace` file drops what the lower sources put in
             // (`TagLoader.load` walks the resource stack the same way).
-            for (id, files) in overlay.kind(&format!("tags/{registry}")) {
+            for (id, files) in overlay.tag_kind(registry) {
                 let slot = tags
                     .entry((registry.to_owned(), id.to_owned()))
                     .or_default();
@@ -542,7 +567,7 @@ impl LootData {
             .map(|id| &recipes[id])
             .filter(|r| r["type"] == "minecraft:smelting")
             .filter_map(|r| {
-                let result = r["result"]["id"].as_str()?.to_owned();
+                let result = recipe_result_id(&r["result"])?.to_owned();
                 let count = r["result"]["count"].as_i64().unwrap_or(1) as i32;
                 Some((r["ingredient"].clone(), result, count))
             })
@@ -1787,5 +1812,84 @@ mod namespace_tests {
             ["minecraft:ponder_goat_horn", "minecraft:sing_goat_horn"]
         );
         let _ = fs::remove_dir_all(&root);
+    }
+
+    // `content_id`'s tag key shape (`tags/<ns>:<registry>/<path>`) through
+    // `tag_kind`: the id loses the registry segment, keeps the namespace.
+    #[test]
+    fn tag_kind_yields_tag_loader_ids_for_content_id_keys() {
+        let overlay = PackOverlay {
+            files: &[
+                (
+                    "tags/minecraft:item/food".to_owned(),
+                    vec![br#"{"values": ["minecraft:bread"]}"#.to_vec()],
+                ),
+                (
+                    "tags/minecraft:enchantment/trades/desert_common".to_owned(),
+                    vec![br#"{"values": ["minecraft:infinity"]}"#.to_vec()],
+                ),
+            ],
+        };
+        let item: Vec<_> = overlay.tag_kind("item").map(|(id, _)| id).collect();
+        assert_eq!(item, ["minecraft:food"]);
+        let enchantment: Vec<_> = overlay.tag_kind("enchantment").map(|(id, _)| id).collect();
+        assert_eq!(enchantment, ["minecraft:trades/desert_common"]);
+        // Another registry's files stay out.
+        assert_eq!(overlay.tag_kind("instrument").count(), 0);
+    }
+
+    /// A pack's tag file joins the game's own in `TagLoader` order, and its
+    /// `replace` drops what the lower sources put in.
+    #[test]
+    fn pack_tags_join_and_replace_the_game_own() {
+        let root = std::env::temp_dir().join(format!("horizon-loot-tag-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("data/minecraft/tags/item")).unwrap();
+        fs::write(root.join("items.json"), "{}").unwrap();
+        fs::write(
+            root.join("data/minecraft/tags/item/food.json"),
+            r#"{"values": ["minecraft:bread", "minecraft:cookie"]}"#,
+        )
+        .unwrap();
+        let overlay = PackOverlay {
+            files: &[(
+                "tags/minecraft:item/food".to_owned(),
+                vec![
+                    br#"{"values": ["minecraft:kelp"]}"#.to_vec(),
+                    br#"{"replace": true, "values": ["minecraft:apple"]}"#.to_vec(),
+                ],
+            )],
+        };
+        let data = LootData::load(&root, &overlay).unwrap();
+        assert!(data.in_tag("item", "minecraft:food", "minecraft:apple"));
+        assert!(!data.in_tag("item", "minecraft:food", "minecraft:bread"));
+        assert!(!data.in_tag("item", "minecraft:food", "minecraft:kelp"));
+        let _ = fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod recipe_result_tests {
+    use super::*;
+
+    /// `ItemStackTemplate.CODEC` reads a stack's fields or a bare item id.
+    #[test]
+    fn a_result_is_an_object_with_an_id_or_a_bare_item_id() {
+        let id = |json: &str| {
+            let v: Value = serde_json::from_str(json).unwrap();
+            recipe_result_id(&v).map(str::to_owned)
+        };
+        assert_eq!(
+            id(r#"{"id": "ruby:ruby", "count": 3}"#).as_deref(),
+            Some("ruby:ruby")
+        );
+        assert_eq!(id(r#""ruby:ruby""#).as_deref(), Some("ruby:ruby"));
+        // No `id` (a transmuting recipe keeps its input's item), the `item` key of older
+        // versions and anything that is neither an object nor a string name no item.
+        assert_eq!(id(r#"{"count": 2}"#), None);
+        assert_eq!(id(r#"{"item": "minecraft:stick"}"#), None);
+        assert_eq!(id(r#"{"id": 7}"#), None);
+        assert_eq!(id("null"), None);
+        assert_eq!(id("[]"), None);
     }
 }

@@ -54,6 +54,13 @@ fails, with its problems in the chat. While it runs, the game looks at the pack 
 and the pack is checked and rebuilt in place ("Shader pack ... reloaded"); if the new version fails, the chat says
 where and the last good version keeps drawing. All three stages run.
 
+A picked pack in the `shaders/` format gets a Shader Options... button at the top of the page: its options on the
+screens and with the names the pack gives them, its profiles, and Reset. A click picks an option's next value, a
+right click the one before, shift-click the pack's default, and the options the pack lists in `sliders` are sliders;
+values that differ from the pack's are yellow. Hovering one shows what the pack says of it (`option.NAME.comment`),
+and the whole label when its name was shortened to fit. Leaving the page saves them to
+`shaderpacks/<pack>.txt` (`NAME=value` lines) and loads the pack again with them.
+
 ## A pack
 
 A folder (or the same files zipped as a `.hshader`) with `horizon-shaders.toml` and WGSL files:
@@ -102,6 +109,20 @@ Post passes also read `scene_color`, `scene_depth`, `previous` (the last pass's 
 
 Rules the check enforces: your files declare no bindings (`@group`/`@binding`), no entry points and no names starting
 with `horizon_`. Code shared by several stages goes in files listed in `shared`, put before every stage.
+
+## Sprite tags
+
+The material stage can tell block sprites apart through tags the manifest declares. Each `[[tags]]` is a bit of
+`input.tags`, in the order they appear (32 at most); its `sprites` are sprite names, the namespace `minecraft` by
+default, each with at most one `*`:
+
+```toml
+[[tags]]
+id = "glass"                                      # bit 0: (input.tags & 1u) != 0u
+sprites = ["block/glass", "block/*_stained_glass"]
+```
+
+Terrain carries its sprite, not its block, so a sprite drawn by several blocks gets the tag for all of them.
 
 ## Options
 

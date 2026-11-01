@@ -1,0 +1,8 @@
+{
+  "hooks": [
+    {"name": "has_analog_output", "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_has_analog_output"},
+    {"name": "analog_output", "target": "horizon_client::game::native_hooks::GameLevel<'_>::native_analog_output"}
+  ],
+  "rust_summary": "comparator output from a mod's block (`native_has_analog_output`,\n`native_analog_output`, and the helper `native_update_output_neighbors`).",
+  "doc_summary": "a mod block's comparator output, as vanilla's `BlockBehaviour.hasAnalogOutputSignal` and `getAnalogOutputSignal`: `native_has_analog_output` says a block of yours has one,\nand `native_analog_output` gives it (0 to 15) for its state and position. A state change with neighbour updates tells the comparators itself; when the output\nchanges otherwise, `native_update_output_neighbors(dimension, pos)` makes them read it again (`Level.updateNeighbourForOutputSignal`). Bundles need `\"hooks\": @API:analog_output@`."
+}

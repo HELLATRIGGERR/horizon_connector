@@ -158,6 +158,13 @@ impl Toolchain {
         cmd.env("PATH", std::env::join_paths(paths).unwrap_or(path))
             .env("RUSTC", self.dir.join("bin").join(exe("rustc")))
             .env("CARGO_HOME", cargo_home());
+        // gcc, as, ld — and `cargo install`'s build — put scratch files in the temp dir,
+        // which has to be a path they can open too: the build's own, never the player's
+        // (#5189: a Cyrillic user name makes the player's unreadable by MinGW-w64).
+        let tmp = backend::build_dir().join("tmp");
+        if fs::create_dir_all(&tmp).is_ok() {
+            cmd.env("TMPDIR", &tmp).env("TMP", &tmp).env("TEMP", &tmp);
+        }
         for name in SCRUBBED {
             cmd.env_remove(name);
         }
@@ -266,21 +273,22 @@ const SCRUBBED: [&str; 8] = [
 /// the environment, and no command-line switch turns that search off. A build names its workspace
 /// with `--manifest-path` instead.
 pub fn outside_configs() -> Option<PathBuf> {
-    let data = backend::data_dir();
+    let data = backend::build_dir();
     data.ancestors()
         .last()
         .filter(|root| root.has_root())
         .map(Path::to_path_buf)
 }
 
-/// Where toolchains live: `<launcher data>/rust/`.
+/// Where toolchains live: `<build dir>/rust/` ([`backend::build_dir`] — a path the tools can
+/// read, which the data folder's isn't on Windows with a non-ASCII user name, #5189).
 pub fn root() -> PathBuf {
-    backend::data_dir().join("rust")
+    backend::build_dir().join("rust")
 }
 
 /// The Cargo home of native builds (downloaded crates, horizon-mixins), never the player's own.
 pub fn cargo_home() -> PathBuf {
-    backend::data_dir().join("cargo")
+    backend::build_dir().join("cargo")
 }
 
 fn dir_for(host: &Host) -> PathBuf {
@@ -518,9 +526,9 @@ fn linux_needs(ok: impl Fn(&str, &[&str]) -> bool, os: &str) -> Result<(), Strin
     ))
 }
 
-/// Removes every toolchain and the native builds' Cargo home.
+/// Removes every toolchain, the native builds' Cargo home and their scratch folder.
 pub fn remove() -> Result<(), String> {
-    for dir in [root(), cargo_home()] {
+    for dir in [root(), cargo_home(), backend::build_dir().join("tmp")] {
         if dir.exists() {
             fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
@@ -722,6 +730,25 @@ mod tests {
             Some(toolchain.dir.join("bin"))
         );
         assert!(get("CARGO_HOME").flatten().unwrap().ends_with("cargo"));
+    }
+
+    /// The tools' scratch dir is the build's own (#5189): MinGW-w64's gcc, as and ld can't
+    /// open a non-ASCII %TEMP%, like the one under a Cyrillic user name.
+    #[test]
+    fn the_command_uses_the_builds_own_temp_dir() {
+        let toolchain = Toolchain {
+            dir: PathBuf::from("/rust/1.99.1-x"),
+        };
+        let cmd = toolchain.command(&toolchain.cargo());
+        let tmp = backend::build_dir().join("tmp");
+        for name in ["TMPDIR", "TMP", "TEMP"] {
+            let value = cmd
+                .get_envs()
+                .find(|(k, _)| *k == name)
+                .and_then(|(_, v)| v)
+                .map(PathBuf::from);
+            assert_eq!(value.as_deref(), Some(tmp.as_path()), "{name}");
+        }
     }
 
     #[test]

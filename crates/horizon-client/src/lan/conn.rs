@@ -9,6 +9,7 @@
 use super::{
     Joined, NetEvent, Out, Shared,
     data::{CORE_PACK, SyncData},
+    forwarding,
 };
 use horizon_protocol::{
     PROTOCOL_VERSION,
@@ -708,21 +709,64 @@ fn serve_login(
         );
         return Ok(());
     }
-    let user = shared
-        .config
-        .log
-        .as_ref()
-        .map(|log| user_name(&hello.name, address, log))
-        .unwrap_or_default();
+    let (mut name, mut address) = (hello.name.clone(), address);
+    let user_of = |name: &str, address| {
+        shared
+            .config
+            .log
+            .as_ref()
+            .map(|log| user_name(name, address, log))
+            .unwrap_or_default()
+    };
+    let mut user = user_of(&name, address);
     // handleHello: online mode authenticates first; offline mode, and the
     // integrated server's own player through memory, derive the profile
-    // from the name.
+    // from the name. Behind a Velocity proxy (forwarding.secret) the proxy has
+    // authenticated the player and the profile is the one it forwards.
     let online = shared.config.online.as_ref().filter(|_| !c.is_memory());
-    let (uuid, properties) = match online {
-        Some(online) => match authenticate(&mut c, shared, online, &hello.name, address, &user) {
-            Ok(Ok(profile)) => profile,
-            Ok(Err(refused)) => {
-                lost(shared, &user, &refused);
+    let forwarding = shared
+        .config
+        .forwarding_secret
+        .as_deref()
+        .filter(|_| online.is_none() && !c.is_memory());
+    let (uuid, properties) = match (online, forwarding) {
+        (Some(online), _) => {
+            match authenticate(&mut c, shared, online, &hello.name, address, &user) {
+                Ok(Ok(profile)) => profile,
+                Ok(Err(refused)) => {
+                    lost(shared, &user, &refused);
+                    return Ok(());
+                }
+                Err(err) => {
+                    lost(shared, &user, "Disconnected");
+                    return Err(err);
+                }
+            }
+        }
+        (None, Some(secret)) => match forward(&mut c, secret) {
+            Ok(Ok(forwarded)) => {
+                (name, address) = (
+                    forwarded.name,
+                    std::net::SocketAddr::new(forwarded.address, address.port()),
+                );
+                user = user_of(&name, address);
+                (forwarded.uuid, forwarded.properties)
+            }
+            Ok(Err(reason)) => {
+                let text = "This server is behind a proxy: join through the proxy.";
+                let json = format!("{{\"text\":\"{text}\"}}");
+                let _ = c.send(
+                    &login::Clientbound::Disconnect(login::Disconnect { reason_json: json })
+                        .encode(),
+                );
+                if let Some(log) = &shared.config.log {
+                    (log.write)(
+                        "Server thread",
+                        "WARN",
+                        &format!("Refused {user}: {reason}"),
+                    );
+                }
+                lost(shared, &user, text);
                 return Ok(());
             }
             Err(err) => {
@@ -730,16 +774,16 @@ fn serve_login(
                 return Err(err);
             }
         },
-        None => (offline_uuid(&hello.name), Vec::new()),
+        (None, None) => (offline_uuid(&hello.name), Vec::new()),
     };
     // verifyLoginAndFinishConnectionSetup: PlayerList.canPlayerLogin, then
     // duplicates and a full server.
-    if let Some(reason) = shared.try_admit(address, uuid, &hello.name) {
+    if let Some(reason) = shared.try_admit(address, uuid, &name) {
         let text = refuse(&mut c, shared, "Server thread", &user, &reason);
         lost(shared, &user, &text);
         return Ok(());
     }
-    let result = login_and_configure(&mut c, shared, uuid, &hello.name, properties);
+    let result = login_and_configure(&mut c, shared, uuid, &name, properties);
     match result {
         Ok(Some(parts)) => {
             play(c, shared, parts, address);
@@ -752,10 +796,40 @@ fn serve_login(
         Err(err) => {
             shared.release(uuid);
             // ServerConfigurationPacketListenerImpl.onDisconnect.
-            let profile = format!("{} ({})", hello.name, uuid_string(uuid));
+            let profile = format!("{name} ({})", uuid_string(uuid));
             lost(shared, &profile, "Disconnected");
             Err(err)
         }
+    }
+}
+
+/// Asks the proxy for the player's forwarded information (login plugin channel `velocity:player_info`) and
+/// checks it against the shared secret. The outer error is the connection failing; the inner one is a refusal
+/// (the client isn't a proxy, or signed with another secret), with the reason for the log.
+fn forward(
+    c: &mut Connection,
+    secret: &[u8],
+) -> Result<Result<forwarding::Forwarded, String>, String> {
+    const TRANSACTION: i32 = 1;
+    let e = |e: horizon_protocol::Error| e.to_string();
+    c.send(
+        &login::Clientbound::CustomQuery(login::CustomQuery {
+            transaction: TRANSACTION,
+            channel: forwarding::CHANNEL.into(),
+            data: forwarding::request(),
+        })
+        .encode(),
+    )
+    .map_err(e)?;
+    let (id, payload) = c.recv().map_err(e)?;
+    match login::Serverbound::decode(id, &payload).map_err(e)? {
+        login::Serverbound::CustomQueryAnswer(answer) if answer.transaction == TRANSACTION => {
+            Ok(match answer.payload {
+                Some(data) => forwarding::verify(secret, &data),
+                None => Err("the client didn't answer the forwarding request".into()),
+            })
+        }
+        _ => Err("unexpected packet during login".into()),
     }
 }
 
@@ -862,16 +936,22 @@ fn login_and_configure(
             _ => {}
         }
     };
-    // horizon-clients-only: the brand the client sent ("vanilla" when it sent
-    // none) must be Horizon's.
-    if shared.config.horizon_clients_only && brand != "horizon" {
-        let text = super::HORIZON_CLIENTS_ONLY_REASON;
+    // Custom component IDs need Horizon's registry check. The server may also
+    // require Horizon clients even when it has no custom components.
+    if brand != "horizon"
+        && (shared.config.horizon_clients_only
+            || horizon_protocol::item::custom::entries().next().is_some())
+    {
+        let text = if shared.config.horizon_clients_only {
+            super::HORIZON_CLIENTS_ONLY_REASON
+        } else {
+            crate::content_identity::MISMATCH
+        };
         let reason = horizon_world::nbt::Tag::String(horizon_world::nbt::JavaString::from(text));
         let _ = send(c, cfg::Clientbound::Disconnect(cfg::Disconnect { reason }));
         if let Some(log) = &shared.config.log {
-            let line = format!(
-                "Disconnecting {name}: its client is \"{brand}\", not Horizon (horizon-clients-only)"
-            );
+            let line =
+                format!("Disconnecting {name}: its client is \"{brand}\", not Horizon ({text})");
             (log.write)("Server thread", "INFO", &line);
         }
         lost(shared, &format!("{name} ({})", uuid_string(uuid)), text);

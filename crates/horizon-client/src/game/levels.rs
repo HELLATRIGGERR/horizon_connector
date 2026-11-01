@@ -97,6 +97,8 @@ pub(super) struct Pass {
     pub first: bool,
     pub last: bool,
     pub running: Option<bool>,
+    /// Set once this level's player packets were handled before block ticks.
+    pub packets_drained: bool,
 }
 
 impl Default for Pass {
@@ -105,6 +107,7 @@ impl Default for Pass {
             first: true,
             last: true,
             running: None,
+            packets_drained: false,
         }
     }
 }
@@ -129,6 +132,11 @@ impl Levels {
     /// A parked level, without opening or loading it.
     pub(super) fn parked_world(&self, dim: Dim) -> Option<&World> {
         self.parked.get(&dim).map(|level| &level.world)
+    }
+
+    /// The world of the level not in place, in `dim`, to change.
+    pub(super) fn parked_world_mut(&mut self, dim: Dim) -> Option<&mut World> {
+        self.parked.get_mut(&dim).map(|level| &mut level.world)
     }
 
     /// The level not in place, in `dim`.
@@ -184,6 +192,7 @@ impl Game<'_> {
             dim,
             self.level_shapes.get(dim.id()),
             self.level.seed,
+            &self.level.enabled_features,
         )?;
         let mut world = World::new(self.res.facts().air, self.level.seed);
         #[cfg(feature = "ae2-lab")]
@@ -452,6 +461,7 @@ impl Game<'_> {
                 first: k == 0,
                 last: k + 1 == n,
                 running,
+                packets_drained: false,
             };
             if observe_level {
                 self.native_level_tick_pre(dim.id());
@@ -476,6 +486,7 @@ impl Game<'_> {
             if observe_level {
                 self.native_level_tick_post(dim.id());
             }
+            self.publish_server_debug(dim);
         }
         self.level_pass = Pass::default();
         if result.is_err() {
@@ -652,6 +663,9 @@ impl Game<'_> {
         let back = self.dim;
         for dim in closing {
             self.enter_level(None, dim)?;
+            // Its chunks leave with it: the mods hear before its last save.
+            let chunks: Vec<_> = self.world.chunks.values().cloned().collect();
+            self.native_chunks_changed(&chunks);
             self.save_level(true)?;
             self.enter_level(None, back)?;
             #[cfg(feature = "ae2-lab")]

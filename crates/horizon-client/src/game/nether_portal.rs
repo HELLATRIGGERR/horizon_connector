@@ -198,7 +198,7 @@ fn arrival_from_tag(a: &Tag) -> Option<Arrival> {
 
 impl Game<'_> {
     /// The world border's extent.
-    fn border_bounds(&self) -> BorderBounds {
+    pub(super) fn border_bounds(&self) -> BorderBounds {
         let [min_x, min_z, max_x, max_z] = self.border.bounds();
         BorderBounds {
             min_x,
@@ -322,16 +322,18 @@ impl Game<'_> {
                 let saved;
                 let chunk = match self.world.chunks.get(&(x, z)) {
                     Some(c) => &**c,
-                    None => match self
-                        .save
-                        .load(x, z, self.pack.assets.registry, self.res.biomes())
-                    {
-                        Some(c) => {
-                            saved = c;
-                            &saved
+                    None => {
+                        match self
+                            .save
+                            .load(x, z, self.pack.assets.registry, world_biomes!(self))
+                        {
+                            Some(c) => {
+                                saved = c;
+                                &saved
+                            }
+                            None => continue,
                         }
-                        None => continue,
-                    },
+                    }
                 };
                 for (s, section) in chunk.sections.iter().enumerate() {
                     if !section.blocks.maybe_has(|v| {
@@ -952,7 +954,7 @@ impl Game<'_> {
                 uuid,
                 self.persist_raw(id),
             );
-            self.dropped.remove(i);
+            self.remove_dropped(i);
             self.forget_entity(id);
             self.portals.arrivals.push(Arrival { plan, tag });
             self.portals.dirty = true;
@@ -1084,6 +1086,8 @@ impl Game<'_> {
                 // setPortalCooldown before the teleport, copied by restoreFrom.
                 c.insert("PortalCooldown".into(), Tag::Int(ENTITY_DELAY));
             }
+            // ServerLevel.addDuringTeleport: a fresh add, not loaded from disk.
+            super::persist::mark_fresh(&mut tag);
             let key = ((at.x.floor() as i32) >> 4, (at.z.floor() as i32) >> 4);
             match self
                 .world

@@ -1075,6 +1075,8 @@ pub struct ParticleEngine {
 }
 /// `ParticleGroup.MAX_PARTICLES` (per render group; one group here).
 const MAX_PARTICLES: usize = 16384;
+/// `ParticleLimit.SPORE_BLOSSOM`, the only limited particle.
+const SPORE_BLOSSOM_LIMIT: usize = 1000;
 impl ParticleEngine {
     pub fn new(root: &Path, atlas: &HashMap<String, Rect>, translucent: &HashSet<String>) -> Self {
         let mut engine = Self {
@@ -1480,11 +1482,27 @@ impl ParticleEngine {
             self.add(options, p, v);
         }
     }
-    /// `ParticleEngine.createParticle`: always spawned.
+    /// `ParticleEngine.createParticle`: always spawned, but `ParticleEngine.add`
+    /// drops a spore blossom air particle once `ParticleLimit.SPORE_BLOSSOM` is full.
     pub fn create(&mut self, options: &ParticleOptions, p: [f64; 3], v: [f64; 3]) {
         let seed = self.seeds.next_long();
         if let Some(particle) = self.make(options, p, v, seed) {
             *self.made.entry(options.ty.name()).or_default() += 1;
+            // The provider has drawn, so rejecting here keeps vanilla's RNG order.
+            // shortcut: counts live plus queued particles by scanning instead of
+            // vanilla's counted map; use a counter if spore spawning shows in profiles.
+            if particle.ty == ParticleType::SporeBlossomAir
+                && self.particles.len() + self.pending.len() >= SPORE_BLOSSOM_LIMIT
+                && self
+                    .particles
+                    .iter()
+                    .chain(self.pending.iter())
+                    .filter(|q| q.ty == ParticleType::SporeBlossomAir)
+                    .count()
+                    >= SPORE_BLOSSOM_LIMIT
+            {
+                return;
+            }
             self.pending.push(particle);
         }
     }
@@ -4124,8 +4142,8 @@ impl ParticleEngine {
                         layer: if layer {
                             crate::gfx::TRANSLUCENT_PARTICLE_OVERLAY
                         } else {
-                            u32::from(hdr_tier(p.ty)) << 16
-                        },
+                            0
+                        } | u32::from(hdr_tier(p.ty)) << 16,
                         color,
                         light,
 
@@ -4136,8 +4154,8 @@ impl ParticleEngine {
         }
     }
 }
-/// How brightly particle `ty` shines in HDR output, as `mesher::hdr_tier`: flames and
-/// glowing drops, not their smoke. Only opaque-layer particles are marked.
+/// How brightly particle `ty` shines in HDR output, as `mesher::hdr_tier`: flames,
+/// glowing drops and fireworks, not their smoke.
 fn hdr_tier(ty: ParticleType) -> u8 {
     use ParticleType as P;
     match ty {
@@ -4154,6 +4172,8 @@ fn hdr_tier(ty: ParticleType) -> u8 {
         P::DrippingObsidianTear | P::FallingObsidianTear | P::LandingObsidianTear => {
             crate::mesher::LOW
         }
+        // FireworkParticles: the sparks and the flash of the burst.
+        P::Firework | P::Flash => crate::mesher::BRIGHT,
         _ => 0,
     }
 }
@@ -4342,6 +4362,27 @@ mod tests {
         });
         assert_eq!(tall.len(), 64);
         assert!(tall.iter().all(|p| p[1] < 1.0));
+    }
+    #[test]
+    fn spore_blossom_air_stops_at_its_particle_limit() {
+        let mut engine = ParticleEngine::new(Path::new(""), &HashMap::new(), &HashSet::new());
+        let spore = ParticleOptions::simple(ParticleType::SporeBlossomAir);
+        for i in 0..1001 {
+            engine.create(&spore, [f64::from(i % 16), 70.0, 0.0], [0.0; 3]);
+        }
+        assert_eq!(engine.pending.len(), 1000);
+        assert!(
+            engine
+                .pending
+                .iter()
+                .all(|p| p.ty == ParticleType::SporeBlossomAir)
+        );
+        // A type without a `ParticleLimit` is not capped.
+        let smoke = ParticleOptions::simple(ParticleType::Smoke);
+        for _ in 0..10 {
+            engine.create(&smoke, [0.0; 3], [0.0; 3]);
+        }
+        assert_eq!(engine.pending.len(), 1010);
     }
     #[test]
     fn particle_names_round_trip() {

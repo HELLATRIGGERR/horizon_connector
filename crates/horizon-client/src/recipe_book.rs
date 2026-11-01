@@ -655,6 +655,7 @@ pub(crate) fn crafting_station(kind: &str) -> &'static str {
         "minecraft:smoking" => "minecraft:smoker",
         "minecraft:campfire_cooking" => "minecraft:campfire",
         "minecraft:stonecutting" => "minecraft:stonecutter",
+        "minecraft:brewing" => "minecraft:brewing_stand",
         "minecraft:smithing_transform" | "minecraft:smithing_trim" => "minecraft:smithing_table",
         _ => "minecraft:crafting_table",
     }
@@ -668,6 +669,9 @@ impl RecipeIndex {
             let kind = v["type"].as_str().unwrap_or_default();
             let special = kind.starts_with("minecraft:crafting_special_")
                 || kind == "minecraft:crafting_decorated_pot"
+                // A brewing recipe has no recipe book display of its own
+                // (`BrewingRecipe`), so it never takes display numbers.
+                || kind == "minecraft:brewing"
                 // Actual pinned AE2 runtime isSpecial flags, including its
                 // machine recipes that opt out of ServerRecipeBook.addRecipes.
                 || matches!(kind,"ae2:storage_cell_upgrade"|"ae2:storage_cell_disassembly"|
@@ -696,36 +700,14 @@ impl RecipeIndex {
                     first_display: 0,
                     station: crafting_station(kind),
                     notify: v["show_notification"].as_bool().unwrap_or(true),
-                    result: v["result"]["id"].as_str().map(str::to_owned),
+                    result: horizon_world::loot::recipe_result_id(&v["result"]).map(str::to_owned),
                 },
             );
         };
-        // Recipe resource locations, nested paths included, in vanilla's
-        // namespace and the content mods': the ids the crafting loader and
-        // advancement rewards use.
-        fn collect(
-            dir: &std::path::Path,
-            base: &std::path::Path,
-            namespace: &str,
-            out: &mut Vec<(String, std::path::PathBuf)>,
-        ) {
-            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-                let path = entry.path();
-                let Ok(kind) = std::fs::symlink_metadata(&path).map(|m| m.file_type()) else {
-                    continue;
-                };
-                if kind.is_dir() {
-                    collect(&path, base, namespace, out);
-                } else if (kind.is_file() || kind.is_symlink())
-                    && path.extension().is_some_and(|e| e == "json")
-                    && let Ok(relative) = path.strip_prefix(base)
-                {
-                    let relative = relative.with_extension("");
-                    let name = relative.to_string_lossy().replace('\\', "/");
-                    out.push((format!("{namespace}:{name}"), path));
-                }
-            }
-        }
+        // Recipe resource locations in vanilla's namespace and the content
+        // mods': the whole folder, `brewing/` under it too, in id order
+        // (`SimpleJsonResourceReloadListener` walks it recursively): a
+        // subfolder's recipe keeps it in its id, `minecraft:brewing/<name>`.
         let tags = crate::items::load_tags(root, "item", overlay).unwrap_or_default();
         let mut namespaces = vec!["minecraft".to_owned()];
         namespaces.extend(crate::mod_content::namespaces(root));
@@ -734,7 +716,9 @@ impl RecipeIndex {
         let mut files = Vec::new();
         for namespace in namespaces {
             let dir = root.join("data").join(&namespace).join("recipe");
-            collect(&dir, &dir, &namespace, &mut files);
+            for (name, path) in crate::crafting::recipe_files(&dir).unwrap_or_default() {
+                files.push((format!("{namespace}:{name}"), path));
+            }
         }
         files.sort();
         for (id, path) in files {

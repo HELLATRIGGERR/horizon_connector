@@ -106,8 +106,14 @@ impl Game<'_> {
                     .get(&stack.item)
                     .map_or(25, |i| i.max_damage);
                 if stack.damage >= max {
+                    let broken = stack.clone();
                     self.inventory[self.selected] =
                         Some(ItemStack::new("minecraft:fishing_rod", 1));
+                    // ItemStack.hurtAndBreak: onEquippedItemBroken, then the replacement.
+                    self.player_equipment_broke(
+                        horizon_world::player_inventory::EquipmentSlot::MainHand,
+                        &broken,
+                    );
                 }
             }
         }

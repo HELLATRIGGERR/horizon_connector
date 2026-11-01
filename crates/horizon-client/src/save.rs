@@ -50,6 +50,8 @@ use std::{
 
 pub const VERSION_NAME: &str = horizon_core::VANILLA_VERSION;
 
+mod gateway;
+
 /// Snapshot live block entities and custom names for a save batch without
 /// mutating the world. Each map is visited once, retaining its iteration order
 /// within each chunk (including repeated chunk coordinates in the input).
@@ -346,7 +348,10 @@ fn json_tag(value: &serde_json::Value) -> Tag {
 /// `datapackDimensions`.
 fn datapack_dimensions(world: &Path) -> Vec<(String, Tag)> {
     let packs = crate::datapack::discover(world);
-    let enabled = crate::datapack::enabled_ids(world, &packs);
+    let enabled_features = Level::read(world)
+        .map(|l| l.enabled_features)
+        .unwrap_or_default();
+    let enabled = crate::datapack::enabled_ids(world, &packs, &enabled_features);
     let enabled: Vec<&crate::datapack::DataPack> = enabled
         .iter()
         .filter_map(|id| packs.iter().find(|p| &p.id == id))
@@ -675,7 +680,7 @@ pub fn encode_block_entity(
         }
         BlockEntity::Sign(sign) => entries.extend(sign.encode()),
         BlockEntity::Jukebox(j) => {
-            if let Some(record) = &j.record {
+            if let Some(record) = j.record() {
                 entries.push(("RecordItem", item_to_nbt(record)));
             }
             entries.push(("ticks_since_song_started", Tag::Long(j.ticks)));
@@ -829,6 +834,26 @@ pub fn live_vanilla_block_entity(
     }
     merged
 }
+/// `BlockDataAccessor.getData` (`BlockEntity.saveWithFullMetadata`): the tag
+/// `data get block` shows and `data merge block` changes, without the
+/// chunk-only `keepPacked`, and with the fields Horizon keeps outside its
+/// model: a container's `lock` (`LockCode`), from the tag it was loaded or set
+/// with.
+pub fn block_entity_data(
+    p: (i32, i32, i32),
+    e: &crate::containers::BlockEntity,
+    block: &str,
+    lock: Option<&Tag>,
+) -> Tag {
+    let mut tag = encode_block_entity(p, e, block);
+    if let Tag::Compound(map) = &mut tag {
+        map.remove(&"keepPacked".into());
+        if let Some(lock) = lock {
+            map.insert("lock".into(), lock.clone());
+        }
+    }
+    tag
+}
 /// `BannerBlockEntity.loadAdditional` (and the `components` a block entity keeps).
 pub fn decode_banner(tag: &Tag) -> crate::containers::Banner {
     crate::containers::Banner {
@@ -932,7 +957,7 @@ pub fn decode_block_entity(tag: &Tag) -> Option<((i32, i32, i32), crate::contain
         return Some((
             pos,
             BlockEntity::Jukebox(crate::containers::Jukebox {
-                record,
+                items: [record],
                 ticks,
                 playing,
             }),
@@ -2466,6 +2491,54 @@ impl SaveDir {
     fn region_path(&self, folder: &str, rx: i32, rz: i32) -> PathBuf {
         region_path(&self.root, folder, rx, rz)
     }
+    /// The chunks of a region file that an older version generated, as
+    /// `IOWorker.createOldDataForRegion` finds them (bit `x + z * 32`): saved
+    /// before DataVersion 4997, or with `blending_data`.
+    pub fn old_chunk_bits(&self, rx: i32, rz: i32) -> [u64; 16] {
+        let mut bits = [0u64; 16];
+        let Ok(region) = RegionFile::open(self.region_path("region", rx, rz)) else {
+            return bits;
+        };
+        let present: Vec<ChunkPos> = region.chunks().map(|(pos, _)| pos).collect();
+        drop(region);
+        for pos in present {
+            let Some(root) = self.read_record("region", pos.x, pos.z) else {
+                continue;
+            };
+            let old = match root.tag.get("DataVersion") {
+                Some(Tag::Int(version)) => *version < 4997,
+                _ => true,
+            } || root.tag.get("blending_data").is_some();
+            if old {
+                let index = ((pos.x & 31) + (pos.z & 31) * 32) as usize;
+                bits[index / 64] |= 1 << (index % 64);
+            }
+        }
+        bits
+    }
+    /// A saved chunk as the region file keeps it, for the readers of its
+    /// fields that `load` does not decode (`blending_data`).
+    pub fn raw_chunk(&self, x: i32, z: i32) -> Option<NamedTag> {
+        self.read_record("region", x, z)
+    }
+    /// The references a saved chunk keeps for its structure start `name`
+    /// (`StructureStart.getReferences`, saved as `references`): 0 for a chunk
+    /// not saved yet, a start it does not have or one without the field.
+    pub fn start_references(&self, x: i32, z: i32, name: &str) -> i32 {
+        let Some(root) = self.read_record("region", x, z) else {
+            return 0;
+        };
+        match root
+            .tag
+            .get("structures")
+            .and_then(|s| s.get("starts"))
+            .and_then(|s| s.get(name))
+            .and_then(|s| s.get("references"))
+        {
+            Some(Tag::Int(n)) => *n,
+            _ => 0,
+        }
+    }
     fn read_record(&self, folder: &str, x: i32, z: i32) -> Option<NamedTag> {
         match self.read_record_checked(folder, x, z) {
             Ok(record) => record,
@@ -3001,18 +3074,34 @@ fn write_saved_data(world: &Path, name: &str, data: Tag) -> Result<()> {
 }
 pub use horizon_client_core::uuid::{uuid_from_text, uuid_text};
 /// A random (version 4) UUID as vanilla's four-int form.
+///
+/// Every call gets its own: the generator is seeded once from the clock and
+/// the process, then each call takes the next step of one shared counter. A
+/// seed from the clock alone repeats within its resolution (a microsecond on
+/// macOS): a pack of mobs generated together all had the same UUID, and a
+/// vanilla client keeps only one entity per UUID (the rest never moved).
 pub fn random_uuid() -> [i32; 4] {
-    let t = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos() as u64);
-    let mut s = t ^ (std::process::id() as u64).rotate_left(32) ^ 0x9E37_79B9_7F4A_7C15;
-    let mut next = || {
-        s ^= s << 13;
-        s ^= s >> 7;
-        s ^= s << 17;
-        s
+    use std::sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering},
     };
-    let (a, b) = (next(), next());
+    static NEXT: OnceLock<AtomicU64> = OnceLock::new();
+    let next = NEXT.get_or_init(|| {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos() as u64);
+        AtomicU64::new(t ^ (std::process::id() as u64).rotate_left(32))
+    });
+    // SplitMix64: distinct steps give distinct outputs.
+    let split = || {
+        let mut z = next
+            .fetch_add(0x9E37_79B9_7F4A_7C15, Ordering::Relaxed)
+            .wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    let (a, b) = (split(), split());
     let a = (a & !0xF000) | 0x4000;
     let b = (b & !(0xC000_0000_0000_0000)) | 0x8000_0000_0000_0000;
     [(a >> 32) as i32, a as i32, (b >> 32) as i32, b as i32]
@@ -3173,6 +3262,14 @@ impl WorldPreset {
             .position(|preset| *preset == self)
             .unwrap_or(0);
         Self::ALL[(index + 1) % Self::ALL.len()]
+    }
+    /// The preset the world-type button cycles to previously.
+    pub fn prev(self) -> Self {
+        let index = Self::ALL
+            .iter()
+            .position(|preset| *preset == self)
+            .unwrap_or(0);
+        Self::ALL[(index + Self::ALL.len() - 1) % Self::ALL.len()]
     }
     /// The preset a saved overworld generator is: the noise settings name
     /// the preset, and the single-biome preset shares the overworld's noise
@@ -3445,6 +3542,13 @@ pub struct Level {
     /// `allowCommands`: read from `level.dat` or chosen on the Create New
     /// World screen; unset is written as off.
     pub allow_commands: Option<bool>,
+    /// `DataPackConfig` (Create World's Data Packs and Experiments): the
+    /// enabled and disabled pack ids. Unset keeps vanilla's defaults.
+    pub data_packs: Option<(Vec<String>, Vec<String>)>,
+    /// `WorldDataConfiguration`'s `enabled_features`: the feature flag ids
+    /// the world enables, `minecraft:vanilla` included. Empty is vanilla's
+    /// default, which the level.dat omits.
+    pub enabled_features: Vec<String>,
     /// Game rule values by name without namespace (`keep_inventory`, ...).
     pub game_rules: BTreeMap<String, i32>,
     pub player_uuid: Option<[i32; 4]>,
@@ -3551,6 +3655,17 @@ impl Level {
             level.difficulty_locked = n(d.get("locked")) != 0;
         }
         level.allow_commands = Some(n(data.get("allowCommands")) != 0);
+        // WorldDataConfiguration.MAP_CODEC's `enabled_features`, flat in the
+        // Data compound and omitted when the flags are vanilla's default.
+        if let Some(Tag::List(flags)) = data.get("enabled_features") {
+            level.enabled_features = flags
+                .iter()
+                .filter_map(|f| match f {
+                    Tag::String(s) => Some(s.to_string_lossy()),
+                    _ => None,
+                })
+                .collect();
+        }
         let mut rules: BTreeMap<String, i32> = GAME_RULES
             .iter()
             .map(|(k, v)| ((*k).to_owned(), *v))
@@ -3758,9 +3873,8 @@ impl Level {
                 .collect(),
             _ => Vec::new(),
         };
-        // ServerPlayer.saveParentVehicle: the vehicle the player rides, by
-        // UUID. Horizon keeps the vehicle in the world, so the file names it
-        // instead of holding a second copy of it.
+        // ServerPlayer.saveParentVehicle: the mount the player rides, by
+        // UUID; the vehicle tree stays in the raw compound until it is back.
         self.root_vehicle = p
             .get("RootVehicle")
             .and_then(|r| uuid_from_tag(r.get("Attach")));
@@ -3978,9 +4092,9 @@ impl Level {
                 map.entry(key.into()).or_insert(value);
             }
         }
-        // ServerPlayer.saveParentVehicle: the vehicle the player rides, by
-        // UUID. Horizon keeps the vehicle in the world, so the file names it
-        // instead of holding a second copy of it.
+        // ServerPlayer.saveParentVehicle: the savers put the whole
+        // RootVehicle in the compound; a mount known by UUID alone (older
+        // Horizon files) is still named.
         if let Some(vehicle) = self.root_vehicle
             && p.get("RootVehicle").is_none()
         {
@@ -4137,23 +4251,32 @@ impl Level {
                 map.insert("allowCommands".into(), Tag::Byte(i8::from(allow)));
             }
             map.entry("WasModded".into()).or_insert(Tag::Byte(0));
+            // lenientOptionalFieldOf("enabled_features", DEFAULT_FLAGS): the
+            // tag is left out when the set is vanilla's default, so a
+            // `["minecraft:vanilla"]`-only list does not reach the file.
+            let vanilla_only = self.enabled_features == ["minecraft:vanilla"];
+            if !self.enabled_features.is_empty() && !vanilla_only {
+                map.insert(
+                    "enabled_features".into(),
+                    Tag::List(self.enabled_features.iter().map(|s| string(s)).collect()),
+                );
+            }
             map.entry("DataPacks".into()).or_insert_with(|| {
-                Tag::compound([
-                    ("Enabled", Tag::List(vec![string("vanilla")])),
+                let (enabled, disabled) = self.data_packs.clone().unwrap_or_else(|| {
                     (
-                        "Disabled",
-                        Tag::List(
-                            [
-                                "minecart_improvements",
-                                "redstone_experiments",
-                                "trade_rebalance",
-                            ]
-                            .iter()
-                            .map(|s| string(s))
-                            .collect(),
-                        ),
-                    ),
-                ])
+                        vec!["vanilla".into()],
+                        [
+                            "minecart_improvements",
+                            "redstone_experiments",
+                            "trade_rebalance",
+                        ]
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                    )
+                });
+                let list = |ids: Vec<String>| Tag::List(ids.iter().map(|s| string(s)).collect());
+                Tag::compound([("Enabled", list(enabled)), ("Disabled", list(disabled))])
             });
         }
         // Saved data: weather, clocks, and (when missing or legacy) world
@@ -4449,7 +4572,7 @@ fn decode_lod_surfaces(
     let mut columns: Box<[crate::lod::Column; 256]> =
         Box::new(std::array::from_fn(|_| crate::lod::Column {
             surface: None,
-            spans: Vec::new(),
+            spans: crate::lod::Spans::new(),
         }));
     let mut water = [None; 256];
     let light = lod_light_layers(&sections, layout, sky_light);
@@ -4760,6 +4883,30 @@ impl<G: ChunkGenerator> ChunkGenerator for Persistent<G> {
     }
     fn decorates(&self) -> bool {
         self.inner.decorates()
+    }
+    fn decorates_beside_final(&self) -> bool {
+        self.inner.decorates_beside_final()
+    }
+    fn proto_beside_final(
+        &self,
+        worker: &mut G::Worker,
+        snapshot: &Chunk,
+    ) -> Option<crate::streaming::Proto> {
+        self.inner.proto_beside_final(worker, snapshot)
+    }
+    fn final_writes(
+        &self,
+        snapshot: &Chunk,
+        proto: &crate::streaming::Proto,
+    ) -> Vec<([i32; 3], u32)> {
+        self.inner.final_writes(snapshot, proto)
+    }
+    fn final_block_entities(
+        &self,
+        proto: &crate::streaming::Proto,
+        writes: &[([i32; 3], u32)],
+    ) -> Vec<((i32, i32, i32), crate::chunk::block_entity::BlockEntity)> {
+        self.inner.final_block_entities(proto, writes)
     }
     fn decorate(&self, worker: &mut G::Worker, region: &mut [crate::streaming::Proto; 9]) {
         self.inner.decorate(worker, region);
@@ -5829,6 +5976,28 @@ mod tests {
                 .expect("update tag");
         assert!(update.get("Items").is_some() && update.get("CookingTimes").is_none());
     }
+    /// `LockCode`: a chest's `lock` is not in Horizon's model, so `data get`
+    /// takes it from the tag the block entity was loaded (or set) with.
+    #[test]
+    fn a_locked_chest_keeps_its_lock_through_decode_and_encode() {
+        let saved = horizon_world::nbt::parse_snbt(
+            r#"{id:"minecraft:chest",x:1,y:2,z:3,lock:{items:"minecraft:gold_ingot"}}"#,
+        )
+        .unwrap()
+        .0;
+        let (pos, chest) = decode_block_entity(&saved).expect("chest");
+        assert_eq!(chest.slots().len(), 27);
+        assert_eq!(pos, (1, 2, 3));
+        // The encoded entity has no field to carry the lock...
+        let plain = encode_block_entity(pos, &chest, "minecraft:chest");
+        assert!(plain.get("lock").is_none());
+        // ...so `data get` puts back the one it was loaded with.
+        let data = block_entity_data(pos, &chest, "minecraft:chest", saved.get("lock"));
+        let lock = horizon_world::nbt::parse_snbt(r#"{items:"minecraft:gold_ingot"}"#)
+            .unwrap()
+            .0;
+        assert_eq!(data.get("lock"), Some(&lock));
+    }
     #[test]
     fn spawner_block_entity_round_trips() {
         // A dungeon spawner as vanilla saves it (`id` is mob_spawner, not the block).
@@ -6061,6 +6230,12 @@ mod tests {
         );
         let r = random_uuid();
         assert_eq!((r[1] >> 12) & 0xF, 4, "version 4");
+    }
+    #[test]
+    fn random_uuids_made_at_once_differ() {
+        let made: std::collections::HashSet<[i32; 4]> =
+            (0..10_000).map(|_| random_uuid()).collect();
+        assert_eq!(made.len(), 10_000);
     }
     #[test]
     fn creaking_heart_keeps_its_protector_uuid() {
@@ -6616,6 +6791,48 @@ mod tests {
         );
     }
 
+    /// `WorldDataConfiguration.MAP_CODEC`'s `lenientOptionalFieldOf
+    /// ("enabled_features", DEFAULT_FLAGS)`: a picked experiment's list
+    /// round-trips, a vanilla-only selection leaves the tag out.
+    #[test]
+    fn enabled_features_round_trip_and_omit_the_vanilla_default() {
+        let dir = gen_world("enabled-features");
+        let mut level = Level {
+            name: "Features".into(),
+            enabled_features: vec![
+                "minecraft:vanilla".into(),
+                "minecraft:minecart_improvements".into(),
+            ],
+            ..Level::default()
+        };
+        level.write(&dir).unwrap();
+        let back = Level::read(&dir).unwrap();
+        assert_eq!(back.enabled_features, level.enabled_features);
+        // The tag is in the file.
+        let raw = crate::save::read_level_dat(&dir).unwrap();
+        if let Tag::Compound(data) = &raw {
+            let data = data.get(&JavaString::from("Data")).unwrap();
+            assert!(matches!(data.get("enabled_features"), Some(Tag::List(_))));
+        }
+        // A vanilla-only selection writes no tag, and reads back as the
+        // same vanilla-only list. A fresh folder: write_internal keeps an
+        // older file's fields.
+        let dir2 = gen_world("enabled-features-vanilla");
+        level.enabled_features = vec!["minecraft:vanilla".into()];
+        level.write(&dir2).unwrap();
+        let raw = crate::save::read_level_dat(&dir2).unwrap();
+        if let Tag::Compound(data) = &raw {
+            let data = data.get(&JavaString::from("Data")).unwrap();
+            assert!(data.get("enabled_features").is_none());
+        }
+        let back = Level::read(&dir2).unwrap();
+        // The read side keeps its own convention: empty is the vanilla
+        // default the file omitted.
+        assert!(back.enabled_features.is_empty());
+        let _ = fs::remove_dir_all(dir);
+        let _ = fs::remove_dir_all(dir2);
+    }
+
     fn gen_world(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("horizon-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -6868,5 +7085,17 @@ mod tests {
             );
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn world_preset_next_and_prev_cycle_bidirectionally() {
+        let first = WorldPreset::Normal;
+        assert_eq!(first.next(), WorldPreset::Flat);
+        assert_eq!(first.prev(), WorldPreset::SingleBiomeSurface);
+        assert_eq!(WorldPreset::SingleBiomeSurface.next(), WorldPreset::Normal);
+        for preset in WorldPreset::ALL {
+            assert_eq!(preset.next().prev(), preset);
+            assert_eq!(preset.prev().next(), preset);
+        }
     }
 }

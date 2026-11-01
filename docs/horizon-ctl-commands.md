@@ -37,6 +37,7 @@ Every command `horizon-ctl` takes, its MCP tool in `horizon-ctl mcp` (the launch
 | `screen` | `screen` | The open screen or title menu, its buttons and its slots | none |
 | `messages [N]` | `messages` | Recent chat and system messages, the title and the action bar | `n` (integer): how many chat lines (default 20) |
 | `menu` | CLI only | The open menu's slots and carried stack, with station details | none |
+| `narration` | `narration` | What the narrator was last asked to say, oldest first, and its status | none |
 
 ## Move and look
 

@@ -73,9 +73,9 @@ pub const ROUTES: [Route; 28] = [
     Route {
         method: "GET",
         path: "/api/v1/events",
-        takes: "`?since=N` (or `Last-Event-ID`), `?types=join,leave,kick,chat,death,log,phase` (all by default)",
+        takes: "`?since=N` (or `Last-Event-ID`), `?types=join,leave,kick,chat,chat_filtered,death,log,phase` (all by default)",
         answers: "with `Accept: text/event-stream`, server-sent events as they happen (`id`, `event`: the type, `data`: JSON); otherwise `{\"next\": N, \"events\": [...]}`",
-        what: "Log lines, the supervisor's phase, and the game's joins, leaves, kicks, chat and deaths (the last 2000 kept)",
+        what: "Log lines, the supervisor's phase, and the game's joins, leaves, kicks, chat, messages the chat filter refused (`chat_filtered`, without their text) and deaths (the last 2000 kept)",
     },
     Route {
         method: "POST",
@@ -549,12 +549,12 @@ pub fn same_token(a: &str, b: &str) -> bool {
 }
 
 /// Writes a file only its owner can read.
-pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+pub fn write_private(path: &Path, text: impl AsRef<[u8]>) -> std::io::Result<()> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)?.write_all(text.as_bytes())
+    options.open(path)?.write_all(text.as_ref())
 }
 
 /// Removes the endpoint file when the supervisor ends.
@@ -590,7 +590,7 @@ pub fn start(shared: Arc<Shared>) -> Result<Endpoint, String> {
     let path = shared.dir.join(ENDPOINT);
     write_private(
         &path,
-        &json!({ "address": address.to_string(), "token": token, "pid": std::process::id() })
+        json!({ "address": address.to_string(), "token": token, "pid": std::process::id() })
             .to_string(),
     )
     .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -858,6 +858,40 @@ impl Client {
 
     pub fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
         self.call_within(method, path, body, Duration::from_secs(60))
+    }
+
+    /// Reads a server-sent event stream (`GET /api/v1/events`), one event at a time, until the server ends
+    /// it (`Ok`) or stops answering.
+    pub fn follow(&self, path: &str, mut each: impl FnMut(&Value)) -> Result<(), String> {
+        use std::io::BufRead;
+        let mut stream =
+            std::net::TcpStream::connect_timeout(&self.address, Duration::from_secs(5))
+                .map_err(|e| e.to_string())?;
+        // The stream sends a comment every 15 s: a minute of silence is a server gone.
+        stream
+            .set_read_timeout(Some(Duration::from_secs(60)))
+            .map_err(|e| e.to_string())?;
+        write!(
+            stream,
+            "GET {path} HTTP/1.1\r\nHost: {}\r\nAuthorization: Bearer {}\r\nAccept: text/event-stream\r\nConnection: close\r\n\r\n",
+            self.address, self.token
+        )
+        .map_err(|e| e.to_string())?;
+        let mut lines = std::io::BufReader::new(stream).lines();
+        let status = lines.next().and_then(Result::ok).unwrap_or_default();
+        if status.split_whitespace().nth(1) != Some("200") {
+            return Err(format!("the server answered {status:?}"));
+        }
+        for line in lines {
+            let line = line.map_err(|e| e.to_string())?;
+            if let Some(event) = line
+                .strip_prefix("data: ")
+                .and_then(|d| serde_json::from_str(d).ok())
+            {
+                each(&event);
+            }
+        }
+        Ok(())
     }
 
     /// A call that may take long (a backup of a big world).

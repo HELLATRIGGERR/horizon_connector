@@ -21,6 +21,17 @@ fn components(stack: &ItemStack) -> Compound {
     }
 }
 
+/// `BlockState.getCloneItemStack`'s item: a stem's seed (`StemBlock` and
+/// `AttachedStemBlock` override it; a stem has no block item), else the
+/// block's own item.
+fn clone_item<'a>(name: &str, block_item: &'a str) -> &'a str {
+    match name {
+        "minecraft:pumpkin_stem" | "minecraft:attached_pumpkin_stem" => "minecraft:pumpkin_seeds",
+        "minecraft:melon_stem" | "minecraft:attached_melon_stem" => "minecraft:melon_seeds",
+        _ => block_item,
+    }
+}
+
 impl Game<'_> {
     /// `BlockItem.updateBlockStateFromTag`: apply each recognized, valid
     /// property from the item's block-state component and ignore the rest.
@@ -87,7 +98,7 @@ impl Game<'_> {
                 Some(t) if t == "sticky" => "minecraft:sticky_piston",
                 _ => "minecraft:piston",
             });
-        let item = head.unwrap_or(&*facts.item);
+        let item = clone_item(&facts.name, head.unwrap_or(&facts.item));
         if item == "minecraft:air" {
             return None;
         }
@@ -324,5 +335,29 @@ impl Game<'_> {
         } else {
             self.ae2_live_events.borrow_mut().energy.failure=Some("ordered placement energy event unavailable".into());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clone_item;
+
+    /// `StemBlock.getCloneItemStack` and `AttachedStemBlock.getCloneItemStack`:
+    /// pumpkin and melon stems, attached or not, pick the seed they grew from;
+    /// a block without an override still picks its own item.
+    #[test]
+    fn stems_pick_their_seeds_and_blocks_their_item() {
+        for (stem, seed) in [
+            ("minecraft:pumpkin_stem", "minecraft:pumpkin_seeds"),
+            ("minecraft:attached_pumpkin_stem", "minecraft:pumpkin_seeds"),
+            ("minecraft:melon_stem", "minecraft:melon_seeds"),
+            ("minecraft:attached_melon_stem", "minecraft:melon_seeds"),
+        ] {
+            assert_eq!(clone_item(stem, "minecraft:air"), seed, "{stem}");
+        }
+        assert_eq!(
+            clone_item("minecraft:stone", "minecraft:stone"),
+            "minecraft:stone"
+        );
     }
 }

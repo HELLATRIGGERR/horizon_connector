@@ -1192,6 +1192,8 @@ impl Game<'_> {
         {
             // `ShieldItem.getName`: the banner's base colour names the shield.
             Text::translate(&format!("item.minecraft.shield.{color}"), &[])
+        } else if let Some(head) = horizon_client::item_tooltip::player_head_name(s) {
+            head.text()
         } else {
             // Item.getDescriptionId: a block item's is the block's.
             let (namespace, path) = item.split_once(':').unwrap_or(("minecraft", item));
@@ -1320,7 +1322,7 @@ impl Game<'_> {
                             p[2],
                         ]);
                         g.throw_from_eyes(rest, eye, false);
-                        if let Some(item) = g.dropped.last_mut() {
+                        if let Some(item) = g.just_spawned_item() {
                             item.thrower = None;
                             item.pickup_delay = 0;
                             item.target = uuid;
@@ -1939,7 +1941,11 @@ impl Game<'_> {
                     }
                 }
             }
-            Target::Item(id) => self.dropped.retain(|i| i.id != id),
+            Target::Item(id) => {
+                if let Some(i) = self.dropped.iter().position(|i| i.id == id) {
+                    self.remove_dropped(i);
+                }
+            }
             Target::Orb(id) => {
                 if let Some(o) = self.orbs.iter_mut().find(|o| o.id == id) {
                     o.age = u32::MAX / 2;
@@ -1949,7 +1955,13 @@ impl Game<'_> {
                 self.creatures.projectiles.retain(|p| p.id != id);
             }
             Target::Stand(id) => self.armor_stands.retain(|a| a.id != id),
-            Target::Frame(id) => self.item_frames.retain(|f| f.id != id),
+            Target::Frame(id) => {
+                // ItemFrame.onKilled.
+                if let Some(frame) = self.item_frames.iter().find(|f| f.id == id).cloned() {
+                    self.remove_framed_map(&frame);
+                }
+                self.item_frames.retain(|f| f.id != id);
+            }
             Target::Painting(id) => self.paintings.retain(|p| p.id != id),
             Target::Boat(id) => {
                 // AbstractBoat.remove: a killed boat drops its lead.
@@ -1964,7 +1976,9 @@ impl Game<'_> {
             Target::Dragon(id) => self.kill_dragon(id),
         }
         // The orbs marked for removal are gone (Entity.kill removes them).
+        let before = self.orb_ids();
         self.orbs.retain(|o| o.age < u32::MAX / 2);
+        self.native_orbs_left_since(&before);
     }
     fn cmd_kill(&mut self, ctx: &Context) -> R<i32> {
         let targets = if ctx.get("targets").is_some() {
@@ -2057,20 +2071,33 @@ impl Game<'_> {
                     return Err(err("commands.summon.failed", &[]));
                 }
                 "experience_orb" => {
+                    // `new ExperienceOrb(level, pos, Vec3.ZERO, 0)`, unstuck
+                    // like any other orb spawn.
+                    let at = self.unstuck_orb(pos);
                     self.next_entity += 1;
                     self.orbs.push(horizon_client::entities::ExperienceOrb {
-                        health: 5,
                         invulnerable: false,
                         id: self.next_entity,
-                        position: Vec3::new(pos[0], pos[1], pos[2]),
-                        previous: Vec3::new(pos[0], pos[1], pos[2]),
+                        position: Vec3::new(at[0], at[1], at[2]),
+                        previous: Vec3::new(at[0], at[1], at[2]),
                         velocity: Vec3::new(0.0, 0.0, 0.0),
                         value: 0,
                         age: 0,
                         on_ground: false,
                         count: 1,
                         ticks: 0,
+                        health: 5,
                     });
+                    // tryAddFreshEntityWithPassengers refused: ERROR_DUPLICATE_UUID.
+                    if !self.native_entity_joins(
+                        self.next_entity,
+                        "minecraft:experience_orb",
+                        pos,
+                        false,
+                    ) {
+                        self.orbs.pop();
+                        return Err(err("commands.summon.failed.uuid", &[]));
+                    }
                     name = Text::translate("entity.minecraft.experience_orb", &[]);
                 }
                 "lightning_bolt" => {
@@ -2295,7 +2322,10 @@ impl Game<'_> {
             && self.world.block_entities.vanilla_metadata(&key)!=Some(&tag);
         #[cfg(not(feature = "ae2-lab"))]
         let metadata_changed=false;
-        if after == before && !rolled && !metadata_changed {
+        // The lock is outside the model: a tag that only changes it still
+        // changes the block entity.
+        let lock_changed = self.world.block_lock(key) != tag.get("lock");
+        if after == before && !rolled && !lock_changed && !metadata_changed {
             return false;
         }
         self.world.block_entities.insert(key, new);
@@ -2309,6 +2339,7 @@ impl Game<'_> {
                 }
             }
         }
+        self.world.set_block_lock(key, &tag);
         self.update_spawner_display(key);
         self.world.modified.insert((pos[0] >> 4, pos[2] >> 4));
         true
@@ -3403,13 +3434,30 @@ impl Game<'_> {
                 .options
                 .resources
                 .join(format!("data/{ns}/tags/{registry}/{path}.json"));
-            let Ok(v) = std::fs::read(file)
-                .map_err(|_| ())
-                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).map_err(|_| ()))
-            else {
-                continue;
-            };
-            for e in v["values"].as_array().into_iter().flatten() {
+            // The game's file and the world's packs' both count, entries
+            // joined in resource-stack order; a pack file with `replace`
+            // drops what the lower sources put in (`TagLoader.load`).
+            let packed = self
+                .fns
+                .store
+                .files
+                .get(&format!("tags/{ns}:{registry}/{path}"))
+                .into_iter()
+                .flatten()
+                .filter_map(|b| serde_json::from_slice::<serde_json::Value>(b).ok());
+            let parsed = std::fs::read(file)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                .into_iter()
+                .chain(packed);
+            let mut entries = Vec::new();
+            for v in parsed {
+                if v["replace"].as_bool() == Some(true) {
+                    entries.clear();
+                }
+                entries.extend(v["values"].as_array().into_iter().flatten().cloned());
+            }
+            for e in &entries {
                 let id = e.as_str().or_else(|| e["id"].as_str()).unwrap_or_default();
                 match id.strip_prefix('#') {
                     Some(nested) => pending.push(nested.to_owned()),

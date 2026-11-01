@@ -28,6 +28,9 @@ struct HorizonMaterialOut {
     @location(5) position: vec3<f32>,
     @location(6) spherical: f32,
     @location(7) cylindrical: f32,
+    @location(8) @interpolate(flat) face: u32,
+    @location(9) @interpolate(flat) fluid_quad: u32,
+    @location(10) @interpolate(flat) emission: f32,
 }
 fn horizon_material_vertex(position: vec3<f32>, uv: vec2<f32>, layer: u32, color: vec4<f32>,
     light: vec2<u32>, origin: vec3<f32>) -> HorizonMaterialOut {
@@ -45,6 +48,19 @@ fn horizon_material_vertex(position: vec3<f32>, uv: vec2<f32>, layer: u32, color
     out.position = pos;
     out.spherical = length(pos);
     out.cylindrical = max(length(pos.xz), abs(pos.y));
+    // The colour's alpha byte (mesher.rs's `fluid_face` and `emitting`): a fluid quad's
+    // high nibble is 8 + its face (0..5), every other quad keeps 0xF there; the low nibble
+    // is 15 minus the face's HDR tier. Every corner of a quad carries the same byte, so the
+    // interpolated value rounds back exactly.
+    let flags = u32(round(color.a * 255.0));
+    let high = flags >> 4u;
+    let fluid = high >= 8u && (high & 7u) < 6u;
+    out.face = select(0u, high & 7u, fluid);
+    out.fluid_quad = u32(fluid);
+    // The tier (0 none, 1 low, 2 incandescent, 3 bright, 4 very bright) as how strongly the
+    // face shines: a redstone torch 7/15, a torch 14/15, glowstone 1.
+    let tier = 15u - (flags & 15u);
+    out.emission = select(min(f32(tier) * 7.0 / 15.0, 1.0), 0.0, tier == 0u);
     return out;
 }
 @vertex fn horizon_material_vs(
@@ -65,8 +81,13 @@ fn horizon_material_vertex(position: vec3<f32>, uv: vec2<f32>, layer: u32, color
 }
 fn horizon_material_color(in: HorizonMaterialOut, translucent: bool) -> vec4<f32> {
     let albedo = horizon_terrain_sprite(in.uv, in.layer & 0x7fffu);
+    // Water draws translucent and lava solid, so the pass resolves the fluid kind.
+    let fluid = select(0u, select(2u, 1u, translucent), in.fluid_quad != 0u);
+    let normal = horizon_material_normal(in.position);
+    let tangent = horizon_material_tangent(in.position, in.uv, normal);
     return material(MaterialInput(albedo, in.tint, in.light, in.lightmap, in.position, in.uv,
-        translucent)).color;
+        translucent, horizon_sprite_tags(in.layer & 0x7fffu), in.clip.xy / frame.resolution,
+        in.face, fluid, in.emission, normal, tangent)).color;
 }
 @fragment fn horizon_material_fs_solid(in: HorizonMaterialOut) -> @location(0) vec4<f32> {
     let color = horizon_material_color(in, false);
@@ -91,6 +112,9 @@ pub struct TerrainShape<'a> {
     pub sprites: [f64; 2],
     /// The world target's colour format.
     pub format: wgpu::TextureFormat,
+    /// The pack's tags of each tagged sprite layer, as `(layer, bits)`
+    /// (`Manifest::sprite_tags`).
+    pub sprite_tags: &'a [(u32, u32)],
 }
 
 /// The pack's terrain pipelines: solid (with the cutout test) and translucent, for the
@@ -110,17 +134,34 @@ fn vanilla_terrain() -> String {
     )
 }
 
-/// The terrain shader for the pack's material stage `source`.
-fn shader_source(source: &str) -> String {
+/// `horizon_sprite_tags(layer)`: the bits of `MaterialInput.tags` of each sprite layer.
+fn sprite_tags(tags: &[(u32, u32)]) -> String {
+    let mut out = String::from("fn horizon_sprite_tags(layer: u32) -> u32 {\n    switch layer {\n");
+    let mut tags = tags.to_vec();
+    tags.sort_unstable_by_key(|&(layer, bits)| (bits, layer));
+    for group in tags.chunk_by(|a, b| a.1 == b.1) {
+        let layers: Vec<String> = group.iter().map(|(layer, _)| format!("{layer}u")).collect();
+        out += &format!(
+            "        case {}: {{ return {}u; }}\n",
+            layers.join(", "),
+            group[0].1
+        );
+    }
+    out + "        default: { return 0u; }\n    }\n}\n"
+}
+
+/// The terrain shader for the pack's material stage `source`, with its sprite `tags`.
+fn shader_source(source: &str, tags: &[(u32, u32)]) -> String {
     format!(
-        "{source}\n// Horizon's terrain (terrain.wgsl)\n{}{ENTRIES}",
-        vanilla_terrain()
+        "{source}\n// Horizon's terrain (terrain.wgsl)\n{}{}{ENTRIES}",
+        vanilla_terrain(),
+        sprite_tags(tags)
     )
 }
 
 /// The material's naga module, its errors in the stage's file.
-fn module(stage: &CheckedStage) -> Result<naga::Module, String> {
-    let text = shader_source(&stage.source);
+fn module(stage: &CheckedStage, tags: &[(u32, u32)]) -> Result<naga::Module, String> {
+    let text = shader_source(&stage.source, tags);
     naga::front::wgsl::parse_str(&text)
         .map_err(|e| format!("{}: {}", stage.file, e.emit_to_string(&text)))
 }
@@ -134,7 +175,7 @@ impl NativeMaterial {
         stage: &CheckedStage,
         constants: &[(String, f64)],
     ) -> Result<Self, String> {
-        let module = module(stage)?;
+        let module = module(stage, shape.sprite_tags)?;
         let mut constants = present_constants(&module, constants);
         let sprite_names = [
             "horizon_terrain_SPRITE_ARRAYS",
@@ -297,15 +338,22 @@ mod tests {
             fn apply_fog(c: vec4<f32>) -> vec4<f32> { return c * gain; }\n\
             fn material(input: MaterialInput) -> Surface {\n    \
                 let lit = input.albedo * input.tint * vec4(input.lightmap, 1.0);\n    \
-                return Surface(apply_fog(sprite(lit)));\n}\n";
+                let t = vec2<i32>(input.screen * frame.resolution);\n    \
+                let behind = textureLoad(opaque_color, t, 0) * textureLoad(opaque_depth, t, 0);\n    \
+                let mirrored = textureSampleLevel(reflection, reflection_sampler, input.screen, 0.0);\n    \
+                let kind = f32(input.face + input.fluid) * input.emission * mirrored.a;\n    \
+                let frame_of = vec4(cross(input.normal, input.tangent.xyz) * input.tangent.w, kind);\n    \
+                return Surface(apply_fog(sprite(lit)) + (behind + frame_of) * 0.0);\n}\n";
         let stage = stage(own);
-        let module = module(&stage).unwrap();
+        let tags = [(7, 1), (3, 1), (9, 2)];
+        assert!(sprite_tags(&tags).contains("case 3u, 7u: { return 1u; }"));
+        let module = module(&stage, &tags).unwrap();
         let info = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
             naga::valid::Capabilities::all(),
         )
         .validate(&module)
-        .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&shader_source(&stage.source))));
+        .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&shader_source(&stage.source, &tags))));
         let entries: Vec<&str> = module
             .entry_points
             .iter()

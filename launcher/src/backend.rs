@@ -119,6 +119,14 @@ pub const LAUNCHER_ASSET: Option<&str> = match OWN_ASSETS {
     None => None,
 };
 
+/// The launcher as an AppImage (`packaging/linux/appimage.sh`): the program and its libraries in
+/// one file. A launcher running from one updates by replacing that file ([`appimage_path`]), so it
+/// needs this archive rather than the platform's `.tar.gz`.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub const LAUNCHER_APPIMAGE_ASSET: Option<&str> = Some("horizon-launcher-linux-x86_64.AppImage");
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+pub const LAUNCHER_APPIMAGE_ASSET: Option<&str> = None;
+
 const LAUNCHER_BINARY: &str = if cfg!(windows) {
     "horizon-launcher.exe"
 } else {
@@ -392,7 +400,7 @@ fn launcher_releases_in_with(
     list: &serde_json::Value,
     json: impl Fn(String) -> Result<serde_json::Value, String>,
 ) -> Vec<Release> {
-    let found = parse_releases(list, LAUNCHER_ASSET, is_launcher_tag);
+    let found = parse_releases(list, launcher_asset(), is_launcher_tag);
     if found.iter().any(|r| r.asset.is_some()) {
         return found;
     }
@@ -410,7 +418,7 @@ fn launcher_releases_in_with(
         if let Ok(release) = json(format!("{api}/releases/tags/{tag}")) {
             let one = parse_releases(
                 &serde_json::json!([release]),
-                LAUNCHER_ASSET,
+                launcher_asset(),
                 is_launcher_tag,
             );
             if one.iter().any(|r| r.asset.is_some()) {
@@ -449,22 +457,33 @@ pub fn installable_updates(releases: &[Release]) -> Vec<Release> {
 /// How often a launcher left open looks for new releases: they come out several times a day.
 pub const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-/// The community, sponsor and website links, from `launcher/links.json` on main, so they can change
-/// without a launcher release. An empty address hides its button.
+/// The community, sponsor and website links and the official server's address, from
+/// `launcher/links.json` on main, so they can change without a launcher release. An empty address
+/// hides its button (an empty `official_server`: no official server offered).
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct Links {
     pub discord: String,
     pub sponsor: String,
     pub website: String,
+    /// The official server's address, as servers.dat lists it (`server_list::add_official`).
+    pub official_server: String,
+    /// The addresses it had before: a list holding one moves to `official_server`. A move appends
+    /// the old address here.
+    pub official_server_previous: Vec<String>,
 }
 
 impl Default for Links {
     /// What the launcher uses until (or unless) it can read links.json.
     fn default() -> Self {
         Self {
-            discord: "https://discord.gg/HcTeMZxe5E".into(),
+            discord: "https://discord.gg/playhorizon".into(),
             sponsor: "https://github.com/sponsors/ludovic111".into(),
             website: "https://playhorizon.dev".into(),
+            official_server: crate::server_list::OFFICIAL_ADDRESS.into(),
+            official_server_previous: crate::server_list::OFFICIAL_PREVIOUS
+                .iter()
+                .map(|a| a.to_string())
+                .collect(),
         }
     }
 }
@@ -479,9 +498,21 @@ impl Links {
                 ("discord", &mut links.discord),
                 ("sponsor", &mut links.sponsor),
                 ("website", &mut links.website),
+                ("official_server", &mut links.official_server),
             ] {
                 if let Some(url) = map.get(key).and_then(|v| v.as_str()) {
                     *slot = url.trim().to_string();
+                }
+            }
+            // A list of addresses; anything else keeps the built-in one.
+            if let Some(serde_json::Value::Array(previous)) = map.get("official_server_previous") {
+                if previous.iter().all(serde_json::Value::is_string) {
+                    links.official_server_previous = previous
+                        .iter()
+                        .filter_map(|a| a.as_str())
+                        .map(|a| a.trim().to_string())
+                        .filter(|a| !a.is_empty())
+                        .collect();
                 }
             }
         }
@@ -506,6 +537,76 @@ pub fn data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("horizon-launcher")
+}
+
+/// A canonical path without Windows' verbatim prefix: `canonicalize` gives `\\?\C:\...` there,
+/// and some tools stat `\\?\C:` — the volume itself — and fail. A drive path loses its `\\?\`;
+/// any other path is left as it is.
+pub(crate) fn plain(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|p| p.strip_prefix(r"\\?\")) {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+/// `path` spelled only in ASCII: what Windows' MinGW-w64 tools can open (they read paths
+/// through ANSI APIs, so a Cyrillic user name in %APPDATA% breaks them, #5189).
+fn ascii(path: &Path) -> bool {
+    path.as_os_str().to_str().is_some_and(str::is_ascii)
+}
+
+/// Where builds happen — the Rust toolchain, its Cargo home and `native_mods::root` — as a
+/// path every build tool can read: `data_dir()` resolved, so the tools are never handed a
+/// link (horizon-mixins refuses one, and macOS's /tmp is one). On Windows, when the resolved
+/// path isn't [`ascii`], [`windows_build_dir`] names the same folder a way MinGW-w64 can open.
+pub fn build_dir() -> PathBuf {
+    let data = data_dir();
+    let _ = fs::create_dir_all(&data);
+    let real = data.canonicalize().map(plain).unwrap_or(data);
+    if ascii(&real) {
+        return real;
+    }
+    #[cfg(windows)]
+    return windows_build_dir(&real);
+    #[cfg(not(windows))]
+    real
+}
+
+/// [`build_dir`] when `real` isn't [`ascii`]: the folder's own short (8.3) name where the
+/// volume keeps one — the same files, spelled in ASCII — else a folder of ProgramData's,
+/// named for the path so each user's is its own and can be created there.
+#[cfg(windows)]
+fn windows_build_dir(real: &Path) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    if let Some(short) = short_path(real).filter(|p| ascii(p)) {
+        return short;
+    }
+    let public = std::env::var_os("ProgramData")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute() && ascii(p))
+        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+    let key = Sha256::digest(real.as_os_str().as_encoded_bytes());
+    let key: String = key[..4].iter().map(|b| format!("{b:02x}")).collect();
+    public.join(format!("horizon-launcher-{key}"))
+}
+
+/// `GetShortPathNameW`: `path`'s short (8.3) name, or None on error. A folder with no short
+/// name (the volume may keep none) answers with its long name again, which [`ascii`] refuses.
+#[cfg(windows)]
+fn short_path(path: &Path) -> Option<PathBuf> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetShortPathNameW(long: *const u16, short: *mut u16, len: u32) -> u32;
+    }
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+    let need = unsafe { GetShortPathNameW(wide.as_ptr(), std::ptr::null_mut(), 0) } as usize;
+    if need == 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; need];
+    let got = unsafe { GetShortPathNameW(wide.as_ptr(), buf.as_mut_ptr(), need as u32) } as usize;
+    (got != 0 && got < need).then(|| PathBuf::from(std::ffi::OsString::from_wide(&buf[..got])))
 }
 
 fn versions_dir() -> PathBuf {
@@ -1136,10 +1237,11 @@ fn complete_reports(versions: &Path, tag: &str) -> bool {
 
 /// What a prepared version may lack that the launcher adds without preparing again, each copied
 /// from the player's own Minecraft asset store as `horizon-prepare <kind>` does: what the
-/// player misses without it, whether the resources lack it, and the copy.
+/// player misses without it, its kind (`horizon_prepare::missing_extras`, the same check as
+/// `horizon-prepare --check`), and the copy.
 type Completion = (
     &'static str,
-    fn(&Path) -> bool,
+    &'static str,
     fn(&Path, Option<&Path>, horizon_prepare::Log) -> Result<PathBuf, String>,
 );
 
@@ -1147,53 +1249,17 @@ const COMPLETIONS: [Completion; 5] = [
     // Preparers before #1538 left the built-in packs out.
     (
         "Programmer Art and High Contrast",
-        lacks_packs,
+        "packs",
         horizon_prepare::packs,
     ),
     // A preparation that could not read the asset store keeps the client jar's 1x1 grey
     // placeholders, its English alone, and no sounds (#1867: Prism Launcher installs prepared
     // since 0.2.48).
-    (
-        "The title panorama",
-        lacks_panorama,
-        horizon_prepare::panorama,
-    ),
-    ("The Unifont glyphs", lacks_unifont, horizon_prepare::fonts),
-    ("The languages", lacks_languages, horizon_prepare::languages),
-    (
-        "The sounds",
-        |resources| !sounds_in(resources),
-        horizon_prepare::sounds,
-    ),
+    ("The title panorama", "panorama", horizon_prepare::panorama),
+    ("The Unifont glyphs", "fonts", horizon_prepare::fonts),
+    ("The languages", "languages", horizon_prepare::languages),
+    ("The sounds", "sounds", horizon_prepare::sounds),
 ];
-
-fn lacks_unifont(resources: &Path) -> bool {
-    !resources
-        .join("assets/minecraft/font/unifont.zip")
-        .is_file()
-}
-
-/// Whether the language list is missing: `pack.mcmeta` only the asset index holds, while the
-/// client jar's `lang` folder holds `en_us.json` and `deprecated.json`, so counting its files
-/// never tells.
-fn lacks_languages(resources: &Path) -> bool {
-    !resources.join("assets/pack.mcmeta").is_file()
-}
-
-fn lacks_packs(resources: &Path) -> bool {
-    horizon_prepare::BUILT_IN_PACKS
-        .iter()
-        .any(|pack| !resources.join("assets").join(pack).is_file())
-}
-
-/// Whether the first panorama face is missing or the client jar's 1x1 placeholder (a PNG's
-/// width is the big-endian word at byte 16, in the IHDR chunk).
-fn lacks_panorama(resources: &Path) -> bool {
-    let face = resources.join("assets/minecraft/textures/gui/title/background/panorama_0.png");
-    fs::read(face).map_or(true, |png| {
-        png.get(16..20).is_none_or(|width| width == [0, 0, 0, 1])
-    })
-}
 
 /// Adds what a prepared version lacks of `COMPLETIONS`: a new version reuses the resources of the
 /// one before (`reuse_prepared`), which may come from a preparer that left them out. Without them
@@ -1214,7 +1280,9 @@ fn refill_own_store(tag: &str) {
     let own = data_dir().join("minecraft");
     let resources = resources_at(&versions_dir().join(tag));
     if !own.join("assets/indexes").is_dir()
-        || !(lacks_languages(&resources) || !sounds_in(&resources))
+        || !horizon_prepare::missing_extras(&resources)
+            .iter()
+            .any(|(kind, _)| matches!(*kind, "languages" | "sounds"))
         || ASKED.swap(true, std::sync::atomic::Ordering::Relaxed)
     {
         return;
@@ -1253,9 +1321,10 @@ fn complete_assets_in(
         if !resources.join(RESOURCES_MANIFEST).exists() {
             return Vec::new();
         }
+        let missing = horizon_prepare::missing_extras(&resources);
         COMPLETIONS
             .iter()
-            .filter(|(_, lacks, _)| lacks(&resources))
+            .filter(|(_, kind, _)| missing.iter().any(|(m, _)| m == kind))
             .collect()
     };
     if lacking().is_empty() {
@@ -1806,6 +1875,8 @@ pub fn preparer(
                 minecraft_dir: Some(minecraft.clone()),
                 server_jar: (!reused).then_some(jar),
                 java_home: Some(java_home.clone()),
+                inputs: Default::default(),
+                output: None,
             };
             return Ok((Preparer::InProcess(options), minecraft));
         }
@@ -2554,6 +2625,55 @@ pub fn exe_path() -> &'static Path {
     EXE.get_or_init(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from(LAUNCHER_BINARY)))
 }
 
+/// The AppImage this launcher runs from, when it does: the runtime sets `$APPIMAGE` to the file it
+/// mounted and `$APPDIR` to the mount, while [`exe_path`] then names a copy inside that read-only
+/// mount, gone with it. Updating and restarting work on this file, and the menu entry, shortcuts and
+/// agent configurations start it.
+pub fn appimage_path() -> Option<PathBuf> {
+    appimage_path_in(
+        std::env::var_os("APPIMAGE").as_deref(),
+        std::env::var_os("APPDIR").as_deref(),
+        exe_path(),
+    )
+}
+
+/// `$APPIMAGE`, if it names a file still there and this binary runs from inside `$APPDIR`. Both
+/// variables reach every child of an AppImage: a launcher a different AppImage's program started
+/// must never take that program's file for its own (an update would overwrite it).
+fn appimage_path_in(
+    appimage: Option<&std::ffi::OsStr>,
+    appdir: Option<&std::ffi::OsStr>,
+    exe: &Path,
+) -> Option<PathBuf> {
+    let appdir = Path::new(appdir?);
+    if !appdir.is_absolute() || !exe.starts_with(appdir) {
+        return None;
+    }
+    appimage
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute() && path.is_file())
+}
+
+/// The file a self-update replaces and a restart starts: the AppImage when the launcher runs from
+/// one, the binary this process started from otherwise.
+pub fn update_target() -> PathBuf {
+    appimage_path().unwrap_or_else(|| exe_path().to_path_buf())
+}
+
+/// The launcher archive this build installs from: the AppImage's when it runs from one (a `.tar.gz`
+/// binary would be written inside the read-only mount), this platform's otherwise.
+pub fn launcher_asset() -> Option<&'static str> {
+    launcher_asset_running_from(appimage_path().is_some())
+}
+
+fn launcher_asset_running_from(appimage: bool) -> Option<&'static str> {
+    if appimage {
+        LAUNCHER_APPIMAGE_ASSET
+    } else {
+        LAUNCHER_ASSET
+    }
+}
+
 /// Development builds and `HORIZON_LAUNCHER_NO_SELF_UPDATE` never replace themselves.
 pub fn self_update_allowed() -> bool {
     !cfg!(debug_assertions) && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()
@@ -2581,8 +2701,7 @@ fn installed_launcher_version(path: &Path) -> Option<String> {
 /// Puts `new` at `exe`, the path this launcher started from. The running process keeps its
 /// file (unlinked) and works on. Unix only: `self_replace` asks the system where the running
 /// binary is, and Linux answers "<path> (deleted)" once the file has been replaced, so a second
-/// update in the same run failed with "No such file or directory". Windows keeps a running
-/// binary locked, so there `self_replace` moves it aside first.
+/// update in the same run failed with "No such file or directory".
 #[cfg(unix)]
 fn replace_binary(new: &Path, exe: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -2601,9 +2720,80 @@ fn replace_binary(new: &Path, exe: &Path) -> std::io::Result<()> {
     result
 }
 
+/// Windows keeps a running binary from being written or deleted but lets it be renamed: the
+/// running one steps aside to `<name>.old-<pid>-<n>` in its folder, the new one takes its path,
+/// and a later start removes the old file (`remove_replaced_binaries`). The `self_replace` crate
+/// did this by copying the launcher under a random hidden name and starting that copy to delete
+/// the original through a hidden `cmd.exe`, which Microsoft Defender quarantines as
+/// Trojan:Script/Wacatac (#3175).
 #[cfg(not(unix))]
-fn replace_binary(new: &Path, _exe: &Path) -> std::io::Result<()> {
-    self_replace::self_replace(new)
+fn replace_binary(new: &Path, exe: &Path) -> std::io::Result<()> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    // A second update in the same run moves the first one's binary aside too.
+    static MOVED: AtomicU32 = AtomicU32::new(0);
+    let dir = exe.parent().ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "the launcher has no folder")
+    })?;
+    let name = exe.file_name().unwrap_or_default().to_string_lossy();
+    let pid = std::process::id();
+    let temp = dir.join(format!("{name}.update-{pid}"));
+    let old = dir.join(format!(
+        "{name}.old-{pid}-{}",
+        MOVED.fetch_add(1, Ordering::Relaxed)
+    ));
+    if let Err(e) = fs::copy(new, &temp) {
+        let _ = fs::remove_file(&temp);
+        return Err(e);
+    }
+    match fs::rename(exe, &old) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            let _ = fs::remove_file(&temp);
+            return Err(e);
+        }
+        _ => {}
+    }
+    if let Err(e) = fs::rename(&temp, exe) {
+        let _ = fs::rename(&old, exe);
+        let _ = fs::remove_file(&temp);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Deletes the binaries earlier self-updates moved aside (`replace_binary`), and the copies of an
+/// update that stopped before its new binary took its place (`<name>.update-<pid>`). The one the
+/// launcher just restarted from is still exiting, so this keeps trying for a few seconds in the
+/// background; one that stays in use (another launcher window) goes on a later start.
+#[cfg(windows)]
+pub fn remove_replaced_binaries() {
+    let exe = exe_path();
+    let (Some(dir), Some(name)) = (exe.parent(), exe.file_name()) else {
+        return;
+    };
+    let dir = dir.to_path_buf();
+    let name = name.to_string_lossy();
+    let old = format!("{name}.old-");
+    let update = format!("{name}.update-");
+    let own = format!("{update}{}", std::process::id());
+    std::thread::spawn(move || {
+        for _ in 0..10 {
+            let Ok(entries) = fs::read_dir(&dir) else {
+                return;
+            };
+            let mut left = false;
+            for entry in entries.flatten() {
+                let file = entry.file_name();
+                let file = file.to_string_lossy();
+                if file.starts_with(&old) || (file.starts_with(&update) && file != own) {
+                    left |= fs::remove_file(entry.path()).is_err();
+                }
+            }
+            if !left {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    });
 }
 
 /// The app bundle the launcher runs from (`…/Horizon.app` for `…/Horizon.app/Contents/MacOS/
@@ -2706,8 +2896,8 @@ fn replace_bundle(_new: &Path, _app: &Path) -> Result<(), String> {
     Err("App bundles are a macOS thing.".into())
 }
 
-/// Downloads a launcher release and puts its binary in place of this one. The running process
-/// keeps working; `restart` starts the new one. When the file there already is that release or
+/// Downloads a launcher release and puts it in place of this one. The running process keeps
+/// working; `restart` starts the new one. When the file there already is that release or
 /// a newer one (updated from the command line or another window), there is nothing to do.
 pub fn self_update(release: &Release, progress: impl Fn(f32)) -> Result<(), String> {
     let (url, size) = release
@@ -2715,18 +2905,38 @@ pub fn self_update(release: &Release, progress: impl Fn(f32)) -> Result<(), Stri
         .clone()
         .ok_or("This launcher release has no build for this platform.")?;
     let target = launcher_version(&release.tag).unwrap_or("0");
-    if installed_launcher_version(exe_path())
+    if installed_launcher_version(&update_target())
         .is_some_and(|v| v != VERSION && compare_versions(&v, target).is_ge())
     {
         progress(1.0);
         return Ok(());
     }
-    let sha256 = signed_digest(&release.tag, LAUNCHER_ASSET.unwrap_or_default())?;
+    let sha256 = signed_digest(&release.tag, launcher_asset().unwrap_or_default())?;
     let work = data_dir().join(".launcher-update");
     let _ = fs::remove_dir_all(&work);
     fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let archive = work.join("download");
     download(&url, size, &sha256, &archive, &progress)?;
+    // An AppImage is the whole program: the new one takes the place of the file `$APPIMAGE` names
+    // (the running mount keeps its copy until `restart` starts it). Its archive is not a `.tar.gz`
+    // to unpack, so this comes before the unpacking below.
+    if let Some(appimage) = appimage_path() {
+        if !url.ends_with(".AppImage") {
+            return Err(format!(
+                "{} is not an AppImage, and this launcher runs from one. Install it from its release page instead.",
+                release.tag
+            ));
+        }
+        replace_binary(&archive, &appimage).map_err(|e| {
+            format!(
+                "Could not replace the AppImage at {}: {e}",
+                appimage.display()
+            )
+        })?;
+        let _ = fs::remove_dir_all(&work);
+        progress(1.0);
+        return Ok(());
+    }
     let unpacked = work.join("unpacked");
     unpack(&archive, &url, &unpacked)?;
     // A launcher inside Horizon.app replaces the whole bundle (its Info.plist, icon and
@@ -2767,11 +2977,12 @@ fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Starts the launcher again (the updated binary) with the same arguments in place of this one:
-/// on Unix the process becomes the new binary (exec), on Windows the new one starts and this one
-/// exits. Returns only when the new binary could not start.
+/// Starts the launcher again (the updated binary, or the replaced AppImage) with the same
+/// arguments in place of this one: on Unix the process becomes the new binary (exec), on Windows
+/// the new one starts and this one exits. Returns only when the new one could not start.
 pub fn restart() -> String {
-    let mut cmd = Command::new(exe_path());
+    let target = update_target();
+    let mut cmd = Command::new(&target);
     cmd.args(std::env::args_os().skip(1));
     #[cfg(unix)]
     let error = {
@@ -2785,7 +2996,7 @@ pub fn restart() -> String {
     };
     format!(
         "Could not start {}: {error}. Close the launcher and open it again.",
-        exe_path().display()
+        target.display()
     )
 }
 
@@ -2896,6 +3107,9 @@ pub enum Msg {
     PackDone(Result<Box<crate::modpacks::Imported>, String>),
     /// How many play Horizon now, or none when the server can't be reached (`telemetry`).
     Playing(Option<u64>),
+    /// How many play on the official server now, or none when it doesn't answer its status ping
+    /// (`telemetry::watch_official`).
+    OfficialPlayers(Option<u64>),
     /// Where the native-mods build is (`native_mods::Step::label`).
     NativeProgress(String),
     /// The native-mods build ended: the version built, or why not.
@@ -3077,11 +3291,11 @@ pub struct Settings {
     /// one now (the owner gate's screen).
     #[serde(default)]
     pub owner_notice_seen: bool,
-    /// Seconds the sidebar's partner banner has been on screen, over every start, up to
-    /// `partner::SEEN_BEFORE_HIDE`: only then can the player hide it.
+    /// Seconds a partner banner (the sidebar's card or the Servers page's banner) has been on
+    /// screen, over every start, up to `partner::SEEN_BEFORE_HIDE`: only then can the player hide it.
     #[serde(default)]
     pub partner_seen_secs: u64,
-    /// The player hid the sidebar's partner banner. The Servers page keeps its own.
+    /// The player hid a partner banner: the sidebar's card and the Servers page's banner are both gone for good.
     #[serde(default)]
     pub partner_hidden: bool,
     /// What the window does while the game runs. Stays by default.
@@ -3101,6 +3315,10 @@ pub struct Settings {
     /// Native mods are always on: an older file's `native_mods` switch is ignored.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_mods_noticed: bool,
+    /// Native builds compile with the release profile (`native_mods::Profile`) instead of `fast`:
+    /// slower to build, slightly faster game.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub native_release: bool,
     /// Developer options (hidden: seven clicks on the sidebar's launcher version reveal them):
     /// offline names play without an account that owns the game, in the window only
     /// (`account::Accounts::play_as_with`, `account::launch_for_game`). Never a download: the game still
@@ -3186,6 +3404,54 @@ mod java_tests;
 mod tests {
     use super::*;
     use std::cmp::Ordering::*;
+
+    /// A canonical path loses Windows' verbatim prefix on a drive (horizon-mixins' output
+    /// check stats `\\?\C:`, the volume itself, which Windows refuses, os error 1), and keeps
+    /// it where there is no drive form.
+    #[test]
+    fn a_canonical_windows_path_loses_only_a_drives_verbatim_prefix() {
+        let plain = |p: &str| plain(PathBuf::from(p));
+        assert_eq!(
+            plain(r"\\?\C:\Users\me\AppData\Roaming\horizon-launcher\native"),
+            PathBuf::from(r"C:\Users\me\AppData\Roaming\horizon-launcher\native")
+        );
+        // A share has no drive form to fall back to; other paths have no prefix.
+        assert_eq!(
+            plain(r"\\?\UNC\server\share\native"),
+            PathBuf::from(r"\\?\UNC\server\share\native")
+        );
+        assert_eq!(
+            plain("/home/me/.local/share/horizon-launcher/native"),
+            PathBuf::from("/home/me/.local/share/horizon-launcher/native")
+        );
+    }
+
+    /// [#5189](https://github.com/horizon-rust/horizon/issues/5189): MinGW-w64's tools can't
+    /// read a non-ASCII path, so the build root is the data folder's resolved ASCII spelling —
+    /// which a link's target or a short (8.3) name already is.
+    #[test]
+    fn the_build_dir_is_a_path_the_tools_can_read() {
+        assert!(ascii(Path::new(
+            r"C:\Users\me\AppData\Roaming\horizon-launcher"
+        )));
+        assert!(!ascii(Path::new(
+            r"C:\Users\Кириченко Павло\AppData\Roaming\horizon-launcher"
+        )));
+        assert!(!ascii(Path::new("/høme/me/horizon-launcher")));
+        let built = build_dir();
+        assert!(ascii(&built) || cfg!(windows), "{}", built.display());
+        // Resolved: the build never sees a link in the path (where the answer is the data
+        // folder itself, so already resolved — Windows' other spellings aren't its own).
+        if ascii(&built) {
+            assert_eq!(
+                built,
+                built
+                    .canonicalize()
+                    .map(plain)
+                    .unwrap_or_else(|_| built.clone())
+            );
+        }
+    }
 
     /// The game program's mod API level is its mark's; a program from before the mark (0.2.68
     /// and older) or none at all serves level 0.
@@ -3695,17 +3961,17 @@ pub fn {f}("
     #[test]
     fn the_accent_is_violet_unless_picked_and_an_unknown_one_keeps_the_rest() {
         use crate::themes::Accent;
-        assert_eq!(Settings::parse("{}").accent, Accent::Violet);
+        assert_eq!(Settings::parse("{}").accent, Accent::VIOLET);
         let teal =
             Settings::parse(r#"{"accent": "teal", "background": "background-0123456789ab.png"}"#);
         assert_eq!(
             (teal.accent, teal.background.as_deref()),
-            (Accent::Teal, Some("background-0123456789ab.png"))
+            (Accent::TEAL, Some("background-0123456789ab.png"))
         );
         let future = Settings::parse(r#"{"accent": "plaid", "game_args": "--x"}"#);
         assert_eq!(
             (future.accent, future.game_args.as_str()),
-            (Accent::Violet, "--x")
+            (Accent::VIOLET, "--x")
         );
     }
 
@@ -3841,6 +4107,57 @@ pub fn {f}("
         );
     }
 
+    /// A launcher in an AppImage updates with the AppImage's own file: the `.tar.gz` binary would
+    /// be written inside the AppImage's read-only mount.
+    #[test]
+    fn an_appimage_updates_with_the_appimage() {
+        assert_eq!(launcher_asset_running_from(false), LAUNCHER_ASSET);
+        assert_eq!(launcher_asset_running_from(true), LAUNCHER_APPIMAGE_ASSET);
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        assert_eq!(
+            launcher_asset_running_from(true),
+            Some("horizon-launcher-linux-x86_64.AppImage")
+        );
+    }
+
+    /// `$APPIMAGE` names the file the runtime mounted; a path that is not there (moved or deleted
+    /// since the launcher started) is no AppImage, and the launcher updates its own binary again.
+    /// Nor is one inherited from another AppImage's program: the binary has to run from `$APPDIR`.
+    #[test]
+    fn only_an_appimage_file_counts() {
+        use std::ffi::OsStr;
+        let mount = OsStr::new("/tmp/.mount_Horizon123");
+        let exe = Path::new("/tmp/.mount_Horizon123/usr/bin/horizon-launcher");
+        assert_eq!(appimage_path_in(None, Some(mount), exe), None);
+        assert_eq!(
+            appimage_path_in(Some(OsStr::new("Horizon.AppImage")), Some(mount), exe),
+            None,
+            "a relative path is no $APPIMAGE"
+        );
+        assert_eq!(
+            appimage_path_in(
+                Some(OsStr::new("/nonexistent/Horizon.AppImage")),
+                Some(mount),
+                exe
+            ),
+            None
+        );
+        let file = std::env::temp_dir().join(format!("horizon-appimage-{}", std::process::id()));
+        std::fs::write(&file, b"#!AppImage").unwrap();
+        assert_eq!(
+            appimage_path_in(Some(file.as_os_str()), Some(mount), exe),
+            Some(file.clone())
+        );
+        // Inherited from another AppImage: this launcher is installed elsewhere.
+        let elsewhere = Path::new("/home/a/.local/bin/horizon-launcher");
+        assert_eq!(
+            appimage_path_in(Some(file.as_os_str()), Some(mount), elsewhere),
+            None
+        );
+        assert_eq!(appimage_path_in(Some(file.as_os_str()), None, exe), None);
+        let _ = std::fs::remove_file(&file);
+    }
+
     #[test]
     fn game_0_2_follows_every_date_release() {
         assert_eq!(compare_versions("v0.2.0", "v2026.10.19.15"), Greater);
@@ -3896,7 +4213,9 @@ pub fn {f}("
 
     #[test]
     fn the_fallback_looks_for_0_2_launchers_first() {
-        let asset = LAUNCHER_ASSET.unwrap_or("unsupported");
+        // The asset the launcher reading this list installs with (the AppImage's own when it runs
+        // from one), as launcher_releases_in_with looks for it.
+        let asset = launcher_asset().unwrap_or("unsupported");
         let release = |tag: &str| serde_json::json!({"tag_name": tag, "assets": [{"name": asset, "browser_download_url": "u", "size": 1}]});
         let asked = std::cell::RefCell::new(Vec::new());
         let lookup = |with_new: bool| {
@@ -4090,14 +4409,11 @@ pub fn {f}("
     #[test]
     fn links_fall_back_to_the_built_in_ones() {
         let defaults = Links::default();
-        assert_eq!(defaults.discord, "https://discord.gg/HcTeMZxe5E");
+        assert_eq!(defaults.discord, "https://discord.gg/playhorizon");
         assert_eq!(defaults.sponsor, "https://github.com/sponsors/ludovic111");
         assert_eq!(defaults.website, "https://playhorizon.dev");
         // The file on main says the same thing as the defaults.
-        let file = Links::parse(
-            r#"{"discord": "https://discord.gg/HcTeMZxe5E", "sponsor": "https://github.com/sponsors/ludovic111", "website": "https://playhorizon.dev"}"#,
-        );
-        assert_eq!(file, defaults);
+        assert_eq!(Links::parse(include_str!("../links.json")), defaults);
         // Unreadable or missing, offline included: the defaults.
         assert_eq!(Links::parse(""), defaults);
         assert_eq!(Links::parse("<html>404</html>"), defaults);

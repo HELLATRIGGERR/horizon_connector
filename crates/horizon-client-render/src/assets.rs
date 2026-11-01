@@ -235,6 +235,9 @@ impl RenderAssets {
         for stage in 0..10 {
             sprites.insert(root, &format!("minecraft:block/destroy_stage_{stage}"))?;
         }
+        if draws {
+            crate::native_emissive::load(root, &mut sprites);
+        }
         sprites.save_disk_cache();
         if draws {
             sprites.finish();

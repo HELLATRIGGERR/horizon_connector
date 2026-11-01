@@ -155,6 +155,7 @@ enforce_whitelist = false
 view_distance = 10
 simulation_distance = 10
 max_view_distance = 0        # past view_distance, saved chunks only, up to this (0: off)
+admin_feedback_to_ops = true # operators see each other's commands ([name: ...]); false: only the log
 
 [world]
 name = "world"
@@ -193,6 +194,13 @@ start instead of being ignored. When the game changes a setting itself (`/whitel
 back into `server.toml` when it stops, and your comments are kept. Changes to the file apply at the next
 restart: there is no live reload yet.
 
+### Operators' commands: `admin_feedback_to_ops`
+
+On by default, as vanilla: when an operator runs a command that reports to admins (`/gamemode`, `/give`, `/tp`...),
+the other operators read `[name: ...]` in gray, and the console logs it. Players who aren't operators never see it
+either way. `false` keeps it to the console's log (`logs/latest.log`): nobody in game sees an operator's commands,
+while each operator still reads their own command's answer.
+
 ### Seeing further: `max_view_distance`
 
 Off by default (0), a Horizon setting with no vanilla equivalent. Past `view_distance`, up to
@@ -214,6 +222,22 @@ Already have a vanilla server? Run `horizon-server init` in its folder, or `hori
 server.properties` to write `server.toml` from it. The world, `ops.json`, `whitelist.json` and the ban lists
 keep vanilla's names and formats, so going back to vanilla works too.
 
+### Behind a Velocity proxy
+
+A network can put one Velocity proxy in front of several servers: the proxy signs the players in with their
+Microsoft accounts, and the servers behind it trust what it forwards. To run Horizon as one of them:
+
+1. Set `online_mode = false` in `server.toml` and keep the server's port reachable only from the proxy (bind it
+   to `127.0.0.1` or put it on a private network).
+2. Put the proxy's forwarding secret, the one in Velocity's `forwarding.secret`, into a file `forwarding.secret`
+   in the server folder, and set `player-info-forwarding-mode = "modern"` in `velocity.toml`.
+3. Restart the server. The log says `Velocity player information forwarding is on`.
+
+Players then join with the UUID, name, skin and address the proxy forwards. Anyone who connects without going
+through the proxy is refused, and so is a login signed with another secret. With the file in place but
+`online_mode = true` the file is ignored (with a warning), and an empty file stops the start, because an empty
+secret could be signed by anyone. How the exchange works: [velocity-forwarding.md](velocity-forwarding.md).
+
 ## 5. Commands
 
 ```text
@@ -223,6 +247,8 @@ horizon-server start | stop | restart    in the background (its output goes to l
 horizon-server status [--json]           up or not, TPS, MSPT, players, chunks, RAM, CPU
 horizon-server cmd COMMAND...            one console command, and what it answers
 horizon-server logs [-f] [-n N]          the log; -f follows it
+horizon-server console                   attach: the live log, TPS/players at the top, type commands; Ctrl-D detaches
+horizon-server mcp                       an MCP server on stdio, so an AI agent can run and moderate the server
 horizon-server report [SECONDS]          record a performance report (below)
 horizon-server op|deop NAME
 horizon-server whitelist on|off|list
@@ -324,8 +350,65 @@ token = "a long random string only the bot knows"
 ```
 
 The same rules as the panel's hold: a tailnet or loopback address, unless `allow_public = true` (the token is then
-all that guards the server, and it warns at every start). The API can't change `[engine]`, `[panel]` or `[api]`,
-nor turn on RCON or another remote console.
+all that guards the server, and it warns at every start). The API can't change `[engine]`, `[panel]`, `[api]` or
+`[discord]`, nor turn on RCON or another remote console.
+
+### Chat in a Discord channel
+
+`[discord]` posts the server's chat, joins, leaves and deaths to a Discord channel. In the channel's settings,
+Integrations → Webhooks → New Webhook → Copy Webhook URL, then:
+
+```toml
+[discord]
+webhook = "https://discord.com/api/webhooks/..."   # a secret: whoever has it can post in the channel
+events = ["chat", "join", "leave", "death"]        # and "kick"
+enabled = true                                     # false pauses it and keeps the webhook
+```
+
+The lines of each 2 seconds are drawn as one picture of the in-game chat (transparent, shadowed letters, colours
+included), and a channel gets at most one post every 2 seconds (more when Discord asks for it: a burst beyond 20
+lines is counted, not drawn). Only `chat` is forwarded, never a message the server's chat filter held back. Posts
+never ping: they allow no mention, and an `@everyone` typed in game reaches Discord defused. Every post comes
+from the webhook's own name and avatar (set them in Discord), never a player's; players' addresses are never sent,
+and a player is always named by their account's name (a nickname only next to it). The server only makes outgoing HTTPS calls to Discord;
+the API and the panel show the webhook as `(set)`. The letters are Pixelify Sans (SIL Open Font License,
+`crates/horizon-theme/fonts`), not Minecraft's font.
+
+### Tools written for vanilla's management protocol
+
+Vanilla 26.3 has its own management protocol, JSON-RPC over a WebSocket, and Horizon's server speaks it too, so a
+tool written for a vanilla server manages a Horizon one. It's off by default; turn it on in `server.toml`:
+
+```toml
+[properties]
+management-server-enabled = true
+management-server-port = 8132          # 0: a free port, logged at the start
+# management-server-secret: 40 letters and digits; left out, the server makes one and writes it here
+# management-server-tls-keystore = "management.p12"   # your certificate (PKCS12); left out, see below
+# management-server-tls-keystore-password = "..."     # or MINECRAFT_MANAGEMENT_TLS_KEYSTORE_PASSWORD
+```
+
+It listens on `localhost` (`management-server-host`). A client sends the secret as `Authorization: Bearer <secret>`,
+or, from a browser, in the WebSocket subprotocol (`minecraft-v1,<secret>`) from an origin listed in
+`management-server-allowed-origins`. `rpc.discover` lists the methods; Horizon answers more of them with each release
+([api/server.md](api/server.md#not-there-yet)).
+
+TLS is on, as in vanilla (`wss://`). The certificate and its key come from a PKCS12 keystore, as vanilla's do:
+
+- `keytool -genkeypair -storetype PKCS12 ...` makes one, or `openssl pkcs12 -export` turns a PEM certificate and
+  key into one.
+- Its password comes from the `MINECRAFT_MANAGEMENT_TLS_KEYSTORE_PASSWORD` variable, else from
+  `management-server-tls-keystore-password`.
+
+Where vanilla refuses to start without a keystore, Horizon makes one:
+
+- a self-signed certificate for `localhost`, `127.0.0.1` and `management-server-host`, saved in
+  `.horizon/management-keystore.p12`, which only the server's user can read;
+- its path and password are written to `[properties]`;
+- each start logs the certificate's SHA-256 fingerprint, which a client pins or adds to its trusted certificates.
+
+Keep the protocol on `localhost` or your tailnet even so. `management-server-tls-enabled = false` turns TLS off.
+As in vanilla, a wrong secret or keystore stops the server from starting.
 
 ## 7. Backups
 

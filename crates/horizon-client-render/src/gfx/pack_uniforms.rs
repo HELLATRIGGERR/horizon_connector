@@ -30,6 +30,8 @@ pub struct PackInputs {
     pub biome_precipitation: i32,
     pub temperature: f32,
     pub rainfall: f32,
+    /// Whether the biome at the camera is known (its chunk is loaded).
+    pub biome_known: bool,
     /// `heldItemId`, `heldItemId2` (item.properties, 5.3) and `heldBlockLightValue(2)`.
     pub held_items: [i32; 2],
     pub held_light: [i32; 2],
@@ -160,6 +162,15 @@ pub const NAMES: &[&str] = &[
     "shadowModelViewInverse",
     "shadowProjection",
     "shadowProjectionInverse",
+    "cameraPositionInt",
+    "cameraPositionFract",
+    "previousCameraPositionInt",
+    "previousCameraPositionFract",
+    "eyePosition",
+    "relativeEyePosition",
+    "playerLookVector",
+    "playerBodyVector",
+    "firstPersonCamera",
 ];
 
 /// Values carried from frame to frame.
@@ -170,7 +181,7 @@ pub struct FrameUniforms {
     start: std::time::Instant,
     last: Option<std::time::Instant>,
     frame: u32,
-    previous: Option<(Vec3, Mat4, Mat4)>,
+    previous: Option<(glam::DVec3, Mat4, Mat4)>,
     wetness: f32,
     eye_smooth: [f32; 2],
     /// The pack's shadow settings (7.1).
@@ -282,19 +293,33 @@ impl FrameUniforms {
         let dt = self.last.map_or(0.0, |l| (now - l).as_secs_f32());
         self.last = Some(now);
         let aspect = size[0] as f32 / size[1].max(1) as f32;
-        let view = crate::camera::view_matrix(frame.yaw, frame.pitch);
+        // Packs take gbufferProjection for a plain perspective (they invert only its perspective
+        // terms): the view bob and the nausea spin belong to the model-view, as GL drew them.
+        let view = frame.bob * frame.spin * crate::camera::view_matrix(frame.yaw, frame.pitch);
         let projection = Mat4::perspective_rh_gl(
             frame.fov_degrees.to_radians(),
             aspect,
             0.05,
             frame.depth_far,
-        ) * frame.bob
-            * frame.spin;
+        );
         let camera = frame.camera.as_vec3();
-        let (previous_camera, previous_view, previous_projection) =
+        let (previous_exact, previous_view, previous_projection) =
             self.previous
-                .unwrap_or((Vec3::ZERO, Mat4::ZERO, Mat4::ZERO));
-        self.previous = Some((camera, view, projection));
+                .unwrap_or((glam::DVec3::ZERO, Mat4::ZERO, Mat4::ZERO));
+        let previous_camera = previous_exact.as_vec3();
+        self.previous = Some((frame.camera, view, projection));
+        // The camera's whole blocks and the rest, exact however far from the origin.
+        let whole = |p: glam::DVec3| p.floor();
+        let int = |p: glam::DVec3| Value::i(&whole(p).as_ivec3().to_array());
+        let fract = |p: glam::DVec3| Value::f(&(p - whole(p)).as_vec3().to_array());
+        // The player's, not the camera's: in a third-person view the camera is behind (or in
+        // front of, turned around) the eye the pack lights from.
+        let [yaw, pitch] = frame.eye_rotation.map(f32::to_radians);
+        let look = Vec3::new(
+            -yaw.sin() * pitch.cos(),
+            -pitch.sin(),
+            yaw.cos() * pitch.cos(),
+        );
 
         let to_view = |v: Vec3| view.transform_vector3(v);
         let sun_angle = (frame.sky.sun_angle / 360.0 + 0.25).rem_euclid(1.0);
@@ -339,6 +364,15 @@ impl FrameUniforms {
             match name {
                 "cameraPosition" => v3(camera),
                 "previousCameraPosition" => v3(previous_camera),
+                "cameraPositionInt" => int(frame.camera),
+                "cameraPositionFract" => fract(frame.camera),
+                "previousCameraPositionInt" => int(previous_exact),
+                "previousCameraPositionFract" => fract(previous_exact),
+                // The camera is the eye in first person.
+                "eyePosition" => v3(frame.eye.as_vec3()),
+                "relativeEyePosition" => v3((frame.camera - frame.eye).as_vec3()),
+                "playerLookVector" | "playerBodyVector" => v3(look),
+                "firstPersonCamera" => Value::i(&[i32::from(frame.first_person)]),
                 "eyeAltitude" => Value::f(&[frame.camera.y as f32]),
                 "upPosition" => v3(to_view(Vec3::new(0.0, 100.0, 0.0))),
                 "sunPosition" => v3(sun),
@@ -450,6 +484,14 @@ fn components(name: &str) -> usize {
     match name {
         "cameraPosition"
         | "previousCameraPosition"
+        | "cameraPositionInt"
+        | "cameraPositionFract"
+        | "previousCameraPositionInt"
+        | "previousCameraPositionFract"
+        | "eyePosition"
+        | "relativeEyePosition"
+        | "playerLookVector"
+        | "playerBodyVector"
         | "upPosition"
         | "sunPosition"
         | "moonPosition"

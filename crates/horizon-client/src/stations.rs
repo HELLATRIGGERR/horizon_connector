@@ -30,7 +30,7 @@ impl StationData {
             enchantments: std::sync::Arc::clone(&items.enchantments),
             recipes: StationRecipes::load(root, items, overlay),
             brewing: crate::brewing::Brewing::load(root, items, overlay),
-            trades: crate::merchant::Trades::load(root),
+            trades: crate::merchant::Trades::load(root, overlay),
             banners: crate::banner::Banners::load(root),
             recipe_index: crate::recipe_book::RecipeIndex::load(root, overlay),
         }
@@ -513,21 +513,20 @@ impl StationRecipes {
         let mut files = Vec::new();
         let namespaces =
             std::iter::once("minecraft".to_owned()).chain(crate::mod_content::namespaces(root));
-        fn collect(base:&Path,dir:&Path,out:&mut Vec<(String,std::path::PathBuf)>,namespace:&str) {
-            let mut paths:Vec<_>=fs::read_dir(dir).into_iter().flatten().flatten().map(|e|e.path()).collect();paths.sort();
-            for path in paths {if path.is_dir(){collect(base,&path,out,namespace);}else if path.extension().is_some_and(|e|e=="json") {
-                if let Ok(relative)=path.strip_prefix(base) {let mut id=relative.with_extension("").to_string_lossy().replace('\\',"/");id.insert_str(0,":");id.insert_str(0,namespace);out.push((id,path));}
-            }}
-        }
         for namespace in namespaces {
-            let base=root.join(format!("data/{namespace}/recipe"));collect(&base,&base,&mut files,&namespace);
+            let dir = root.join(format!("data/{namespace}/recipe"));
+            let more = crate::crafting::recipe_files(&dir).unwrap_or_default();
+            files.extend(
+                more.into_iter()
+                    .map(|(name, p)| (namespace.clone(), name, p)),
+            );
         }
         let mut sources: Vec<(String, Value)> = files
             .iter()
-            .filter_map(|(id, p)| {
+            .filter_map(|(namespace, name, p)| {
                 let bytes = fs::read(p).ok()?;
                 let v = serde_json::from_slice::<Value>(&bytes).ok()?;
-                Some((id.clone(), v))
+                Some((format!("{namespace}:{name}"), v))
             })
             .collect();
         // The world's packs' recipes over the game's own: the top pack's
@@ -550,8 +549,7 @@ impl StationRecipes {
                     template: ingredient(&v["template"], items),
                     base: ingredient(&v["base"], items),
                     addition: ingredient(&v["addition"], items),
-                    result: v["result"]["id"]
-                        .as_str()
+                    result: horizon_world::loot::recipe_result_id(&v["result"])
                         .unwrap_or("minecraft:air")
                         .to_owned(),
                 }),
@@ -569,7 +567,8 @@ impl StationRecipes {
                             id,
                             input: ingredient(&v["ingredient"], items),
                             result: ItemStack::new(
-                                v["result"]["id"].as_str().unwrap_or("minecraft:air"),
+                                horizon_world::loot::recipe_result_id(&v["result"])
+                                    .unwrap_or("minecraft:air"),
                                 count,
                             ),
                         });

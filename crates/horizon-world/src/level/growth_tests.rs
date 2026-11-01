@@ -1,5 +1,6 @@
-//! Sapling growth and bone meal through live feature placement. Needs the
-//! prepared client resources and worldgen bundle (skipped when absent).
+//! Sapling growth, bone meal and templates through live feature placement.
+//! Needs the prepared client resources and worldgen bundle (skipped when
+//! absent).
 use super::*;
 use crate::{chunk::BlockState, worldgen::generator::GeneratorData, worldgen::live::LiveFeatures};
 use std::{
@@ -432,6 +433,77 @@ fn snowy_biomes_freeze_and_snow() {
 }
 
 #[test]
+fn a_template_with_entities_and_no_blocks_places_them() {
+    use crate::{
+        nbt::{Compound, JavaString, Tag},
+        worldgen::structure::{EntityInfo, Mirror, Rotation, StructureTemplate, save_nbt},
+    };
+    let Some(f) = fixture() else { return };
+    let resources = f
+        .behaviours
+        .live_features()
+        .and_then(|features| features.structure_resources())
+        .expect("structure resources");
+    let mut pig = Compound::new();
+    pig.insert("id".into(), Tag::String("minecraft:pig".into()));
+    let pig = EntityInfo {
+        pos: [0.5, 0.0, 0.5],
+        block_pos: [0, 0, 0],
+        nbt: pig,
+    };
+    // StructureTemplate.placeInWorld places when there are blocks, or entities
+    // it does not ignore.
+    for (entities, ignore_entities, expected) in [
+        (vec![pig.clone()], false, true),
+        (vec![pig], true, false),
+        (vec![], false, false),
+    ] {
+        let mut w = World::new(f, 0);
+        let tag = save_nbt(
+            f.registry,
+            &resources.transforms,
+            [1, 1, 1],
+            Vec::new(),
+            &entities,
+            horizon_core::version::DATA_VERSION,
+        );
+        let template = StructureTemplate::from_nbt(&tag, f.registry, &resources.transforms);
+        let settings = TemplateSettings {
+            mirror: Mirror::None,
+            rotation: Rotation::None,
+            ignore_entities,
+            known_shape: false,
+            integrity: 1.0,
+            seed: 0,
+            flags: flags::UPDATE_CLIENTS,
+        };
+        let (placed, spawned) = f
+            .behaviours
+            .place_template(
+                &mut w.level,
+                &mut w.ticks,
+                &template,
+                BlockPos::new(3, 64, -2),
+                settings,
+            )
+            .expect("structure resources");
+        let what = format!("{} entities, ignored {ignore_entities}", entities.len());
+        assert_eq!(placed, expected, "{what}");
+        assert_eq!(spawned.len(), usize::from(expected), "{what}");
+        if let Some(nbt) = spawned.first() {
+            assert_eq!(
+                nbt.get(&JavaString::from("id")),
+                Some(&Tag::String("minecraft:pig".into()))
+            );
+            let pos = [3.5, 64.0, -1.5].map(|v: f64| Tag::Double(v.to_bits()));
+            assert_eq!(
+                nbt.get(&JavaString::from("Pos")),
+                Some(&Tag::List(pos.to_vec()))
+            );
+        }
+    }
+}
+#[test]
 fn eyeblossoms_open_at_night_and_wake_neighbours() {
     let Some(f) = fixture() else { return };
     let mut w = World::new(f, 2);
@@ -507,4 +579,76 @@ fn sniffer_eggs_crack_twice_then_hatch_a_snifflet() {
             ..
         }
     )));
+}
+#[test]
+fn a_non_strict_template_updates_its_shapes_and_neighbours() {
+    use crate::worldgen::structure::{BlockInfo, Mirror, Rotation, StructureTemplate, save_nbt};
+    let Some(f) = fixture() else { return };
+    let resources = f
+        .behaviours
+        .live_features()
+        .and_then(|features| features.structure_resources())
+        .expect("structure resources");
+    for strict in [false, true] {
+        let mut w = World::new(f, 0);
+        let fence = w.id("oak_fence", &[]);
+        let power = w.id("redstone_block", &[]);
+        let block = |pos: [i32; 3], state: BlockStateId| BlockInfo {
+            pos,
+            state,
+            nbt: None,
+        };
+        let blocks = vec![
+            block([0, 0, 0], fence),
+            block([1, 0, 0], fence),
+            block([2, 0, 0], power),
+        ];
+        let tag = save_nbt(
+            f.registry,
+            &resources.transforms,
+            [3, 1, 1],
+            blocks,
+            &[],
+            horizon_core::version::DATA_VERSION,
+        );
+        let template = StructureTemplate::from_nbt(&tag, f.registry, &resources.transforms);
+        let lamp = w.id("redstone_lamp", &[("lit", "false")]);
+        w.put(BlockPos::new(3, 64, 0), lamp);
+        let settings = TemplateSettings {
+            mirror: Mirror::None,
+            rotation: Rotation::None,
+            ignore_entities: true,
+            known_shape: strict,
+            integrity: 1.0,
+            seed: 0,
+            // StructureBlockEntity.placeStructure's `2 | (strict ? 816 : 0)`.
+            flags: flags::UPDATE_CLIENTS | if strict { 816 } else { 0 },
+        };
+        let (placed, _) = f
+            .behaviours
+            .place_template(
+                &mut w.level,
+                &mut w.ticks,
+                &template,
+                BlockPos::new(0, 64, 0),
+                settings,
+            )
+            .expect("structure resources");
+        assert!(placed);
+        // The middle fence: placing the redstone block connects its east side,
+        // only the shape pass connects its west side to the fence placed before
+        // it.
+        let connected = w.id("oak_fence", &[("east", "true"), ("west", "true")]);
+        let lit = w.id("redstone_lamp", &[("lit", "true")]);
+        assert_eq!(
+            w.level.block_state(BlockPos::new(1, 64, 0)) == connected,
+            !strict,
+            "strict {strict}: the middle fence connects to the fence placed before it"
+        );
+        assert_eq!(
+            w.level.block_state(BlockPos::new(3, 64, 0)) == lit,
+            !strict,
+            "strict {strict}: the lamp next to the template lights"
+        );
+    }
 }

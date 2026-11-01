@@ -131,6 +131,7 @@ pub struct Guest {
     /// The bed (its head) the player sleeps in (`LivingEntity.getSleepingPos`),
     /// `Player.sleepCounter`, and the bed last told to the player itself.
     pub bed: Option<[i32; 3]>,
+    pub woke_from: Option<[i32; 3]>,
     pub sleep_timer: u32,
     pub sent_bed: Option<[i32; 3]>,
     /// Where the player respawns (a bed's spot; `ServerPlayer.respawnConfig`),
@@ -357,6 +358,7 @@ impl Guest {
             stuck: (0, 0),
             shoulders: [None; 2],
             bed: None,
+            woke_from: None,
             sleep_timer: 0,
             sent_bed: None,
             spawn: None,
@@ -467,9 +469,21 @@ impl Guest {
                 Some(k) => Change::Knockback(k),
                 None => return,
             },
-            C::UpdateAttributes(p) if own(p.id) => Change::State,
-            C::UpdateMobEffect(p) if own(p.id) => Change::State,
-            C::RemoveMobEffect(p) if own(p.id) => Change::State,
+            C::UpdateAttributes(p) if own(p.id) => {
+                let speed = self.motion.as_ref().and_then(|m| {
+                    m.attributes
+                        .key("minecraft:movement_speed")
+                        .map(|k| k.attribute().registry_id())
+                });
+                let sprint = p
+                    .values
+                    .iter()
+                    .find(|a| Some(a.attribute) == speed)
+                    .map(|a| a.modifiers.iter().any(|m| m.id == "minecraft:sprinting"));
+                Change::Attributes { sprint }
+            }
+            C::UpdateMobEffect(p) if own(p.id) => Change::Effects,
+            C::RemoveMobEffect(p) if own(p.id) => Change::Effects,
             C::PlayerAbilities(_) => Change::Abilities,
             // The chest slot (InventoryMenu's slot 6): a glider.
             C::ContainerSetSlot(p) if p.container == 0 && p.slot == 6 => Change::Abilities,
@@ -780,6 +794,8 @@ fn network_stack(
     if let Some(d) = s.data() {
         // CUSTOM_DATA is an NBT compound on the wire. It may contain storage
         // cells' real contents; omitting it silently changes item identity.
+        // Other mods and item models read it back client-side too
+        // (`item_model.rs`'s `custom_data_at`), as vanilla's DataComponentPatch does.
         let mut custom_data = d.other("minecraft:custom_data").cloned();
         // Horizon peers exchange a collision-safe copy of the complete
         // persistent component patch, in addition to the usual vanilla codecs.
@@ -837,6 +853,25 @@ fn network_stack(
                 horizon_protocol::item::component::LORE,
                 horizon_protocol::item::Component::Lore(lines.clone()),
             ));
+        }
+        for (name, value) in &d.other {
+            let (removed, kind) = match name.strip_prefix('!') {
+                Some(kind) => (true, kind),
+                None => (false, name.as_str()),
+            };
+            if horizon_protocol::item::custom::id(kind).is_some() {
+                if let Some(id) = synced_id("minecraft:data_component_type", kind) {
+                    if removed {
+                        stack.removed.push(id);
+                    } else {
+                        stack
+                            .added
+                            .push((id, horizon_protocol::item::Component::Nbt(value.clone())));
+                    }
+                } else {
+                    log::warn!("Cannot send custom component {kind} to this peer");
+                }
+            }
         }
         if let Some(rgb) = d.dyed_color {
             stack.added.push((
@@ -1107,7 +1142,69 @@ fn network_stack(
             horizon_protocol::item::Component::Text(name.clone()),
         ));
     }
+    // The model a pack or mod picks for this stack, which the client's item model reads.
+    if let Some(model) = s
+        .data()
+        .and_then(|d| crate::save::text(d.other("minecraft:item_model")))
+    {
+        stack.added.push((
+            horizon_protocol::item::component::ITEM_MODEL,
+            horizon_protocol::item::Component::Ident(model),
+        ));
+    }
+    if let Some(t) = s
+        .data()
+        .and_then(|d| d.other("minecraft:custom_model_data"))
+    {
+        stack.added.push((
+            horizon_protocol::item::component::CUSTOM_MODEL_DATA,
+            custom_model_data(t),
+        ));
+    }
     Some(stack)
+}
+
+/// `CustomModelData.CODEC` read from its saved form, for its stream codec.
+fn custom_model_data(t: &horizon_world::nbt::Tag) -> horizon_protocol::item::Component {
+    use horizon_world::nbt::Tag;
+    // NbtOps writes a list of ints or bytes as an int or byte array.
+    let entries = |key: &str| -> Vec<Tag> {
+        match t.get(key) {
+            Some(Tag::List(l)) => l.clone(),
+            Some(Tag::IntArray(a)) => a.iter().map(|v| Tag::Int(*v)).collect(),
+            Some(Tag::ByteArray(a)) => a.iter().map(|v| Tag::Byte(*v as i8)).collect(),
+            _ => Vec::new(),
+        }
+    };
+    // `ARGB.as8BitChannel`.
+    let channel = |v: f64| ((v as f32) * 255.0).floor() as i32 & 255;
+    horizon_protocol::item::Component::CustomModelData {
+        floats: entries("floats")
+            .iter()
+            .filter_map(|v| crate::save::float(Some(v)))
+            .map(|v| v as f32)
+            .collect(),
+        flags: entries("flags")
+            .iter()
+            .filter_map(|v| crate::save::number(Some(v)))
+            .map(|v| v != 0)
+            .collect(),
+        strings: entries("strings")
+            .iter()
+            .filter_map(|v| crate::save::text(Some(v)))
+            .collect(),
+        // `ExtraCodecs.RGB_COLOR_CODEC`: an int, or an opaque colour from three floats.
+        colors: entries("colors")
+            .iter()
+            .filter_map(|v| match v {
+                Tag::List(rgb) if rgb.len() == 3 => {
+                    let c = |i: usize| crate::save::float(rgb.get(i)).map(channel);
+                    Some(0xFF << 24 | c(0)? << 16 | c(1)? << 8 | c(2)?)
+                }
+                v => crate::save::number(Some(v)).map(|v| v as i32),
+            })
+            .collect(),
+    }
 }
 
 /// `Player.isWithinBlockInteractionRange`: `eye` closer than `range` to the

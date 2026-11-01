@@ -376,7 +376,7 @@ fn shade_sky(column: &mut Column, states: &GenBlockStates) {
         }
     }
     shaded.reverse();
-    column.spans = shaded;
+    column.spans = shaded.into();
 }
 
 /// A whole tile inside visited chunks needs no density work at all. This
@@ -569,7 +569,7 @@ impl VanillaLodSampler {
         let registry = self.generator.generator.data().registry();
         let mut column = Column {
             surface,
-            spans: Vec::new(),
+            spans: crate::lod::Spans::new(),
         };
         for (min, max, state) in spans.into_iter().rev() {
             column.push(Span {

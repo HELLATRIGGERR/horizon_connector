@@ -6,11 +6,18 @@ mod api;
 mod backup;
 mod cli;
 mod config;
+mod console;
+mod discord;
 mod engine;
 mod events;
 mod http;
 mod init;
 mod lists;
+mod management;
+mod management_methods;
+mod management_schema;
+mod management_tls;
+mod mcp;
 mod panel;
 mod process;
 #[cfg(test)]
@@ -20,6 +27,7 @@ mod settings;
 mod signals;
 mod supervisor;
 mod update;
+mod websocket;
 
 use std::{path::PathBuf, process::ExitCode};
 
@@ -51,6 +59,10 @@ Usage: horizon-server [--dir DIR] <command>
               entities, chunks, network, memory; saved in reports/ (JSON and text, no player data)
   logs [-f] [-n N]
               The last N lines of the log (default 50); -f follows it
+  console     Attach to the running server: its log as it happens, TPS, MSPT, players and RAM at the
+              top, and a command line for console commands; Ctrl-D detaches
+  mcp         An MCP server on stdin and stdout, for an AI agent to run and moderate the server
+              (players, kick, ban, whitelist, logs, events, backups, settings, restart...)
   backup [NAME]
               Zip the world and the settings into backups/ (a running server saves first and stays up)
   backups [--json]
@@ -117,6 +129,8 @@ fn main() -> ExitCode {
         Some("cmd") => cli::command(&dir, &args[1..]),
         Some("report") => cli::report(&dir, &args[1..]),
         Some("logs") => logs(&dir, &args[1..]),
+        Some("console") => console::run(&dir),
+        Some("mcp") => mcp::serve(&dir),
         Some("panel") => cli::panel(&dir),
         Some("backup") => cli::backup(&dir, args.get(1).map(String::as_str)),
         Some("backups") => cli::backups(&dir, args[1..].iter().any(|a| a == "--json")),

@@ -194,6 +194,11 @@ struct Launcher {
     /// Native mods (`native_mods`, on the Mods page): the build's step while it runs, why it
     /// failed, and the warning before a build while it is open, with the mods it names.
     native_step: Option<String>,
+    /// When the running native build started, and the whole seconds last drawn (the status shows
+    /// the time it has taken).
+    native_started: Option<(Instant, u64)>,
+    /// How the last native build ended ("Built in 42 s (fast, incremental)", or "Up to date").
+    native_done: Option<String>,
     native_error: Option<String>,
     native_confirm: Option<Result<Vec<native_mods::Bundle>, String>>,
     /// The instance (id) the build under way, or the last one's error, is for.
@@ -210,6 +215,11 @@ struct Launcher {
     native_mismatch: Option<String>,
     confirm_remove: Option<String>,
     picker_open: bool,
+    /// Where the accent picker's hue strip is on screen (`themes_page.rs`), to map a click to a
+    /// hue.
+    hue_area: std::rc::Rc<std::cell::Cell<Option<Bounds<gpui::Pixels>>>>,
+    /// A drag on that strip is in flight, so a release anywhere writes the accent down.
+    hue_dragging: bool,
     /// Settings > Language's dropdown (`language_page.rs`).
     language_menu: bool,
     /// The top bar's quick switch of who plays (`switch_page.rs`).
@@ -286,6 +296,8 @@ struct Launcher {
     agents: agents_page::AgentsUi,
     /// How many play Horizon now, while the server answers ("N playing now" on the Play page).
     playing: Option<u64>,
+    /// How many play on the official server now, while it answers ("M on the official SMP").
+    official_players: Option<u64>,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     _appearance: Subscription,
@@ -366,7 +378,7 @@ impl Launcher {
             }
         })
         .detach();
-        // Counts the time the sidebar's partner banner is on screen, until it may be hidden.
+        // Counts the time a partner banner is on screen, until it may be hidden.
         cx.spawn(async move |this, cx| loop {
             cx.background_executor()
                 .timer(Duration::from_secs(10))
@@ -376,14 +388,12 @@ impl Launcher {
                 if s.partner_hidden || s.partner_seen_secs >= partner::SEEN_BEFORE_HIDE {
                     return false;
                 }
-                if this.page != Page::Servers {
-                    s.partner_seen_secs += 10;
-                    if s.partner_seen_secs % 60 == 0
-                        || s.partner_seen_secs >= partner::SEEN_BEFORE_HIDE
-                    {
-                        s.save();
-                        cx.notify();
-                    }
+                // On screen on every page: the card in the sidebar, the banner on Servers.
+                s.partner_seen_secs += 10;
+                if s.partner_seen_secs % 60 == 0 || s.partner_seen_secs >= partner::SEEN_BEFORE_HIDE
+                {
+                    s.save();
+                    cx.notify();
                 }
                 true
             });
@@ -449,6 +459,8 @@ impl Launcher {
             disk_for: Vec::new(),
             install_error: None,
             native_step: None,
+            native_started: None,
+            native_done: None,
             native_error: None,
             native_confirm: None,
             native_for: None,
@@ -457,6 +469,8 @@ impl Launcher {
             native_mismatch: None,
             confirm_remove: None,
             picker_open: false,
+            hue_area: std::rc::Rc::new(std::cell::Cell::new(None)),
+            hue_dragging: false,
             language_menu: false,
             account_menu: false,
             menu_closed_at: None,
@@ -505,6 +519,7 @@ impl Launcher {
             collection: collection::Collection::load(),
             agents: agents_page::AgentsUi::default(),
             playing: None,
+            official_players: None,
             tx,
             rx,
             _appearance: appearance,
@@ -583,6 +598,7 @@ impl Launcher {
         // What the game and the launcher kept, if the player allows it and there is a server.
         telemetry::send_in_background();
         telemetry::watch_playing(this.tx.clone());
+        telemetry::watch_official(this.tx.clone());
         this
     }
 
@@ -704,9 +720,12 @@ impl Launcher {
             }
         };
         self.native_step = Some(tr("Starting the build").into());
+        self.native_started = Some((Instant::now(), 0));
+        self.native_done = None;
+        let profile = native_mods::Profile::from_setting(self.settings.native_release);
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let result = native_mods::build(&base, &folder, &instance, anyway, |step| {
+            let result = native_mods::build(&base, &folder, &instance, anyway, profile, |step| {
                 let _ = tx.send(Msg::NativeProgress(step.label()));
             });
             let _ = tx.send(Msg::Native(result));
@@ -754,6 +773,13 @@ impl Launcher {
             Some(perf::Step::Quit) => cx.quit(),
             Some(perf::Step::Wait) | None => {}
         }
+        // The running build's clock moves on each second.
+        if let Some((started, shown)) = &mut self.native_started {
+            if started.elapsed().as_secs() != *shown {
+                *shown = started.elapsed().as_secs();
+                changed = true;
+            }
+        }
         while let Ok(msg) = self.rx.try_recv() {
             changed = true;
             match msg {
@@ -763,12 +789,18 @@ impl Launcher {
                     }
                     self.releases = r.map_or_else(Load::Failed, Load::Ready)
                 }
-                Msg::Links(links) => self.links = links,
+                Msg::Links(links) => {
+                    // The official server may have moved: its list entry and its count follow.
+                    self.multiplayer.stale();
+                    telemetry::set_official_server(&links.official_server);
+                    self.links = links;
+                }
                 // The page reads is_prepared when drawn; `changed` redraws it.
                 Msg::Reused(_) => self.installed = backend::installed(),
                 Msg::Keychain(said) => self.keychain = said,
                 Msg::Owner(owns) => self.owner = Some(owns),
                 Msg::Playing(playing) => self.playing = playing,
+                Msg::OfficialPlayers(players) => self.official_players = players,
                 Msg::JavaGame(id, home, cmd) => {
                     self.starting_client = None;
                     let spawned = cmd.and_then(|(cmd, vars)| {
@@ -941,7 +973,10 @@ impl Launcher {
                 Msg::Updates(Err(e)) => self.update_error = Some(e),
                 Msg::NativeProgress(step) => self.native_step = Some(step),
                 Msg::Native(result) => {
-                    self.native_step = None;
+                    // The last step of a build that worked says how it went.
+                    let last = self.native_step.take();
+                    self.native_started = None;
+                    self.native_done = result.is_ok().then_some(last).flatten();
                     self.installed = backend::installed();
                     self.reload_instances();
                     match result.map_err(|e| match e.strip_prefix(native_mods::MISMATCH) {
@@ -2239,24 +2274,14 @@ impl Launcher {
                 &t,
             ));
             if self.settings.partner_seen_secs >= partner::SEEN_BEFORE_HIDE {
-                let hide = div()
-                    .id("partner-hide")
-                    .absolute()
-                    .top(px(0.))
-                    .right(px(0.))
-                    .cursor_pointer()
-                    .child(
-                        text(theme::MICRO)
-                            .text_color(t.muted)
-                            .hover(move |s| s.text_color(t.ink))
-                            .child(tr("HIDE")),
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                let hide = partner::hide_button("partner-hide", &t).on_click(cx.listener(
+                    |this, _: &ClickEvent, _, cx| {
                         this.settings.partner_hidden = true;
                         this.settings.save();
                         cx.notify();
-                    }));
-                side = side.child(keyboard(hide, &t));
+                    },
+                ));
+                side = side.child(hide);
             }
             foot = foot.child(side);
         }
@@ -3271,7 +3296,7 @@ impl Launcher {
                 focused,
                 false,
                 false,
-                "For example --server-thread",
+                tr("For example --server-thread"),
             ))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 window.focus(&this.args_focus);
@@ -3293,10 +3318,10 @@ impl Launcher {
         let field = line_edit::mouse(field, cx, |this| &mut this.args_input);
         index_row(
             n,
-            "Game arguments",
+            tr("Game arguments"),
             Some(
                 div()
-                    .child("Extra arguments for the game, passed through as-is (quotes group a word with spaces). Applies the next time the game starts.")
+                    .child(tr("Extra arguments for the game, passed through as-is (quotes group a word with spaces). Applies the next time the game starts."))
                     .into_any_element(),
             ),
             Some(field.into_any_element()),
@@ -3330,7 +3355,7 @@ impl Launcher {
                 focused,
                 false,
                 false,
-                "For example http://127.0.0.1:7890",
+                tr("For example http://127.0.0.1:7890"),
             ))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 window.focus(&this.proxy_focus);
@@ -3354,14 +3379,20 @@ impl Launcher {
         ) {
             (false, Some(why)) => div().text_color(t.danger).child(why).into_any_element(),
             _ => div()
-                .child(
+                .child(tr(
                     "Downloads, sign-ins and updates go through this HTTP proxy \
                      (http://host:port). Empty means none: HTTPS_PROXY is used instead when the \
                      launcher was started with one.",
-                )
+                ))
                 .into_any_element(),
         };
-        index_row(n, "Proxy", Some(detail), Some(field.into_any_element()), &t)
+        index_row(
+            n,
+            tr("Proxy"),
+            Some(detail),
+            Some(field.into_any_element()),
+            &t,
+        )
     }
 
     /// Keeps the Proxy field in `settings.json`, and tells the parts that build their own agents
@@ -3603,7 +3634,7 @@ impl Launcher {
                 ))
             }));
         let releases = match &self.releases {
-            Load::Loading => return page.child(centered("Loading releases…", &t)),
+            Load::Loading => return page.child(centered(tr("Loading releases…"), &t)),
             Load::Failed(e) => {
                 return page.child(centered(&format!("Couldn't load releases. {e}"), &t).child(
                     button("retry", "Try again", Kind::Secondary, &t).on_click(cx.listener(
@@ -3614,7 +3645,9 @@ impl Launcher {
                     )),
                 ))
             }
-            Load::Ready(r) if r.is_empty() => return page.child(centered("No releases yet.", &t)),
+            Load::Ready(r) if r.is_empty() => {
+                return page.child(centered(tr("No releases yet."), &t))
+            }
             Load::Ready(r) => r,
         };
         // A hundred releases: only the rows near the screen are drawn.
@@ -3736,9 +3769,9 @@ impl Launcher {
                     b.into_any_element()
                 };
                 let status = if selected {
-                    Some(caps("In use").text_color(t.accent))
+                    Some(caps(tr("In use")).text_color(t.accent))
                 } else if installed {
-                    Some(caps("Installed").text_color(t.ink_soft))
+                    Some(caps(tr("Installed")).text_color(t.ink_soft))
                 } else {
                     None
                 };
@@ -3826,11 +3859,11 @@ impl Launcher {
                         .child(
                             text(theme::HEADING)
                                 .text_color(t.ink)
-                                .child("Support the work below"),
+                                .child(tr("Support the work below")),
                         )
-                        .child(text(theme::UI).text_color(t.muted).child(
+                        .child(text(theme::UI).text_color(t.muted).child(tr(
                             "Horizon is built in the open. Sponsors fund the next release.",
-                        )),
+                        ))),
                 )
                 .child(
                     button("sponsor", "Sponsor on GitHub", Kind::Secondary, &t)
@@ -3852,7 +3885,7 @@ impl Launcher {
             ))
             .children(sponsor);
         let releases = match &self.releases {
-            Load::Loading => return page.child(centered("Loading patch notes…", &t)),
+            Load::Loading => return page.child(centered(tr("Loading patch notes…"), &t)),
             Load::Failed(e) => {
                 return page.child(
                     centered(&format!("Couldn't load patch notes. {e}"), &t).child(
@@ -4295,6 +4328,8 @@ fn main() {
     }
     perf::process_started();
     backend::exe_path();
+    #[cfg(windows)]
+    backend::remove_replaced_binaries();
     // What the launcher downloads goes through the player's proxy, if they set one: the parts
     // that build their own agents (`horizon-port-pack`) are told before anything starts.
     horizon_launcher::proxy::announce(horizon_launcher::backend::Settings::load().proxy);

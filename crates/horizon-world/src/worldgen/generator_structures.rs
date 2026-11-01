@@ -330,6 +330,95 @@ impl StructureState {
             .build_starts(context, chunk, true)?
             .expect("waits for another worker's build"))
     }
+    /// The starts a chunk saved (`structures.starts`), which vanilla loads with their pieces
+    /// (`StructureStart.loadStaticStart`) so that the neighbours place the parts that cross
+    /// into them and the beardifier shapes the terrain around them. A jigsaw start (villages,
+    /// outposts, bastions, ancient cities, trial chambers, trail ruins) is loaded from its
+    /// saved pieces (`PoolPiece::from_saved`). Another structure's pieces have no loader yet:
+    /// it is the start this generator makes in the chunk when that one has the same name and the
+    /// same pieces' box (the same layout from the same seed), else the name and box alone (found
+    /// by `/locate` and maps, but not placed).
+    fn saved_starts_at(
+        &self,
+        context: &mut impl super::structure::start::StartContext,
+        chunk: ChunkPos,
+    ) -> Starts {
+        let saved = context.saved_starts(chunk);
+        let mut generated: Option<Vec<Arc<StructureStart>>> = None;
+        let starts = saved
+            .into_iter()
+            .filter_map(|start| {
+                let index = (self.registry.structures.iter()).position(|s| s.name == start.name)?;
+                let def = &self.registry.structures[index];
+                if !start.pieces.is_empty()
+                    && let Some(pieces) = start
+                        .pieces
+                        .iter()
+                        .map(|piece| self.saved_pool_piece(piece))
+                        .collect::<Option<Vec<_>>>()
+                {
+                    return Some(Arc::new(StructureStart::new(index, def, chunk, pieces)));
+                }
+                if let Some(bounds) = start.bounds {
+                    let made = generated.get_or_insert_with(|| {
+                        let rings = self.rings_for(context, chunk);
+                        create_starts(
+                            &self.registry,
+                            &self.resources,
+                            &self.bindings,
+                            context,
+                            &self.possible_sets,
+                            rings,
+                            chunk,
+                        )
+                        .into_iter()
+                        .map(Arc::new)
+                        .collect()
+                    });
+                    let same = made.iter().find(|made| {
+                        made.name == start.name && pieces_box(&made.pieces) == Some(bounds)
+                    });
+                    if let Some(same) = same {
+                        return Some(same.clone());
+                    }
+                }
+                let [x0, y0, z0, x1, y1, z1] = start.bounds.unwrap_or([
+                    chunk.x * 16,
+                    0,
+                    chunk.z * 16,
+                    chunk.x * 16 + 15,
+                    0,
+                    chunk.z * 16 + 15,
+                ]);
+                Some(Arc::new(StructureStart {
+                    structure: index,
+                    name: start.name,
+                    chunk,
+                    pieces: Vec::new(),
+                    bounding_box: crate::worldgen::structure::BoundingBox::new(
+                        [x0, y0, z0],
+                        [x1, y1, z1],
+                    ),
+                    references: std::sync::atomic::AtomicI32::new(0),
+                    saved_raw: None,
+                }))
+            })
+            .collect();
+        Arc::new(starts)
+    }
+    /// A saved `minecraft:jigsaw` piece, or `None` for any other piece or one that does not decode.
+    fn saved_pool_piece(&self, piece: &crate::nbt::Tag) -> Option<Piece> {
+        let crate::nbt::Tag::Compound(map) = piece else {
+            return None;
+        };
+        let id = map.get(&"id".into())?;
+        if !matches!(id, crate::nbt::Tag::String(s) if s.to_string_lossy() == "minecraft:jigsaw") {
+            return None;
+        }
+        PoolPiece::from_saved(&tag_json(piece), &self.resources, &self.bindings)
+            .ok()
+            .map(Piece::Pool)
+    }
     /// `starts_at`, or `None` when another worker is building them and
     /// `wait` is false.
     fn build_starts(
@@ -340,6 +429,11 @@ impl StructureState {
     ) -> Result<Option<Starts>, String> {
         if let Some(found) = self.starts.get((chunk.x, chunk.z)) {
             return Ok(Some(found));
+        }
+        if context.is_old_chunk(chunk) {
+            // Decoded once: the neighbours ask for these starts again and again.
+            let starts = self.saved_starts_at(context, chunk);
+            return Ok(Some(self.starts.insert_first((chunk.x, chunk.z), starts)));
         }
         // Ring searches enlist other workers and wait for them: never hold a
         // chunk-work lock while helping, even when this chunk has no starts.
@@ -483,13 +577,16 @@ impl StructureState {
     /// ChunkGenerator.findNearestMapStructure: the nearest start of one of
     /// `names` from block `from` (rings: every ring chunk; random spreads:
     /// sectors in growing squares up to `radius`). Returns the structure and
-    /// its locate position (the start chunk's corner at y 0).
+    /// its locate position (the start chunk's corner at y 0). `skip` says a
+    /// start (structure name, its chunk) can't be referenced again
+    /// (`StructureStart.canBeReferenced`): the search goes on past it.
     pub(super) fn locate(
         &self,
         context: &mut impl super::structure::start::StartContext,
         names: &[String],
         from: [i32; 3],
         radius: i32,
+        skip: &dyn Fn(&str, ChunkPos) -> bool,
     ) -> Option<(String, [i32; 3])> {
         let seed = context.seed();
         let rings = self.rings(context).clone();
@@ -501,7 +598,10 @@ impl StructureState {
         let mut best: Option<(f64, String, [i32; 3])> = None;
         let found_at = |this: &Self, context: &mut _, chunk: ChunkPos| -> Option<String> {
             match this.starts_at(context, chunk) {
-                Ok(starts) => starts.iter().find(|s| wanted(s.structure)).map(|s| s.name.clone()),
+                Ok(starts) => starts
+                    .iter()
+                    .find(|s| wanted(s.structure) && !skip(&s.name, chunk))
+                    .map(|s| s.name.clone()),
                 Err(error) => { eprintln!("Horizon: structure locate failed at {chunk:?}: {error}"); None }
             }
         };
@@ -516,20 +616,19 @@ impl StructureState {
                     let Some(chunks) = rings.get(&set.name) else {
                         continue;
                     };
-                    let mut nearest: Option<(f64, ChunkPos)> = None;
+                    let mut nearest: Option<(f64, ChunkPos, String)> = None;
                     for &c in chunks {
                         let d = dist([c.x * 16 + 8, 32, c.z * 16 + 8]);
-                        if nearest.is_none_or(|(n, _)| d < n)
+                        if nearest.as_ref().is_none_or(|(n, ..)| d < *n)
                             && self
                                 .registry
                                 .is_structure_chunk(set, seed, c.x, c.z, &rings)
+                            && let Some(name) = found_at(self, context, c)
                         {
-                            nearest = Some((d, c));
+                            nearest = Some((d, c, name));
                         }
                     }
-                    if let Some((_, c)) = nearest
-                        && let Some(name) = found_at(self, context, c)
-                    {
+                    if let Some((_, c, name)) = nearest {
                         let p = set.locate_pos(c);
                         let d = dist(p);
                         if best.as_ref().is_none_or(|(b, ..)| d < *b) {
@@ -635,6 +734,42 @@ impl StructureState {
     }
 }
 
+/// The union of the pieces' boxes as `[min x, min y, min z, max x, max y, max z]`.
+fn pieces_box(pieces: &[Piece]) -> Option<[i32; 6]> {
+    let mut union: Option<crate::worldgen::structure::BoundingBox> = None;
+    for piece in pieces {
+        let b = piece.bounding_box();
+        match union.as_mut() {
+            Some(u) => u.encapsulate(&b),
+            None => union = Some(b),
+        }
+    }
+    union.map(|b| [b.min[0], b.min[1], b.min[2], b.max[0], b.max[1], b.max[2]])
+}
+/// A saved piece's tag as the JSON `PoolPiece::from_saved` reads: compounds and lists as they
+/// are, numbers as numbers.
+fn tag_json(tag: &crate::nbt::Tag) -> Value {
+    use crate::nbt::Tag;
+    match tag {
+        Tag::Byte(v) => Value::from(i64::from(*v)),
+        Tag::Short(v) => Value::from(i64::from(*v)),
+        Tag::Int(v) => Value::from(i64::from(*v)),
+        Tag::Long(v) => Value::from(*v),
+        Tag::Float(bits) => Value::from(f64::from(f32::from_bits(*bits))),
+        Tag::Double(bits) => Value::from(f64::from_bits(*bits)),
+        Tag::String(s) => Value::from(s.to_string_lossy()),
+        Tag::List(items) => Value::Array(items.iter().map(tag_json).collect()),
+        Tag::ByteArray(v) => Value::Array(v.iter().map(|b| Value::from(i64::from(*b))).collect()),
+        Tag::IntArray(v) => Value::Array(v.iter().map(|i| Value::from(i64::from(*i))).collect()),
+        Tag::LongArray(v) => Value::Array(v.iter().map(|i| Value::from(*i)).collect()),
+        Tag::Compound(map) => Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.to_string_lossy(), tag_json(v)))
+                .collect(),
+        ),
+        Tag::End => Value::Null,
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

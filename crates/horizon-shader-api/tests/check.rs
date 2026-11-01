@@ -144,3 +144,26 @@ fn texture_reads_have_a_budget() {
         "texture reads; a stage may write 64",
     );
 }
+
+#[test]
+fn reads_follows_the_stage_function_through_its_calls() {
+    let material = |text: &str| {
+        // The sample's `[reflection] option` is an override of the material.
+        let text = format!("override reflections: bool = true;\n{text}");
+        let mut files = sample().files;
+        files.insert("material.wgsl".into(), text.into_bytes());
+        let report = check(&Pack::from_files(files).unwrap()).unwrap();
+        let stage = report.stages.into_iter().find(|s| s.label == "Terrain");
+        stage.unwrap()
+    };
+    let sample = material(
+        "fn material(input: MaterialInput) -> Surface {\n    return Surface(input.albedo);\n}\n",
+    );
+    assert!(!sample.reads("reflection"));
+    let mirror = material(
+        "fn mirrored(uv: vec2<f32>) -> vec4<f32> {\n    return textureSampleLevel(reflection, reflection_sampler, uv, 0.0);\n}\nfn material(input: MaterialInput) -> Surface {\n    return Surface(mix(input.albedo, mirrored(input.screen), 0.5));\n}\n",
+    );
+    assert!(mirror.reads("reflection"));
+    assert!(mirror.reads("reflection_sampler"));
+    assert!(!mirror.reads("opaque_color"));
+}

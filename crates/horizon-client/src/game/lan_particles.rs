@@ -437,14 +437,16 @@ impl Game<'_> {
         });
     }
 
-    /// Native sounds wait until the server host is available.
+    /// Native sounds wait until the server host is available. An unknown
+    /// `minecraft:` event is dropped; a mod's goes by name (`sound_packet`).
     pub(super) fn flush_native_sounds(&mut self) {
         let Some(host) = &self.lan else { return };
         for sound in std::mem::take(&mut self.creatures.lan_sounds) {
-            if host
-                .hub
-                .registry_id("minecraft:sound_event", &sound.sound)
-                .is_none()
+            if sound.sound.starts_with("minecraft:")
+                && host
+                    .hub
+                    .registry_id("minecraft:sound_event", &sound.sound)
+                    .is_none()
             {
                 continue;
             }

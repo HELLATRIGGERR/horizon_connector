@@ -2,7 +2,7 @@
 //! falling, `interactAt` equipment swaps by clicked height, the two-hit break
 //! of `hurtServer` (creative breaks at once), and `ArmorStandRenderer` with
 //! the default pose, the hit wobble and humanoid armor layers.
-use super::Game;
+use super::{Game, InteractTarget};
 use horizon_client::{
     entities::ArmorStand,
     items::ItemStack,
@@ -441,7 +441,7 @@ impl Game<'_> {
     /// The armor stand under the crosshair, its distance and the hit point.
     pub(super) fn armor_stand_hit(&self) -> Option<(usize, f64, [f64; 3])> {
         let (eye, dir) = self.aim()?;
-        let reach: f64 = if self.creative { 5.0 } else { 3.0 };
+        let reach: f64 = self.entity_reach;
         let mut best: Option<(usize, f64, [f64; 3])> = None;
         for (i, a) in self.armor_stands.iter().enumerate() {
             if a.marker {
@@ -485,12 +485,30 @@ impl Game<'_> {
             _ => 0,
         }
     }
-    /// `ArmorStand.interactAt`.
-    pub(super) fn interact_armor_stand(&mut self) -> bool {
-        let Some((i, d, point)) = self.armor_stand_hit() else {
+    /// `ArmorStand.interactAt` for the stand under the crosshair, or for the
+    /// stand a guest's interact packet named (its client's click point).
+    pub(super) fn interact_armor_stand(&mut self, target: Option<InteractTarget>) -> bool {
+        let Some((i, d, point)) = (match target {
+            // interactAt gets the packet's location, measured from the stand's
+            // position, so getClickedSlot reads the height the client clicked.
+            Some(t) => Self::named_entity(&self.armor_stands, t.id, |a| a.id).map(|i| {
+                let p = self.armor_stands[i].position;
+                (
+                    i,
+                    0.0,
+                    [
+                        p.x + t.location[0],
+                        p.y + t.location[1],
+                        p.z + t.location[2],
+                    ],
+                )
+            }),
+            None => self.armor_stand_hit(),
+        }) else {
             return false;
         };
-        if !self.before_block(d) {
+        // Only a client's own pick is stopped by a block: the range check passed.
+        if target.is_none() && !self.before_block(d) {
             return false;
         }
         let held = self.held().cloned();
@@ -723,14 +741,14 @@ impl Game<'_> {
             if !ticking(a.position.x.floor() as i32, a.position.z.floor() as i32) {
                 continue;
             }
-            let in_water = a.in_water(&self.world, &self.res.motion().fluids);
+            let in_water = a.update_fluids(&self.world, &self.res.motion().fluids);
             let (world, registry, facts, collision) = (
                 &self.world,
                 self.pack.assets.registry,
                 self.res.facts(),
                 self.collision,
             );
-            a.tick(&mut scene, in_water, &mut |bounds, velocity| {
+            a.tick(&mut scene, facts, in_water, &mut |bounds, velocity| {
                 horizon_client::motion::bubble_column_push(
                     world, registry, facts, collision, bounds, velocity,
                 );
@@ -1108,7 +1126,8 @@ fn swap_with_equipment_slot(
 }
 impl Game<'_> {
     /// `Equippable.swapWithEquipmentSlot`: right-clicking armor swaps it into
-    /// its slot (the worn piece comes back to the hand).
+    /// its slot (the worn piece comes back to the hand). It runs on a client
+    /// too (`Item.use`), as the prediction the server's slot packets confirm.
     pub(super) fn equip_from_hand(&mut self, stack: &ItemStack) -> bool {
         let Some(info) = self.items().get(&stack.item) else {
             return false;
@@ -1141,11 +1160,18 @@ impl Game<'_> {
         if let Some(old) = swap.to_inventory
             && let Some(rest) = self.give(old)
             && !self.creative
+            // Player.drop is the server's on a client: it spawns the item.
+            && self.remote.is_none()
             && let Some(eye) = self.eye_position()
         {
-            self.spawn_item(rest, eye, [0.0; 3], 40);
+            // Player.drop(stack, false): thrown from the eyes, no thrower.
+            self.throw_from_eyes(rest, eye, false);
         }
-        self.apply_equipment();
+        // The attribute modifiers of a worn piece come from the server's
+        // ClientboundUpdateAttributesPacket on a client.
+        if self.remote.is_none() {
+            self.apply_equipment();
+        }
         self.swing_arm();
         true
     }

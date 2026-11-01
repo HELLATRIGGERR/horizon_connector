@@ -115,6 +115,9 @@ impl Replay {
         (body.position, body.old_position, body.velocity) = (at, at, Vec3::ZERO);
         body.fall_distance = 0.0;
         body.events.clear();
+        // The server's body carries the sprint modifier while the player sprints, but its flag only
+        // while the game handles the player: the replay's first tick sprints as the client did.
+        let _ = body.set_sprint_modifier(body.sprinting);
         Self {
             body,
             said: at,
@@ -192,6 +195,9 @@ impl Replay {
         mut run: impl FnMut(&mut PlayerMotion, Keys, bool) -> crate::Result<()>,
     ) -> Option<Over> {
         let mut over = Over::default();
+        // A tick of this catch-up already counted: the client has been displaced by its lie, so a
+        // tick that agrees from there must not replace the setback point (#5132).
+        let mut counted = false;
         let mut changes = record.changes_since(self.applied)?.peekable();
         let new = usize::try_from(ended.saturating_sub(self.played)).ok()?;
         for tick in record.since(self.played)?.take(new) {
@@ -215,9 +221,14 @@ impl Replay {
                     || record.unseen_near(tick.seen, |block| near(at, block, slack))
             };
             if offset <= AGREED {
-                (self.agreed, self.drift) = (self.said, 0);
+                if !counted {
+                    self.agreed = self.said;
+                }
+                self.drift = 0;
             } else if offset <= tolerance {
-                self.agreed = self.said;
+                if !counted {
+                    self.agreed = self.said;
+                }
                 self.drift = self.drift.saturating_sub(1);
             } else if self.drift == 0 && unseen() {
                 self.excuse();
@@ -225,6 +236,7 @@ impl Replay {
                 self.drift -= 1;
                 self.agreed = self.said;
             } else {
+                counted = true;
                 over.ticks += 1;
                 over.worst = over.worst.max(offset);
                 over.weight += (offset / tolerance).min(MOST_WEIGHT) as f32;
@@ -256,13 +268,16 @@ impl Replay {
         match change {
             Change::Velocity(v) => body.velocity = vector(v),
             Change::Knockback(k) => body.velocity = body.velocity.add_vector(vector(k)),
-            Change::State => {
-                // ClientPacketListener.handleUpdateAttributes: the client takes the server's
-                // modifiers, its sprint modifier included, and goes on sprinting or not as it was
-                // (a sprint modifier gone while it sprints stays gone until it stops).
+            Change::Attributes { sprint } => {
+                // ClientPacketListener.handleUpdateAttributes: the client takes the modifiers of
+                // the attributes sent, the sprint modifier included, and goes on sprinting or not
+                // as it was (a sprint modifier gone while it sprints stays gone until it stops);
+                // an attribute not sent keeps its own.
+                let sprint = sprint.unwrap_or_else(|| body.has_sprint_modifier());
                 body.attributes = server.attributes.clone();
-                body.status = server.status.clone();
+                let _ = body.set_sprint_modifier(sprint);
             }
+            Change::Effects => body.status = server.status.clone(),
             // `sync` takes them every tick.
             Change::Abilities => {}
         }
@@ -474,8 +489,14 @@ mod tests {
         /// From tick `.0` on, the ticks come in a burst that the server only plays at tick `.1`,
         /// when the client accepts a teleport back to where the burst began.
         teleport: Option<(usize, usize)>,
+        /// Ticks `.0 .. .1` arrive together: the server plays them all at tick `.1`, in one
+        /// catch-up, as it does when its tick lags the client's.
+        burst: Option<(usize, usize)>,
         /// Blocks set in the scene after the floor.
         blocks: Vec<([i32; 3], &'static str)>,
+        /// On tick `.0`, the server sends the player attributes (the server's body has no sprint
+        /// modifier): `.1` as in [`Change::Attributes`], which the client takes.
+        attributes: Option<(usize, Option<bool>)>,
     }
 
     impl Run {
@@ -487,7 +508,9 @@ mod tests {
                 pitch: 0.0,
                 glider: false,
                 teleport: None,
+                burst: None,
                 blocks: Vec::new(),
+                attributes: None,
             }
         }
     }
@@ -564,6 +587,8 @@ mod tests {
         let mut replay = Replay::new(&server, &record.take_restart().unwrap());
         let mut played = Vec::new();
         let run_teleport = run.teleport;
+        let run_burst = run.burst;
+        let run_attributes = run.attributes;
         let mut back = start;
         for (i, (input, yaw)) in run.script.into_iter().enumerate() {
             let tick = i as u64;
@@ -574,6 +599,12 @@ mod tests {
                 }
                 if push.taken {
                     client.velocity = Vec3::new(velocity[0], velocity[1], velocity[2]);
+                }
+            }
+            if let Some((_, sprint)) = run_attributes.filter(|&(at, _)| at == i) {
+                record.changed(tick, Change::Attributes { sprint });
+                if let Some(kept) = sprint {
+                    client.set_sprint_modifier(kept).unwrap();
                 }
             }
             record.pong(tick, tick);
@@ -590,6 +621,10 @@ mod tests {
             let ground = u8::from(client.ground.on_ground);
             record.moved(Some([p.x, p.y, p.z]), Some((yaw, run.pitch)), ground);
             record.tick_end(input, client.sprinting);
+            // A burst: the server hears these ticks now and plays them together at the last one.
+            if run_burst.is_some_and(|(from, to)| (from..to).contains(&i)) {
+                continue;
+            }
             let mut run = |body: &mut PlayerMotion, keys, sprinting| {
                 let mut result = Ok(());
                 world(body, &mut |w| result = w.replayed_tick(keys, sprinting));
@@ -653,6 +688,29 @@ mod tests {
         assert!(fly.iter().all(|p| p.offset > 0.05), "{fly:?}");
     }
 
+    /// Attributes sent mid sprint-jump: one without the movement speed leaves the client's sprint
+    /// modifier alone (the server's body, which never sprinted here, has none to copy); one with the
+    /// movement speed but no sprint modifier takes it away while the client sprints on.
+    #[test]
+    fn attributes_sent_mid_sprint_are_played_as_the_client_takes_them() {
+        for sprint in [None, Some(false), Some(true)] {
+            let run = Run {
+                attributes: Some((25, sprint)),
+                ..Run::walk()
+            };
+            let Some(steps) = steps_in(run, |_, _, honest| honest, None) else {
+                return;
+            };
+            for (i, s) in steps.iter().enumerate() {
+                assert!(
+                    s.played.offset <= EXACT,
+                    "{sprint:?}, tick {i}: {:?}",
+                    s.played
+                );
+            }
+        }
+    }
+
     /// A knockback (ClientboundSetEntityMotionPacket) mid-walk: the replay applies it on the first
     /// client tick that had seen the server tick that sent it.
     #[test]
@@ -697,6 +755,44 @@ mod tests {
         }
     }
 
+    /// Ticks that arrive together when the server's tick lags the client's are played in one
+    /// catch-up: a lie on the first makes the replay stand at the client's spot, and the honest
+    /// tick after it must not become the setback point (#5132).
+    #[test]
+    fn a_burst_keeps_the_setback_before_its_lie() {
+        let Some(steps) = steps_in(
+            Run {
+                burst: Some((20, 21)),
+                ..Run::walk()
+            },
+            |i, _, honest| {
+                if i == 20 {
+                    honest.add_vector(Vec3::new(3.0, 0.0, 0.0))
+                } else {
+                    honest
+                }
+            },
+            None,
+        ) else {
+            return;
+        };
+        // Ticks 0-19 each play on their own; tick 20's lie arrives with tick 21, so the burst's
+        // single step is the 21st: the lie counts once, and the setback point stays where the walk
+        // agreed, before it.
+        assert_eq!(
+            steps.len(),
+            script().len() - 1,
+            "one catch-up for the burst"
+        );
+        let burst = &steps[20];
+        assert_eq!(burst.over.ticks, 1, "{:?}", burst.over);
+        assert!(burst.over.worst > 2.9, "{:?}", burst.over);
+        assert_eq!(
+            burst.agreed, steps[19].said,
+            "the setback point must be the last honest spot"
+        );
+    }
+
     /// A push the server never sent (another entity's): excused, the replay takes the client's
     /// velocity, is back within the tolerance in a few ticks, and nothing counts.
     #[test]
@@ -734,8 +830,7 @@ mod tests {
             script,
             pitch: 10.0,
             glider: true,
-            teleport: None,
-            blocks: Vec::new(),
+            ..Run::walk()
         };
         let Some(steps) = steps_in(run, |_, _, honest| honest, None) else {
             return;

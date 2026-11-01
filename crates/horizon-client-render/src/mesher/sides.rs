@@ -74,7 +74,13 @@ impl Sides {
     /// Calls `draw(first, count)` for each run of quads an eye at `eye`
     /// (relative to the mesh's origin) can see the front of, nearest the
     /// start first. Empty buckets do not break a run.
-    pub fn visible(&self, eye: [f32; 3], mut draw: impl FnMut(u32, u32)) {
+    pub fn visible(&self, eye: [f32; 3], draw: impl FnMut(u32, u32)) {
+        self.visible_from(eye, eye[1], draw);
+    }
+
+    /// `visible` for every eye from `eye` straight down to the height `low`: the camera and
+    /// its water mirror's eye below the plane, which differ only in y.
+    pub fn visible_from(&self, eye: [f32; 3], low: f32, mut draw: impl FnMut(u32, u32)) {
         let mut start = 0;
         let mut run: Option<u32> = None;
         for (i, bucket) in BUCKETS.iter().enumerate() {
@@ -84,6 +90,7 @@ impl Sides {
             }
             let seen = match *bucket {
                 Bucket::Side(axis, true) => eye[axis] > self.planes[i] - MARGIN,
+                Bucket::Side(1, false) => low < self.planes[i] + MARGIN,
                 Bucket::Side(axis, false) => eye[axis] < self.planes[i] + MARGIN,
                 Bucket::Other => true,
             };
@@ -310,6 +317,24 @@ mod tests {
         assert!(runs(&sides, [0.5; 3]).is_empty());
         // Level with its top, the eye may see it: the margin keeps it.
         assert_eq!(runs(&sides, [0.5, 1.0, 0.5]), [(2, 1)]);
+    }
+
+    #[test]
+    fn an_eye_and_its_mirror_below_see_the_faces_of_both() {
+        let mut solid = cube([0.0; 3], 0);
+        let sides = sort(&mut solid);
+        let both = |eye: [f32; 3], low: f32| {
+            let mut out = Vec::new();
+            sides.visible_from(eye, low, |first, count| out.push((first, count)));
+            out
+        };
+        // Above the block: +X, +Z and +Y; with the mirror's eye below it, -Y too.
+        assert_eq!(runs(&sides, [8.0, 8.0, 8.0]), [(0, 3)]);
+        assert_eq!(both([8.0, 8.0, 8.0], -8.0), [(0, 3), (5, 1)]);
+        // A mirror above the block's bottom adds nothing.
+        assert_eq!(both([8.0, 8.0, 8.0], 0.5), [(0, 3)]);
+        // The sides depend on x and z alone.
+        assert_eq!(both([-8.0, 8.0, -8.0], -8.0), [(2, 4)]);
     }
 
     #[test]

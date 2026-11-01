@@ -822,6 +822,16 @@ impl NoiseColumn {
 
 /// Biome and height queries for one structure generation attempt.
 pub trait StartContext: JigsawContext {
+    /// A chunk an older version generated: its structure starts are the ones
+    /// it saved, which are in its blocks, not the ones this generator would
+    /// make there.
+    fn is_old_chunk(&self, _chunk: ChunkPos) -> bool {
+        false
+    }
+    /// The starts that old chunk saved: see `OldWorld::saved_starts`.
+    fn saved_starts(&self, _chunk: ChunkPos) -> Vec<crate::worldgen::blending::SavedStart> {
+        Vec::new()
+    }
     fn seed(&self) -> i64;
     fn sea_level(&self) -> i32;
     /// ChunkGenerator.getBaseColumn as heightmap opacity, indexed from min_y.

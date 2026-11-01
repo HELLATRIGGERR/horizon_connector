@@ -775,6 +775,9 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 Some(self.copper_chest_least_oxidized(state, pos))
             }
             Class::ChorusPlant => Some(self.chorus_plant_with_connections(pos, default)),
+            // A content mod's connecting block (alone, PipeBlock places as
+            // Block does).
+            Class::Pipe if depth == 0 => Some(self.pipe_with_connections(pos, default)),
             Class::ConcretePowder => {
                 let replaced = self.state(pos);
                 if b.is_water_fluid(b.fluid(replaced).kind()) || self.concrete_touches_liquid(pos) {
@@ -1293,6 +1296,29 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         } else {
             None
         }
+    }
+    /// A content mod's connecting block (a `PipeBlock` alone in its chain):
+    /// joined on each side to itself and to its `connects_to` tag.
+    pub(crate) fn pipe_with_connections(&self, pos: BlockPos, state: BlockStateId) -> BlockStateId {
+        let mut result = state;
+        for direction in Direction::ALL {
+            let connect = self.pipe_connects(state, self.rel_state(pos, direction));
+            result = self
+                .b
+                .table
+                .with_bool(result, self.direction_prop(direction), connect)
+                .unwrap_or(result);
+        }
+        result
+    }
+    /// Whether connecting block `state` joins `neighbour`.
+    pub(crate) fn pipe_connects(&self, state: BlockStateId, neighbour: BlockStateId) -> bool {
+        let b = self.b;
+        b.is_block(neighbour, b.block(state))
+            || b.data(state)
+                .support_tag
+                .as_ref()
+                .is_some_and(|t| b.in_set(neighbour, t))
     }
     /// `ChorusPlantBlock.getStateWithConnections`.
     pub(crate) fn chorus_plant_with_connections(

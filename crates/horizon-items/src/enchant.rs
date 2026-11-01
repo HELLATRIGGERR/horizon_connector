@@ -146,8 +146,33 @@ pub fn level_name(level: u32) -> String {
 
 impl Enchantments {
     pub fn load(root: &Path) -> Self {
+        Self::load_with(root, &horizon_world::loot::PackOverlay::NONE)
+    }
+    /// Load from a resource root; `overlay` (a world's data packs' content
+    /// files) joins the game's own enchantment tags in pack order, a
+    /// `replace` file dropping the lower sources' (`TagLoader.load`).
+    pub fn load_with(root: &Path, overlay: &horizon_world::loot::PackOverlay) -> Self {
         let data = root.join("data/minecraft");
-        let raw_tags = read_tag_dir(&data.join("tags/enchantment"));
+        let mut raw_tags = read_tag_dir(&data.join("tags/enchantment"));
+        for (id, files) in overlay.tag_kind("enchantment") {
+            let slot = raw_tags.entry(id).or_default();
+            for bytes in files {
+                let Ok(v) = serde_json::from_slice::<Value>(bytes) else {
+                    continue;
+                };
+                if v["replace"].as_bool() == Some(true) {
+                    slot.clear();
+                }
+                if let Some(values) = v["values"].as_array() {
+                    slot.extend(
+                        values
+                            .iter()
+                            .filter_map(|e| e.as_str().or_else(|| e["id"].as_str()))
+                            .map(str::to_owned),
+                    );
+                }
+            }
+        }
         let tags: HashMap<String, Vec<Arc<str>>> = raw_tags
             .keys()
             .map(|k| {

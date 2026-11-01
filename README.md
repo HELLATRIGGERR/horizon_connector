@@ -111,7 +111,7 @@ What is in progress, what comes next and where to help: [ROADMAP.md](ROADMAP.md)
 
 ## Contributing
 
-Issues and pull requests are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) (vanilla first, small pull requests). Questions: [Discord](https://discord.gg/HcTeMZxe5E). Before a pull request, run the self-check and paste its output:
+Issues and pull requests are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md) (vanilla first, small pull requests). Questions: [Discord](https://discord.gg/playhorizon). Before a pull request, run the self-check and paste its output:
 
 ```sh
 git config core.hooksPath .githooks

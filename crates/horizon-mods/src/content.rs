@@ -100,14 +100,66 @@ pub struct BlockShapes {
     pub values: BTreeMap<String, Vec<[f64; 6]>>,
 }
 
+/// A state property a block declares on its own, beside its template's.
+/// A block's states become the template's states times these values, so a
+/// pipe can have a connection per side without a template that has one.
+/// A file spells one `{"type": "boolean"}`, `{"type": "enum", "values": [...]}`
+/// or, as the AE2 port's content does, just the list of values (an enum).
+#[derive(Clone, Debug, PartialEq)]
+pub enum StateProperty {
+    /// `false` and `true`, in vanilla's spelling.
+    Boolean,
+    /// A list of values, in the order the state space is built in.
+    Enum { values: Vec<String> },
+}
+
+impl<'de> Deserialize<'de> for StateProperty {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(tag = "type", rename_all = "lowercase")]
+        enum Typed {
+            Boolean,
+            Enum { values: Vec<String> },
+        }
+        use serde::de::Error;
+        let value = serde_json::Value::deserialize(d)?;
+        if value.is_array() {
+            let values = serde_json::from_value(value).map_err(D::Error::custom)?;
+            return Ok(StateProperty::Enum { values });
+        }
+        Ok(match serde_json::from_value(value).map_err(D::Error::custom)? {
+            Typed::Boolean => StateProperty::Boolean,
+            Typed::Enum { values } => StateProperty::Enum { values },
+        })
+    }
+}
+
+impl StateProperty {
+    /// Its values, in the order the state space is built in; a boolean's two
+    /// come `false` first, as vanilla orders them.
+    pub fn values(&self) -> Vec<&str> {
+        match self {
+            StateProperty::Boolean => vec!["false", "true"],
+            StateProperty::Enum { values } => values.iter().map(String::as_str).collect(),
+        }
+    }
+}
+
+/// A vanilla state property's name, and a value's: lower case, digits and
+/// underscores (`minecraft:oak_log` is `axis`, a repeater is `delay`).
+fn state_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BlockFile {
     template: String,
     #[serde(default)]
     properties: BlockProperties,
-    #[serde(default)]
-    state_properties: BTreeMap<String, Vec<String>>,
+    /// The AE2 port's spelling of `default_state` for its own properties.
     #[serde(default)]
     state_defaults: BTreeMap<String, String>,
     #[serde(default)]
@@ -120,7 +172,13 @@ struct BlockFile {
     light_dampening_states: BTreeMap<String, u8>,
     shapes: Option<BlockShapes>,
     #[serde(default)]
+    state_properties: BTreeMap<String, StateProperty>,
+    #[serde(default)]
     default_state: BTreeMap<String, String>,
+    #[serde(default)]
+    connects_to: Option<String>,
+    #[serde(default)]
+    thickness: Option<f32>,
     #[serde(default = "yes")]
     item: bool,
     #[serde(default)]
@@ -139,8 +197,6 @@ pub struct Block {
     /// The vanilla block it copies, `minecraft:<path>`.
     pub template: String,
     pub properties: BlockProperties,
-    pub state_properties: BTreeMap<String, Vec<String>>,
-    pub state_defaults: BTreeMap<String, String>,
     /// One normalized cuboid per partial state selector (`*` is fallback).
     pub collision_boxes: BTreeMap<String, [f64; 6]>,
     pub outline_boxes: BTreeMap<String, [f64; 6]>,
@@ -148,12 +204,42 @@ pub struct Block {
     pub light_emission: BTreeMap<String, u8>,
     pub light_dampening_states: BTreeMap<String, u8>,
     pub shapes: Option<BlockShapes>,
-    /// State properties overlaid on the template default.
+    /// State properties of its own, which its template does not have.
+    pub state_properties: BTreeMap<String, StateProperty>,
+    /// State properties overlaid on the template default, and the defaults
+    /// of the ones it declares (`state_defaults` too).
     pub default_state: BTreeMap<String, String>,
     /// Also add a block item with the same id.
     pub item: bool,
     /// Its item's component patch, as an [`Item`]'s.
     pub components: BTreeMap<String, serde_json::Value>,
+    /// A connecting block (template `minecraft:chorus_plant`, a `PipeBlock`
+    /// without the chorus plant's rules): the block tag, without `#`, whose
+    /// blocks it joins besides itself (a cable's machines).
+    pub connects_to: Option<String>,
+    /// A connecting block's width in pixels (2 to 14): its shapes, the
+    /// chorus plant's (10) when unset.
+    pub thickness: Option<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreativeTabFile {
+    title: String,
+    icon: String,
+    items: Vec<String>,
+}
+
+/// A creative inventory tab the mod adds (`data/<id>/horizon/creative_tab/`):
+/// its title, the item on its button, and its items in order. Items no mod
+/// or vanilla registers are left out when the game loads.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CreativeTab {
+    /// `<mod id>:<path>`.
+    pub id: String,
+    pub title: String,
+    pub icon: String,
+    pub items: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -228,6 +314,8 @@ pub struct Content {
     pub blocks: Vec<Block>,
     pub items: Vec<Item>,
     pub effects: Vec<MobEffect>,
+    /// Its creative inventory tabs, by id.
+    pub creative_tabs: Vec<CreativeTab>,
     /// The namespaces it owns: the mod id, then the manifest's `namespaces`.
     pub namespaces: Vec<String>,
 }
@@ -284,7 +372,7 @@ impl Content {
             let mut out = Vec::new();
             for i in 0..zip.len() {
                 let entry = zip.by_index_raw(i).map_err(|e| e.to_string())?;
-                let name = entry.name();
+                let name = entry.name().map_err(|e| e.to_string())?.into_owned();
                 if (name.starts_with("assets/") || name.starts_with("data/")) && !entry.is_dir() {
                     out.push((name.to_owned(), entry.size()));
                 }
@@ -315,6 +403,7 @@ impl Content {
             blocks: Vec::new(),
             items: Vec::new(),
             effects: Vec::new(),
+            creative_tabs: Vec::new(),
             namespaces: manifest.owned_namespaces().map(str::to_owned).collect(),
         };
         content.check(manifest)?;
@@ -358,6 +447,7 @@ impl Content {
         let mut blocks = Vec::new();
         let mut items = Vec::new();
         let mut effects = Vec::new();
+        let mut tabs = Vec::new();
         for name in &self.files {
             let mut parts = name.splitn(3, '/');
             let (top, namespace, rest) = (
@@ -400,9 +490,11 @@ impl Content {
                 items.push((item, name.clone()));
             } else if let Some(effect) = parse("mob_effect") {
                 effects.push((effect, name.clone()));
+            } else if let Some(tab) = parse("creative_tab") {
+                tabs.push((tab, name.clone()));
             } else {
                 return Err(format!(
-                    "{name}: data/{id}/horizon/ holds block/, item/ and mob_effect/*.json only"
+                    "{name}: data/{id}/horizon/ holds block/, item/, mob_effect/ and creative_tab/*.json only"
                 ));
             }
         }
@@ -414,20 +506,25 @@ impl Content {
             if file.item {
                 ids.insert(block.clone());
             }
+            let mut default_state = file.default_state;
+            default_state.extend(file.state_defaults);
             self.blocks.push(Block {
                 id: block,
                 template: file.template,
                 properties: file.properties,
-                state_properties: file.state_properties,
-                state_defaults: file.state_defaults,
                 collision_boxes: file.collision_boxes,
                 outline_boxes: file.outline_boxes,
                 light_emission: file.light_emission,
                 light_dampening_states: file.light_dampening_states,
                 shapes: file.shapes,
-                default_state: file.default_state,
+                state_properties: file.state_properties,
+                default_state,
                 item: file.item,
                 components: file.components,
+                connects_to: file
+                    .connects_to
+                    .map(|t| t.trim_start_matches('#').to_owned()),
+                thickness: file.thickness,
             });
         }
         let mut remainders = Vec::new();
@@ -481,6 +578,25 @@ impl Content {
                 ));
             }
         }
+        for (tab, name) in tabs {
+            let file: CreativeTabFile =
+                serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
+            let id_like = |s: &str| {
+                s.split_once(':')
+                    .is_some_and(|(n, p)| !n.is_empty() && !p.is_empty())
+            };
+            if !id_like(&file.icon) || !file.items.iter().all(|i| id_like(i)) {
+                return Err(format!(
+                    "{name}: icon and items are item ids (namespace:path)"
+                ));
+            }
+            self.creative_tabs.push(CreativeTab {
+                id: tab,
+                title: file.title,
+                icon: file.icon,
+                items: file.items,
+            });
+        }
         Ok(())
     }
 }
@@ -521,43 +637,21 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
             file.template
         ));
     }
-    let mut states = 1usize;
-    for (name, values) in &file.state_properties {
-        let valid = |s: &str| {
-            !s.is_empty()
-                && s.bytes()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
-        };
-        if !valid(name)
-            || values.is_empty()
-            || values.iter().any(|v| !valid(v))
-            || values.iter().collect::<BTreeSet<_>>().len() != values.len()
-        {
-            return Err(format!("invalid state property {name:?}"));
+    // `state_defaults` sets the declared properties' defaults only, and
+    // agrees with `default_state` where both name one.
+    for (name, value) in &file.state_defaults {
+        if !file.state_properties.contains_key(name) {
+            return Err("state default has no declared property".into());
         }
-        if !file
-            .state_defaults
-            .get(name)
-            .is_some_and(|v| values.contains(v))
-        {
-            return Err(format!(
-                "state property {name:?} needs a default in its values"
-            ));
-        }
-        states = states
-            .checked_mul(values.len())
-            .ok_or("state count overflow")?;
-        if states > 4096 {
-            return Err("at most 4096 states per block".into());
+        if file.default_state.get(name).is_some_and(|v| v != value) {
+            return Err(format!("state default {name:?} differs from default_state"));
         }
     }
-    if file
-        .state_defaults
-        .keys()
-        .any(|name| !file.state_properties.contains_key(name))
-    {
-        return Err("state default has no declared property".into());
-    }
+    let declared = |key: &str, value: &str| {
+        file.state_properties
+            .get(key)
+            .is_some_and(|p| p.values().contains(&value))
+    };
     if file.properties.outline_empty==Some(true) && !file.outline_boxes.is_empty() {
         return Err("outline_empty conflicts with outline_boxes".into());
     }
@@ -577,11 +671,7 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
                 let Some((key, value)) = part.split_once('=') else {
                     return Err(format!("invalid collision selector {selector:?}"));
                 };
-                if !file
-                    .state_properties
-                    .get(key)
-                    .is_some_and(|values| values.iter().any(|v| v == value))
-                {
+                if !declared(key, value) {
                     return Err(format!("unknown collision selector {selector:?}"));
                 }
             }
@@ -592,7 +682,7 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
         if selector != "*" {
             for part in selector.split(',') {
                 let Some((key,value))=part.split_once('=') else { return Err(format!("invalid emission selector {selector:?}")); };
-                if !file.state_properties.get(key).is_some_and(|values|values.iter().any(|v|v==value)) { return Err(format!("unknown emission selector {selector:?}")); }
+                if !declared(key, value) { return Err(format!("unknown emission selector {selector:?}")); }
             }
         }
     }
@@ -608,6 +698,35 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
             {
                 return Err("shape needs at most 16 finite boxes with ordered bounds".into());
             }
+        }
+    }
+    for (name, property) in &file.state_properties {
+        if !state_name(name) {
+            return Err(format!(
+                "state property {name:?} is lower case letters, digits and underscores"
+            ));
+        }
+        let values = property.values();
+        if values.is_empty() {
+            return Err(format!("state property {name:?} needs a value"));
+        }
+        let mut seen = BTreeSet::new();
+        for value in values {
+            if !state_name(value) {
+                return Err(format!(
+                    "state property {name:?}: value {value:?} is lower case letters, digits and underscores"
+                ));
+            }
+            if !seen.insert(value) {
+                return Err(format!("state property {name:?}: value {value:?} repeats"));
+            }
+        }
+    }
+    for key in file.default_state.keys() {
+        if !state_name(key) {
+            return Err(format!(
+                "default_state key {key:?} is lower case letters, digits and underscores"
+            ));
         }
     }
     let p = &file.properties;
@@ -651,6 +770,33 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
         && serde_json::from_value::<Rarity>(r.clone()).is_err()
     {
         return Err("component \"minecraft:rarity\" is common, uncommon, rare or epic".into());
+    }
+    if let Some(tag) = &file.connects_to {
+        if file.template != "minecraft:chorus_plant" {
+            return Err("connects_to needs template minecraft:chorus_plant (a PipeBlock)".into());
+        }
+        let id = tag.strip_prefix('#').unwrap_or_default();
+        let valid = |s: &str| {
+            !s.is_empty()
+                && s.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-./".contains(c))
+        };
+        if !id
+            .split_once(':')
+            .is_some_and(|(ns, path)| valid(ns) && valid(path))
+        {
+            return Err("connects_to is a block tag, #namespace:path".into());
+        }
+    }
+    match file.thickness {
+        Some(_) if file.connects_to.is_none() => {
+            return Err("thickness is a connecting block's (connects_to)".into());
+        }
+        Some(t) if !(2.0..=14.0).contains(&t) => return Err("thickness is 2 to 14 pixels".into()),
+        Some(_) if file.shapes.is_some() => {
+            return Err("thickness sets the shapes, so a block has one or the other".into());
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -735,13 +881,12 @@ capabilities = ["registries"]
             [Block {
                 id: "ruby:ruby_block".into(),
                 template: "minecraft:iron_block".into(),
-                state_properties: Default::default(),
-                state_defaults: Default::default(),
                 collision_boxes: Default::default(),
                 outline_boxes: Default::default(),
                 light_emission: Default::default(),
                 light_dampening_states: Default::default(),
                 shapes: None,
+                state_properties: BTreeMap::new(),
                 default_state: BTreeMap::new(),
                 properties: BlockProperties {
                     hardness: Some(4.0),
@@ -751,6 +896,8 @@ capabilities = ["registries"]
                 },
                 item: true,
                 components: BTreeMap::new(),
+                connects_to: None,
+                thickness: None,
             }]
         );
         assert_eq!(content.items[0].id, "ruby:ruby");
@@ -884,6 +1031,65 @@ capabilities = ["registries"]
         assert_eq!(content.files, ["data/ruby/horizon/block/ruby_block.json"]);
         assert_eq!(content.file(&content.files[0]).unwrap(), BLOCK);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A connecting block names a block tag and copies a `PipeBlock`.
+    #[test]
+    fn connecting_blocks_copy_a_pipe_and_name_a_tag() {
+        let block = |json: &str| {
+            let files: &[(&str, &[u8])] =
+                &[("data/ruby/horizon/block/cable.json", json.as_bytes())];
+            hmod("cable", MANIFEST_TEXT, files)
+        };
+        let content = block(
+            r##"{"template": "minecraft:chorus_plant", "connects_to": "#ruby:cable_joins"}"##,
+        )
+        .unwrap();
+        assert_eq!(
+            content.blocks[0].connects_to.as_deref(),
+            Some("ruby:cable_joins")
+        );
+        let thin =
+            r##"{"template": "minecraft:chorus_plant", "connects_to": "#ruby:j", "thickness": 4}"##;
+        assert_eq!(block(thin).unwrap().blocks[0].thickness, Some(4.0));
+        let e = block(r#"{"template": "minecraft:chorus_plant", "thickness": 4}"#).unwrap_err();
+        assert!(e.contains("connects_to"), "{e}");
+        let e = block(r##"{"template": "minecraft:chorus_plant", "connects_to": "#ruby:j", "thickness": 16}"##)
+            .unwrap_err();
+        assert!(e.contains("2 to 14"), "{e}");
+        let e = block(r##"{"template": "minecraft:stone", "connects_to": "#ruby:cable_joins"}"##)
+            .unwrap_err();
+        assert!(e.contains("chorus_plant"), "{e}");
+        for tag in ["ruby:cable_joins", "#cable_joins", "#Ruby:Cable"] {
+            let json =
+                format!(r#"{{"template": "minecraft:chorus_plant", "connects_to": "{tag}"}}"#);
+            let e = block(&json).unwrap_err();
+            assert!(e.contains("block tag"), "{tag}: {e}");
+        }
+    }
+
+    /// A creative tab: a title, an icon and its items, all item ids.
+    #[test]
+    fn creative_tabs_name_their_items() {
+        let tab = |json: &str| {
+            let files: &[(&str, &[u8])] =
+                &[("data/ruby/horizon/creative_tab/gems.json", json.as_bytes())];
+            hmod("tab", MANIFEST_TEXT, files)
+        };
+        let content =
+            tab(r#"{"title": "Ruby Gems", "icon": "ruby:ruby", "items": ["ruby:ruby", "minecraft:diamond"]}"#)
+                .unwrap();
+        assert_eq!(
+            content.creative_tabs,
+            [CreativeTab {
+                id: "ruby:gems".into(),
+                title: "Ruby Gems".into(),
+                icon: "ruby:ruby".into(),
+                items: vec!["ruby:ruby".into(), "minecraft:diamond".into()],
+            }]
+        );
+        let e = tab(r#"{"title": "Gems", "icon": "ruby", "items": []}"#).unwrap_err();
+        assert!(e.contains("item ids"), "{e}");
     }
 
     #[test]

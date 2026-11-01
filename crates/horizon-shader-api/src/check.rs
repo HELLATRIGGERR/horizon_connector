@@ -68,9 +68,31 @@ pub struct CheckedStage {
     pub texture_reads: usize,
 }
 
+impl CheckedStage {
+    /// Whether the stage's function, or a function it calls, reads the prelude's `global`
+    /// (a resource of the stage, such as `reflection`).
+    pub fn reads(&self, global: &str) -> bool {
+        let Some((function, _)) = self
+            .module
+            .functions
+            .iter()
+            .find(|(_, f)| f.name.as_deref() == Some(self.kind.function()))
+        else {
+            return false;
+        };
+        self.module
+            .global_variables
+            .iter()
+            .filter(|(_, g)| g.name.as_deref() == Some(global))
+            .any(|(handle, _)| !self.info[function][handle].is_empty())
+    }
+}
+
 #[derive(Debug)]
 pub struct Report {
     pub stages: Vec<CheckedStage>,
+    /// The manifest's `[reflection]`.
+    pub reflection: Option<crate::manifest::Reflection>,
 }
 
 /// Checks every stage of `pack`, and that each option is an `override` of
@@ -115,7 +137,10 @@ pub fn check(pack: &Pack) -> Result<Report, Vec<Problem>> {
         }
     }
     if problems.is_empty() {
-        Ok(Report { stages: checked })
+        Ok(Report {
+            stages: checked,
+            reflection: m.reflection.clone(),
+        })
     } else {
         Err(problems)
     }

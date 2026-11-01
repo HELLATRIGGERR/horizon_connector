@@ -318,7 +318,7 @@ impl Launcher {
             .value(Field::InstanceModsFilter)
             .trim()
             .to_lowercase();
-        let field = self.field(Field::InstanceModsFilter, "Filter installed", 240., cx);
+        let field = self.field(Field::InstanceModsFilter, tr("Filter installed"), 240., cx);
         let m = &self.instance_mods;
         let rows: Vec<ModRow> = m
             .list

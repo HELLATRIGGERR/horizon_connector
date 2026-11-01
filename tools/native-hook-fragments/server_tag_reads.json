@@ -1,0 +1,6 @@
+{
+  "hooks": [],
+  "rust_summary": "context-free tag lookups for server hooks (`native_server_block_in_tag`, `native_server_item_in_tag`).",
+  "doc_summary": "context-free block and item tag lookups from server hooks (`native_server_block_in_tag`, `native_server_item_in_tag`). Bundles need \"hooks\": @API:server_tag_reads@.",
+  "comments": ["docs/native-mods.md"]
+}

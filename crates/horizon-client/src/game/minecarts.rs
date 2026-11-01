@@ -4,15 +4,16 @@
 //! `MinecartItem` placement, `VehicleEntity` breaking, the chest, hopper,
 //! furnace and TNT variants, saving, and `AbstractMinecartRenderer`'s old
 //! rail-following render with the display block.
-use super::{Game, Hit, Keys};
+use super::{Game, Hit, InteractTarget, Keys};
 use horizon_client::{
     blocks::Fluid,
     collisions::SceneCollisions,
     containers::BlockEntity,
     items::{ItemStack, Items},
     mesher::Vertex,
-    mobs::{Part, anim::Poses},
+    mobs::{Part, Species, Who, anim::Poses, riders},
     particles::{ParticleOptions, ParticleType},
+    scoreboard::pushable_by,
     sound_engine::{CartSound, SoundEngine, SoundInstance, Sounds},
 };
 use horizon_core::{
@@ -140,10 +141,30 @@ fn push_along(push: Vec3, movement: Vec3) -> Vec3 {
         push
     }
 }
+/// AbstractMinecart passenger attachment Y (EntityAttachments).
+const PASSENGER_Y: f64 = 0.1875;
 /// The minecart's passenger attachment minus Player.DEFAULT_VEHICLE_ATTACHMENT.
-pub(super) const SEAT: f64 = 0.1875 - 0.6;
+pub(super) const SEAT: f64 = PASSENGER_Y - 0.6;
 /// The placeholder container key under which an open cart's items live.
 pub(super) const CART_KEY_Y: i32 = horizon_client::lan::menu::VEHICLE_KEY_Y;
+
+/// `OldMinecartBehavior.pushAndPickupEntities`: living entities the cart
+/// offers `startRiding` instead of `Entity.push`. Players click to board;
+/// iron golems always push; a cart that already has a rider is `isVehicle`.
+fn pickup_instead_of_push(species: Species, is_passenger: bool, cart_is_vehicle: bool) -> bool {
+    !cart_is_vehicle && !is_passenger && species != Species::IronGolem
+}
+
+/// `Entity.canRide` for a cart: the boarding cooldown, and a warden never rides.
+fn can_ride_cart(species: Species, boarding_cooldown: i32) -> bool {
+    boarding_cooldown <= 0 && species != Species::Warden
+}
+
+/// `Entity.positionRider` on an `AbstractMinecart`: passenger attachment less
+/// the rider's own vehicle attachment.
+fn cart_seat(cart: Vec3, rider_offset: f64) -> Vec3 {
+    Vec3::new(cart.x, cart.y + PASSENGER_Y - rider_offset, cart.z)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Shape {
@@ -414,8 +435,9 @@ impl Game<'_> {
             base
         }
     }
-    /// `applyNaturalSlowdown` (with `MinecartFurnace`'s push).
-    fn natural_slowdown(&self, c: &mut Minecart, ridden: bool) -> Vec3 {
+    /// `applyNaturalSlowdown` (with `MinecartFurnace`'s push); `factor` is
+    /// `getSlowdownFactor`: 0.997 riding, the empty cart's own by behavior.
+    fn natural_slowdown(&self, c: &mut Minecart, ridden: bool, factor: f64) -> Vec3 {
         let mut v = c.velocity;
         let water = self.cart_in_water(c);
         if c.kind == CartKind::Furnace {
@@ -429,7 +451,7 @@ impl Game<'_> {
                 v = Vec3::new(v.x * 0.98, 0.0, v.z * 0.98);
             }
         }
-        let f = if ridden { 0.997 } else { 0.96 };
+        let f = if ridden { 0.997 } else { factor };
         let mut out = Vec3::new(v.x * f, 0.0, v.z * f);
         if water {
             out = Vec3::new(out.x * 0.95, 0.0, out.z * 0.95);
@@ -518,7 +540,7 @@ impl Game<'_> {
         } else if e1[1] != 0 && at(e1, c) {
             c.position.y += f64::from(e1[1]);
         }
-        c.velocity = self.natural_slowdown(c, ridden);
+        c.velocity = self.natural_slowdown(c, ridden, 0.96);
         if let (Some(new), Some(old)) =
             (self.rail_pos(c.position.x, c.position.y, c.position.z), old)
         {
@@ -559,6 +581,231 @@ impl Game<'_> {
             }
         }
     }
+    /// `AbstractMinecart`: `minecart_improvements` picks the smoother
+    /// physics.
+    fn minecart_improvements(&self) -> bool {
+        self.level
+            .enabled_features
+            .iter()
+            .any(|f| f == "minecraft:minecart_improvements")
+    }
+    /// `NewMinecartBehavior.getMaxSpeed`: the game rule over water's half,
+    /// every cart alike (the old behavior's furnace bonus is its own).
+    fn max_speed_new(&self, c: &Minecart) -> f64 {
+        if self.cart_in_water(c) { 0.2 } else { 0.4 }
+    }
+    /// `AbstractMinecart.getRedstoneDirection` (over the old port's
+    /// conductor proxy): which way a powered rail pushes a resting cart.
+    fn redstone_direction(&self, pos: [i32; 3], shape: Shape) -> Vec3 {
+        let (dx, dz) = match shape {
+            Shape::NorthSouth | Shape::AscendingNorth | Shape::AscendingSouth => (0, 1),
+            _ => (1, 0),
+        };
+        // The push points away from the signal's side (getRedstoneDirection).
+        if self.conductor(pos[0] - dx, pos[1], pos[2] - dz) {
+            Vec3::new(f64::from(dx), 0.0, f64::from(dz))
+        } else if self.conductor(pos[0] + dx, pos[1], pos[2] + dz) {
+            Vec3::new(f64::from(-dx), 0.0, f64::from(-dz))
+        } else {
+            Vec3::ZERO
+        }
+    }
+    /// `NewMinecartBehavior.isDecending`: the movement goes down the
+    /// shape's rise.
+    fn is_descending(movement: Vec3, shape: Shape) -> bool {
+        match shape {
+            Shape::AscendingEast => movement.x < 0.0,
+            Shape::AscendingWest => movement.x > 0.0,
+            Shape::AscendingNorth => movement.z > 0.0,
+            Shape::AscendingSouth => movement.z < 0.0,
+            _ => false,
+        }
+    }
+    /// `NewMinecartBehavior.moveAlongTrack`: the iteration keeps moving
+    /// while distance is left, over as many rails as it takes, the speed
+    /// recomputed per rail (slope, halt, boost).
+    fn move_along_track_new(&mut self, c: &mut Minecart, _rail: &Rail, intent: [f64; 2]) {
+        c.fall_distance = 0.0;
+        let ridden = Some(c.id) == self.riding;
+        // `TrackIteration`: the slope, halt and boost speeds each apply once
+        // per tick, and the iteration keeps moving while distance is left.
+        let mut first = true;
+        let mut movement_left = 0.0;
+        let mut slope_done = false;
+        let mut halted = false;
+        let mut boosted = false;
+        for _ in 0..16 {
+            if !first && movement_left <= 1.0e-5 {
+                break;
+            }
+            let pos = self.rail_block(c.position);
+            let Some(rail) = self.rail(pos[0], pos[1], pos[2]) else {
+                self.come_off_track(c);
+                return;
+            };
+            let initial_h = c.velocity.x.hypot(c.velocity.z);
+            let mut v = c.velocity;
+            // calculateSlopeSpeed (once per tick): the slide grows with the
+            // speed, so a descending cart keeps its pace.
+            if !slope_done {
+                let base: f64 = if self.cart_in_water(c) {
+                    0.0078125 * 0.2
+                } else {
+                    0.0078125
+                };
+                let slide = base.max(initial_h * 0.02);
+                let before = v.x.hypot(v.z);
+                match rail.shape {
+                    Shape::AscendingEast => v.x -= slide,
+                    Shape::AscendingWest => v.x += slide,
+                    Shape::AscendingNorth => v.z += slide,
+                    Shape::AscendingSouth => v.z -= slide,
+                    _ => {}
+                }
+                slope_done = v.x.hypot(v.z) != before;
+            }
+            // calculatePlayerInputSpeed (first iteration).
+            if first
+                && ridden
+                && (intent[0] != 0.0 || intent[1] != 0.0)
+                && v.x * v.x + v.z * v.z < 0.01
+            {
+                let l = (intent[0] * intent[0] + intent[1] * intent[1]).sqrt();
+                v.x += intent[0] / l * 0.001;
+                v.z += intent[1] / l * 0.001;
+                halted = true;
+            }
+            // calculateHaltTrackSpeed (until the input halted).
+            if !halted && &*rail.name == "minecraft:powered_rail" && !rail.powered {
+                let before = v.x.hypot(v.z);
+                if before < 0.03 {
+                    v = Vec3::ZERO;
+                } else {
+                    v = Vec3::new(v.x * 0.5, v.y, v.z * 0.5);
+                }
+                halted = v.x.hypot(v.z) != before;
+            }
+            // applyNaturalSlowdown and the speed cap (first iteration).
+            if first {
+                v = self.natural_slowdown(c, ridden, 0.975);
+                let len = v.x.hypot(v.z);
+                if len > 0.0 {
+                    let speed = len.min(self.max_speed_new(c));
+                    v = Vec3::new(v.x / len * speed, v.y, v.z / len * speed);
+                }
+            }
+            // calculateBoostTrackSpeed (once per tick).
+            if !boosted && &*rail.name == "minecraft:powered_rail" && rail.powered {
+                let len = v.x.hypot(v.z);
+                if len > 0.01 {
+                    v = Vec3::new(v.x / len * (len + 0.06), v.y, v.z / len * (len + 0.06));
+                } else {
+                    let dir = self.redstone_direction(pos, rail.shape);
+                    if dir != Vec3::ZERO {
+                        v = Vec3::new(dir.x * 0.2, v.y, dir.z * 0.2);
+                    }
+                }
+                boosted = true;
+            }
+            c.velocity = v;
+            let new_h = v.x.hypot(v.z);
+            movement_left = if first {
+                new_h
+            } else {
+                movement_left + (new_h - initial_h)
+            };
+            movement_left = self.new_step_along_track(c, pos, &rail, movement_left);
+            first = false;
+        }
+    }
+    /// `NewMinecartBehavior.stepAlongTrack`: toward the rail's exit, the
+    /// hill's Y projected, a V of opposing slopes resting a slow cart.
+    fn new_step_along_track(
+        &mut self,
+        c: &mut Minecart,
+        pos: [i32; 3],
+        rail: &Rail,
+        mut movement_left: f64,
+    ) -> f64 {
+        if movement_left < 1.0e-5 {
+            return 0.0;
+        }
+        let old = c.position;
+        let (e0, e1) = rail.shape.exits();
+        let movement = Vec3::new(c.velocity.x, 0.0, c.velocity.z);
+        if movement.x.hypot(movement.z) < 1.0e-5 {
+            c.velocity = Vec3::ZERO;
+            return 0.0;
+        }
+        let in_hill = e0[1] != e1[1];
+        let mut out_dir = Vec3::new(f64::from(e0[0]) * 0.5, 0.0, f64::from(e0[2]) * 0.5);
+        let in_dir = Vec3::new(f64::from(e1[0]) * 0.5, 0.0, f64::from(e1[2]) * 0.5);
+        if movement.dot(out_dir) < movement.dot(in_dir) {
+            out_dir = in_dir;
+        }
+        let out_len = out_dir.x.hypot(out_dir.z);
+        let mut out_pos = Vec3::new(
+            f64::from(pos[0]) + 0.5 + out_dir.x + out_dir.x / out_len * 1.0e-5,
+            f64::from(pos[1]) + 0.1,
+            f64::from(pos[2]) + 0.5 + out_dir.z + out_dir.z / out_len * 1.0e-5,
+        );
+        if in_hill && !Self::is_descending(c.velocity, rail.shape) {
+            out_pos.y += 1.0;
+        }
+        let towards_out = c.position.vector_to(out_pos).normalize();
+        // The movement turns onto the exit's direction, at the same speed
+        // (`this.setDeltaMovement(movement)` at stepAlongTrack's end).
+        let h_speed = movement.x.hypot(movement.z);
+        let th = towards_out.x.hypot(towards_out.z);
+        let movement = towards_out.scale(h_speed / th);
+        let mut new_pos = if in_hill {
+            old.add_vector(
+                movement
+                    .normalize()
+                    .scale(movement_left * std::f64::consts::SQRT_2),
+            )
+        } else {
+            old.add_vector(movement.normalize().scale(movement_left))
+        };
+        if out_pos.distance(old) <= new_pos.distance(old) {
+            movement_left = out_pos.vector_to(new_pos).horizontal_distance();
+            new_pos = out_pos;
+        } else {
+            movement_left = 0.0;
+        }
+        self.move_cart(c, old.vector_to(new_pos));
+        if in_hill {
+            let new_block = self.rail_block(c.position);
+            if let Some(new_rail) = self.rail(new_block[0], new_block[1], new_block[2]) {
+                // restAtVShape: opposing slopes rest a slow cart.
+                if c.velocity.length() < 0.005_f64.sqrt()
+                    && new_rail.shape.is_slope()
+                    && Self::is_descending(c.velocity, rail.shape)
+                    && !Self::is_descending(c.velocity, new_rail.shape)
+                {
+                    c.velocity = Vec3::ZERO;
+                    return 0.0;
+                }
+            }
+            let h_dist = (out_pos.x - c.position.x).hypot(out_pos.z - c.position.z);
+            let project = out_pos.y
+                + if Self::is_descending(movement, rail.shape) {
+                    h_dist
+                } else {
+                    -h_dist
+                };
+            if c.position.y < project {
+                c.position.y = project;
+            }
+        }
+        // The cart did not move but the step would have: it is stuck.
+        if c.position.distance(old) < 1.0e-5 && new_pos.distance(old) > 1.0e-5 {
+            c.velocity = Vec3::ZERO;
+            return 0.0;
+        }
+        c.velocity = movement;
+        movement_left
+    }
     /// `comeOffTrack`.
     fn come_off_track(&self, c: &mut Minecart) {
         let max = self.max_speed(c);
@@ -594,7 +841,11 @@ impl Game<'_> {
         c.velocity.y -= if self.cart_in_water(c) { 0.005 } else { 0.04 };
         let pos = self.rail_block(c.position);
         if let Some(rail) = self.rail(pos[0], pos[1], pos[2]) {
-            self.move_along_track(c, pos, &rail, intent);
+            if self.minecart_improvements() {
+                self.move_along_track_new(c, &rail, intent);
+            } else {
+                self.move_along_track(c, pos, &rail, intent);
+            }
             if &*rail.name == "minecraft:activator_rail" {
                 self.activate_cart(c, rail.powered);
             }
@@ -663,8 +914,15 @@ impl Game<'_> {
     fn activate_cart(&mut self, c: &mut Minecart, powered: bool) {
         match c.kind {
             CartKind::Rideable if powered => {
+                // Minecart.activateMinecart: ejectPassengers.
                 if self.riding == Some(c.id) {
                     self.riding = None;
+                }
+                let y = c.position.y;
+                for m in self.mobs.iter_mut().filter(|m| m.extra.mount == Some(c.id)) {
+                    let at = Vec3::new(m.position.x, m.position.y.max(y), m.position.z);
+                    riders::stop_riding(m, Some(at));
+                    m.previous = at;
                 }
                 if c.hurt_time == 0 {
                     c.hurt_dir = -c.hurt_dir;
@@ -702,10 +960,19 @@ impl Game<'_> {
         let at = [c.position.x, c.position.y, c.position.z];
         // The cart is the explosion's source: it is gone before the blast
         // looks for entities, so it can't hit itself.
+        if let Some(i) = self.carts.iter().position(|x| x.id == c.id) {
+            self.eject_cart_mobs(i);
+        }
         self.carts.retain(|x| x.id != c.id);
         // ExplosionInteraction.TNT: the tnt_explosion_drop_decay rule.
         let interaction = self.destroy_type("tnt_explosion_drop_decay");
+        // MinecartTNT.isPrimed (fuse > -1): a cart that ran into a wall or
+        // fell unprimed blows rails up like any blast.
+        self.combat.rail_proof_blast = c.fuse >= 0;
+        self.combat.explosion_in_water = self.bounds_in_water(c.bounds());
         let _ = self.with_hive_emptying_blast(|g| g.server_explode(at, power, interaction, false));
+        self.combat.explosion_in_water = false;
+        self.combat.rail_proof_blast = false;
     }
     /// `AbstractMinecart.push` from each player walking into a cart
     /// (`LivingEntity.pushEntities`): the window's player and every server
@@ -816,6 +1083,111 @@ impl Game<'_> {
             self.carts[j].velocity = nt;
             self.carts[i].velocity = no;
         }
+        self.pickup_from_cart(i);
+    }
+    /// `OldMinecartBehavior.pushAndPickupEntities` for living entities in cart
+    /// `i`'s box (0.2 wider on each side): only a rideable cart moving at
+    /// `horizontalDistanceSqr() >= 0.01` picks up; an eligible mob boards an
+    /// empty cart (`startRiding`); others get `Entity.push`.
+    fn pickup_from_cart(&mut self, i: usize) {
+        let v = self.carts[i].velocity;
+        if self.carts[i].kind != CartKind::Rideable || v.x * v.x + v.z * v.z < 0.01 {
+            return;
+        }
+        let reach = f64::from(0.2f32);
+        let id = self.carts[i].id;
+        let pos = self.carts[i].position;
+        let hitbox = self.carts[i].bounds().inflate(Vec3::new(reach, 0.0, reach));
+        let mut occupied = self.riding == Some(id)
+            || self.ridden_by_guest(id)
+            || self.mobs.iter().any(|m| m.extra.mount == Some(id));
+        let teams = self.mob_teams();
+        let candidates: Vec<usize> = (0..self.mobs.len())
+            .filter(|&j| {
+                let m = &self.mobs[j];
+                if m.removed || !m.pushable() || m.extra.mount == Some(id) {
+                    return false;
+                }
+                if !hitbox.intersects(m.bounds()) {
+                    return false;
+                }
+                pushable_by(None, teams.of(Who::Mob(m.id)), true)
+            })
+            .collect();
+        drop(teams);
+        for j in candidates {
+            let species = self.mobs[j].species();
+            let player = &*self.mobs[j].kind.id == "minecraft:player";
+            let cooldown = self.mobs[j].extra.boarding_cooldown;
+            let passenger = self.mobs[j].extra.mount.is_some();
+            if pickup_instead_of_push(species, passenger, occupied) && !player {
+                if can_ride_cart(species, cooldown) {
+                    let mob = self.mobs[j].id;
+                    {
+                        let m = &mut self.mobs[j];
+                        m.extra.mount = Some(id);
+                        m.extra.passenger = true;
+                        m.ai.nav.stop();
+                        m.needs_sync = true;
+                    }
+                    occupied = true;
+                    self.break_leash(mob, true, false);
+                }
+                continue;
+            }
+            let other = self.mobs[j].position;
+            let Some(v) = super::boat_passengers::push_impulse(pos, other) else {
+                continue;
+            };
+            if !occupied {
+                self.carts[i].velocity = self.carts[i].velocity.subtract(v);
+            }
+            let m = &mut self.mobs[j];
+            if m.pushable() {
+                m.velocity = m.velocity.add_vector(v);
+                m.needs_sync = true;
+            }
+        }
+    }
+    /// `positionRider` for the mobs in minecarts: each sits on the cart's
+    /// passenger attachment, less its own vehicle attachment.
+    pub(super) fn seat_cart_mobs(&mut self) {
+        for i in 0..self.carts.len() {
+            let id = self.carts[i].id;
+            let (pos, prev) = (self.carts[i].position, self.carts[i].previous);
+            let seats: Vec<(usize, f64)> = self
+                .mobs
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.extra.mount == Some(id))
+                .map(|(j, m)| (j, riders::vehicle_attachment(m)))
+                .collect();
+            for (j, offset) in seats {
+                let m = &mut self.mobs[j];
+                m.position = cart_seat(pos, offset);
+                m.previous = cart_seat(prev, offset);
+                m.velocity = Vec3::ZERO;
+                m.fall_distance = 0.0;
+                m.on_ground = false;
+                m.extra.passenger = true;
+                m.ai.nav.stop();
+            }
+        }
+    }
+    /// `ejectPassengers` for the mobs in cart `i`.
+    pub(super) fn eject_cart_mobs(&mut self, i: usize) {
+        let (id, y) = (self.carts[i].id, self.carts[i].position.y);
+        let js: Vec<usize> = (0..self.mobs.len())
+            .filter(|&j| self.mobs[j].extra.mount == Some(id))
+            .collect();
+        for j in js {
+            let at = {
+                let m = &self.mobs[j];
+                Vec3::new(m.position.x, m.position.y.max(y), m.position.z)
+            };
+            riders::stop_riding(&mut self.mobs[j], Some(at));
+            self.mobs[j].previous = at;
+        }
     }
     /// Every cart but the ridden one (which ticks with its rider).
     pub(super) fn tick_carts(&mut self) {
@@ -853,6 +1225,7 @@ impl Game<'_> {
                     self.perform_cart_command(id);
                 }
             } else {
+                self.eject_cart_mobs(i);
                 self.carts.remove(i);
             }
         }
@@ -957,6 +1330,7 @@ impl Game<'_> {
             self.carts[i] = c;
             self.push_from_cart(i);
         } else {
+            self.eject_cart_mobs(i);
             self.carts.remove(i);
             self.riding = None;
         }
@@ -1050,7 +1424,7 @@ impl Game<'_> {
     }
     pub(super) fn cart_hit(&self) -> Option<(usize, f64)> {
         let (eye, dir) = self.aim()?;
-        let reach: f64 = if self.creative { 5.0 } else { 3.0 };
+        let reach: f64 = self.entity_reach;
         let mut best: Option<(usize, f64)> = None;
         for (i, c) in self.carts.iter().enumerate() {
             if Some(c.id) == self.riding {
@@ -1090,42 +1464,33 @@ impl Game<'_> {
             self.trigger_loot_table(&loot.table);
         }
     }
-    /// `interact`: ride, open, fuel or ignite the cart under the crosshair.
-    pub(super) fn interact_cart(&mut self) -> bool {
-        let Some((i, d)) = self.cart_hit() else {
+    /// `interact`: ride, open, fuel or ignite the cart under the crosshair, or
+    /// the one a guest's interact packet named.
+    pub(super) fn interact_cart(&mut self, target: Option<InteractTarget>) -> bool {
+        let Some((i, d)) = (match target {
+            Some(t) => Self::named_entity(&self.carts, t.id, |c| c.id).map(|i| (i, 0.0)),
+            None => self.cart_hit(),
+        }) else {
             return false;
         };
-        if !self.before_block(d) {
+        // Only a client's own pick is stopped by a block: the range check passed.
+        if target.is_none() && !self.before_block(d) {
             return false;
         }
         let sneaking = self.keys.contains(&winit::keyboard::KeyCode::ShiftLeft);
         let held = self.held().cloned();
         match self.carts[i].kind {
             CartKind::Rideable => {
-                if sneaking || self.riding.is_some() || self.ridden_by_guest(self.carts[i].id) {
+                let id = self.carts[i].id;
+                // isVehicle: a mob already sits in it.
+                let has_mob = self.mobs.iter().any(|m| m.extra.mount == Some(id));
+                if sneaking || self.riding.is_some() || self.ridden_by_guest(id) || has_mob {
                     return false;
                 }
                 self.riding = Some(self.carts[i].id);
             }
             // AbstractMinecartContainer.interact: no sneak check.
-            CartKind::Chest | CartKind::Hopper => {
-                self.unpack_cart_loot(i);
-                let c = self.carts[i].clone();
-                let key = (i32::MAX - 15, CART_KEY_Y, c.id as i32);
-                self.world
-                    .block_entities
-                    .insert(key, BlockEntity::Chest(c.items.clone()));
-                self.container = Some(key);
-                self.screen = super::Screen::Inventory;
-                self.capture(false);
-                self.right = false;
-                if c.kind == CartKind::Chest {
-                    let at = [c.position.x, c.position.y, c.position.z];
-                    let pitch = self.world.random.next_float() * 0.1 + 0.9;
-                    self.audio
-                        .play("minecraft:block.chest.open", Some(at), 0.5, pitch);
-                }
-            }
+            CartKind::Chest | CartKind::Hopper => self.open_cart_container(i),
             CartKind::Furnace => {
                 let fuel = held
                     .as_ref()
@@ -1162,6 +1527,32 @@ impl Game<'_> {
         self.swing_arm();
         true
     }
+    /// `AbstractMinecartContainer.interact`: the menu opens over the cart's
+    /// own slots, kept under a placeholder key until it closes
+    /// (`store_cart_items`/`close_cart_container`).
+    pub(super) fn open_cart_container(&mut self, i: usize) {
+        self.unpack_cart_loot(i);
+        let c = self.carts[i].clone();
+        let key = (i32::MAX - 15, CART_KEY_Y, c.id as i32);
+        self.world
+            .block_entities
+            .insert(key, BlockEntity::Chest(c.items.clone()));
+        self.container = Some(key);
+        self.screen = super::Screen::Inventory;
+        self.capture(false);
+        self.right = false;
+        if c.kind == CartKind::Chest {
+            // `MinecartChest.interact` (which overrides
+            // `AbstractMinecartContainer.interact`): a successful open fires
+            // CONTAINER_OPEN with the player and angers the piglins that see
+            // it. `MinecartHopper` does not override it, so a hopper minecart
+            // fires neither. Vanilla plays no open sound for a chest minecart.
+            let at = [c.position.x, c.position.y, c.position.z];
+            let ctx = self.player_context(None);
+            self.post_game_event("minecraft:container_open", at, ctx);
+            self.anger_piglins(true);
+        }
+    }
     /// Closing the cart's container open under `key` copies the items back.
     pub(super) fn close_cart_container(&mut self, key: (i32, i32, i32)) {
         if key.1 != CART_KEY_Y {
@@ -1169,14 +1560,6 @@ impl Game<'_> {
         }
         self.store_cart_items(key);
         self.world.block_entities.remove(&key);
-        if let Some(c) = self.carts.iter().find(|c| c.id as i32 == key.2)
-            && c.kind == CartKind::Chest
-        {
-            let at = [c.position.x, c.position.y, c.position.z];
-            let pitch = self.world.random.next_float() * 0.1 + 0.9;
-            self.audio
-                .play("minecraft:block.chest.close", Some(at), 0.5, pitch);
-        }
     }
     /// The menu of a chest or hopper minecart or a chest boat works on the
     /// vehicle's own items (`ContainerEntity`): the placeholder under `key`
@@ -1244,6 +1627,7 @@ impl Game<'_> {
             return;
         }
         if burning && self.carts[i].kind == CartKind::Tnt {
+            self.eject_cart_mobs(i);
             let c = self.carts.remove(i);
             self.explode_cart(&c, arrow_velocity.length_squared());
             return;
@@ -1254,14 +1638,22 @@ impl Game<'_> {
     /// once for creative players); TNT minecarts prime instead when moving
     /// or hurt by fire or an explosion (`damageSourceIgnitesTnt`).
     pub(super) fn hurt_cart(&mut self, i: usize, damage: f32, creative: bool, fire: bool) {
-        let c = &mut self.carts[i];
-        c.hurt_dir = -c.hurt_dir;
-        c.hurt_time = 10;
-        c.damage += damage * 10.0;
-        let destroyed = creative || c.damage > 40.0;
+        let destroyed = {
+            let c = &mut self.carts[i];
+            c.hurt_dir = -c.hurt_dir;
+            c.hurt_time = 10;
+            c.damage += damage * 10.0;
+            creative || c.damage > 40.0
+        };
         if destroyed {
+            let speed = self.carts[i].velocity.x * self.carts[i].velocity.x
+                + self.carts[i].velocity.z * self.carts[i].velocity.z;
+            let tnt_prime =
+                self.carts[i].kind == CartKind::Tnt && (fire || speed >= f64::from(0.01f32));
+            if !tnt_prime {
+                self.eject_cart_mobs(i);
+            }
             let mut c = self.carts.remove(i);
-            let speed = c.velocity.x * c.velocity.x + c.velocity.z * c.velocity.z;
             if c.kind == CartKind::Tnt && (fire || speed >= f64::from(0.01f32)) {
                 // MinecartTNT.destroy: prime instead of breaking.
                 if c.fuse < 0 {
@@ -1500,7 +1892,7 @@ impl Game<'_> {
                     ))
                     * glam::Mat4::from_rotation_y(90f32.to_radians());
                 if c.kind == CartKind::Chest {
-                    self.cart_chest(state, display, l, out);
+                    self.special_block_model(state, display, l, out);
                 } else {
                     // TNT minecarts flash white as the fuse runs out (TntMinecartRenderer).
                     let swell = if c.kind == CartKind::Tnt && c.fuse > -1 {
@@ -1535,8 +1927,15 @@ impl Game<'_> {
             self.cull_entity_vertices(out, entity_start);
         }
     }
-    /// The chest inside a chest minecart, drawn by the chest block-entity renderer.
-    fn cart_chest(&self, state: BlockStateId, m: glam::Mat4, light: u8, out: &mut Vec<Vertex>) {
+    /// The model of a block drawn by its block-entity renderer, as a chest
+    /// minecart shows its chest and a block display its special block.
+    pub(super) fn special_block_model(
+        &self,
+        state: BlockStateId,
+        m: glam::Mat4,
+        light: u8,
+        out: &mut Vec<Vertex>,
+    ) {
         let lid = |_: [i32; 3]| 0.0;
         let scene = horizon_client::block_entity_render::Scene {
             camera: glam::DVec3::ZERO,
@@ -1686,6 +2085,26 @@ mod tests {
         assert_eq!(display_offset(CartKind::Tnt), 6.0);
         assert_eq!(display_offset(CartKind::CommandBlock), 6.0);
         assert_eq!(display_offset(CartKind::Rideable), 6.0);
+    }
+
+    #[test]
+    fn a_cow_boards_an_empty_cart_and_an_iron_golem_does_not() {
+        assert!(pickup_instead_of_push(Species::Cow, false, false));
+        assert!(can_ride_cart(Species::Cow, 0));
+        assert!(!pickup_instead_of_push(Species::IronGolem, false, false));
+        assert!(!pickup_instead_of_push(Species::Cow, false, true));
+        assert!(!pickup_instead_of_push(Species::Cow, true, false));
+        assert!(!can_ride_cart(Species::Cow, 60));
+        assert!(!can_ride_cart(Species::Warden, 0));
+    }
+
+    #[test]
+    fn a_cart_seat_matches_the_player_offset() {
+        let at = Vec3::new(1.0, 10.0, 2.0);
+        assert!((cart_seat(at, 0.0).y - 10.1875).abs() < 1e-12);
+        assert!((cart_seat(at, 0.6).y - (10.0 + SEAT)).abs() < 1e-12);
+        assert_eq!(cart_seat(at, 0.0).x, 1.0);
+        assert_eq!(cart_seat(at, 0.0).z, 2.0);
     }
 
     #[test]

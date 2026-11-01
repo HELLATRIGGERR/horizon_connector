@@ -223,7 +223,7 @@ impl Game<'_> {
             .chunks
             .get(&(x >> 4, z >> 4))
             .map_or("minecraft:plains", |c| {
-                self.res.biomes().list[c.biome(x, y, z) as usize]
+                world_biomes!(self).list[c.biome(x, y, z) as usize]
                     .name
                     .as_str()
             })

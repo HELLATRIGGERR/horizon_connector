@@ -268,6 +268,9 @@ pub const COMMANDS: &[Cmd] = &[
         "N defaults to 20; chat is newest first.", ["horizon-ctl messages 5"], &[opt("n", Ty::Int, "how many chat lines (default 20)")], mcp: true, local: false),
     cmd!("menu", Observe, "menu", "the open menu's slots and carried stack, with station details", "",
         ["horizon-ctl menu"], &[], mcp: false, local: false),
+    cmd!("narration", Observe, "narration", "what the narrator was last asked to say, oldest first, and its status",
+        "recent holds the last 32 messages the narrator's status let through, said aloud or not; status is the Narrator option (off, all, chat or system) and active whether text-to-speech is there (with HORIZON_NO_AUDIO it is, silently).",
+        ["horizon-ctl narration"], &[], mcp: true, local: false),
     // Move
     cmd!("move", Move, "move forward|back|left|right SECONDS [--sprint] [--sneak] [--jump]", "walk in a direction relative to the view for a time",
         "Replies when done with the start and end positions.",

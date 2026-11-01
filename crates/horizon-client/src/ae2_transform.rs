@@ -192,6 +192,7 @@ mod tests {
             pickup_delay: 0,
             bob_offset: 0.0,
             ticks: 0,
+            needs_sync: false,
         }
     }
     #[test]

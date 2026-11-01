@@ -29,7 +29,25 @@ pub(crate) struct NativeServerPlayer {
     pub(crate) game_mode: i32,
     /// Health points, 20 at full; 0 once dead. API 21.
     pub(crate) health: f32,
+    /// Where they look, in degrees (`yRot`, `xRot`), as their last move told
+    /// the server. API 49.
+    pub(crate) yaw: f32,
+    pub(crate) pitch: f32,
 }
+
+/// A sidebar a server mod shows one player (`native_sidebar`): its title and
+/// up to 15 lines, top first, each a text on the left and, where the score's
+/// number would be, an optional text on the right. API 49.
+#[allow(dead_code)]
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct NativeSidebar {
+    pub(crate) title: Text,
+    pub(crate) lines: Vec<(Text, Option<Text>)>,
+}
+
+/// The objective a mod's sidebar is sent as: the player's client only; the
+/// server's scoreboard never holds it.
+const SIDEBAR_OBJECTIVE: &str = "horizon:native_sidebar";
 
 /// A command a native mod adds, as one usage: words, then arguments
 /// `<name:kind>`, optional ones last in brackets `[name:kind]`:
@@ -252,6 +270,8 @@ impl Game<'_> {
                 position: g.position,
                 game_mode: g.game_mode,
                 health: g.health,
+                yaw: g.yaw,
+                pitch: g.pitch,
             })
             .collect()
     }
@@ -274,8 +294,16 @@ impl Game<'_> {
             content: component_nbt(&line.component()),
             overlay: true,
         });
+        self.native_send(uuid, packet)
+    }
+    /// Sends `packet` to that player, also when they are the acting player
+    /// (their packets then go after the hook); false when they aren't on.
+    fn native_send(&mut self, uuid: u128, packet: C) -> bool {
+        self.native_send_all(uuid, vec![packet])
+    }
+    fn native_send_all(&mut self, uuid: u128, packets: Vec<C>) -> bool {
         if self.lan_acting_uuid == Some(uuid) {
-            self.guest_packets.push(packet);
+            self.guest_packets.extend(packets);
             return true;
         }
         let Some(host) = &self.lan else {
@@ -284,8 +312,127 @@ impl Game<'_> {
         let Some(g) = host.hub.guests.iter().find(|g| g.placed && g.uuid == uuid) else {
             return false;
         };
-        host.hub.send_to(g.conn, &packet);
+        for packet in &packets {
+            host.hub.send_to(g.conn, packet);
+        }
         true
+    }
+    /// Shows `sidebar` on that player's screen, in place of the one shown
+    /// before, or takes it away (None). Only their client holds it: the
+    /// server's scoreboard, its `/scoreboard` and the other players don't
+    /// see it, and it is gone when they leave (a mod sends it again when
+    /// they come back). It takes the sidebar's place from an objective the
+    /// world shows there, for this player, until they rejoin. False when
+    /// they aren't on. API 49.
+    pub(super) fn native_sidebar(&mut self, uuid: u128, sidebar: Option<&NativeSidebar>) -> bool {
+        let objective = SIDEBAR_OBJECTIVE.to_owned();
+        // Removed first, so the new one's lines replace all the old ones.
+        let mut packets = vec![C::SetObjective(play::SetObjective {
+            name: objective.clone(),
+            method: 1,
+            display: None,
+        })];
+        if let Some(sidebar) = sidebar {
+            let title = component_nbt(&sidebar.title.component());
+            packets.push(C::SetObjective(play::SetObjective {
+                name: objective.clone(),
+                method: 0,
+                display: Some((title, 0, Some(play::NumberFormat::Blank))),
+            }));
+            // DisplaySlot.SIDEBAR.
+            packets.push(C::SetDisplayObjective(play::SetDisplayObjective {
+                slot: 1,
+                objective: objective.clone(),
+            }));
+            let lines = &sidebar.lines[..sidebar.lines.len().min(15)];
+            for (i, (left, right)) in lines.iter().enumerate() {
+                packets.push(C::SetScore(play::SetScore {
+                    // Highest first. The display name shows, not the owner;
+                    // an owner starting with '#' is hidden from the sidebar
+                    // (ScoreHolder's isHidden), and ':' is in no player's name.
+                    owner: format!("horizon:line{i:02}"),
+                    objective: objective.clone(),
+                    score: (lines.len() - i) as i32,
+                    display: Some(component_nbt(&left.component())),
+                    number_format: Some(match right {
+                        Some(t) => play::NumberFormat::Fixed(component_nbt(&t.component())),
+                        None => play::NumberFormat::Blank,
+                    }),
+                }));
+            }
+        }
+        self.native_send_all(uuid, packets)
+    }
+    /// The lines over and under that player's list of players (Tab):
+    /// `ClientboundTabListPacket`, an empty text for none. False when they
+    /// aren't on. API 49.
+    pub(super) fn native_tab_list(&mut self, uuid: u128, header: &Text, footer: &Text) -> bool {
+        let packet = C::TabList(play::TabList {
+            header: component_nbt(&header.component()),
+            footer: component_nbt(&footer.component()),
+        });
+        self.native_send(uuid, packet)
+    }
+    /// The server's tick rate (20 unless `/tick rate` changed it) and the
+    /// milliseconds its ticks took on average lately, as `/tick query`
+    /// reports them. The ticks a second it keeps up is the rate, or
+    /// 1000 / milliseconds when that is lower. API 49.
+    pub(super) fn native_tick_stats(&self) -> (f32, f64) {
+        (
+            self.clock.rate(),
+            self.clock.average_nanos() as f64 / 1_000_000.0,
+        )
+    }
+    /// Whether that player counts for `players_sleeping_percentage`: an
+    /// ignored player who isn't in bed is left out of the players the night
+    /// needs asleep, as a spectator is (an away-from-keyboard mod). Kept
+    /// until a mod sets it back or the server stops, also if they leave and
+    /// come back. Only where no player's state is swapped in, as
+    /// `native_run_command`; false there and when they aren't on. API 49.
+    pub(super) fn native_sleep_ignored(&mut self, uuid: u128, ignored: bool) -> bool {
+        let Some(host) = &mut self.lan else {
+            return false;
+        };
+        if !host.hub.guests.iter().any(|g| g.placed && g.uuid == uuid) {
+            return false;
+        }
+        if ignored {
+            host.sleep_ignored.insert(uuid);
+        } else {
+            host.sleep_ignored.remove(&uuid);
+        }
+        true
+    }
+    /// Shows `nickname` in place of that player's name in chat (their
+    /// messages, `/me`, `/msg`) and in the Tab list; None shows their name
+    /// again. Hovering the shown name gives the real one, which stays in the
+    /// log, commands, selectors and the server's events. Kept until a mod
+    /// sets it again or the server stops (also if they leave and come back).
+    /// Plain text: the mod checks it (`native_text_allowed`, its length,
+    /// other players' names). Only where no player's state is swapped in,
+    /// as `native_run_command`; false there and when they aren't on. API
+    /// 62.
+    pub(super) fn native_set_nickname(&mut self, uuid: u128, nickname: Option<&str>) -> bool {
+        let Some(host) = &mut self.lan else {
+            return false;
+        };
+        if !host.hub.guests.iter().any(|g| g.placed && g.uuid == uuid) {
+            return false;
+        }
+        host.hub.set_nickname(uuid, nickname.map(str::to_owned));
+        true
+    }
+    /// Whether the server's chat filter (`server.toml` `[chat_filter]`)
+    /// lets `text` through: true without a filter, None inside a player's
+    /// hook (where the server is out of reach). API 62.
+    pub(super) fn native_text_allowed(&self, text: &str) -> Option<bool> {
+        let host = self.lan.as_ref()?;
+        Some(
+            host.hub
+                .chat_filter
+                .as_ref()
+                .is_none_or(|g| !g.filter.matches(text)),
+        )
     }
     /// A system line in every player's chat and the server's log.
     pub(super) fn native_broadcast(&self, line: Text) {
@@ -326,6 +473,8 @@ impl Game<'_> {
             position: [p.position.x, p.position.y, p.position.z],
             game_mode: self.mode_id(),
             health: p.health.health(),
+            yaw: p.yaw,
+            pitch: p.pitch,
         })
     }
     /// Runs `line` (no slash) as the server's console does: permission
@@ -608,6 +757,8 @@ impl Game<'_> {
             position: g.position,
             game_mode: g.game_mode,
             health: g.health,
+            yaw: g.yaw,
+            pitch: g.pitch,
         };
         let mut ran = false;
         self.native_perform_command(&player, line, &mut ran);

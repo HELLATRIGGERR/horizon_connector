@@ -45,23 +45,41 @@ pub(super) fn aim_deflect(
     p.acceleration = 0.1;
 }
 
-/// Its box for the crosshair: the entity's (a fireball 1 x 1, a wind charge
-/// 0.3125, from its feet up) grown by the pick radius.
+/// `Entity.getPickRadius`: only `AbstractHurtingProjectile` has one (1); a shulker
+/// bullet's is 0.
+fn pick_radius(p: &Projectile) -> f64 {
+    if matches!(p.kind, ProjectileKind::ShulkerBullet { .. }) {
+        0.0
+    } else {
+        PICK_RADIUS
+    }
+}
+
+/// A projectile a player's blow reaches: a redirectable one, or a shulker bullet
+/// (`isPickable` and `isAttackable`), which `ShulkerBullet.hurtServer` pops.
+pub(super) fn attackable(p: &Projectile) -> bool {
+    redirectable(p) || (!p.stuck && matches!(p.kind, ProjectileKind::ShulkerBullet { .. }))
+}
+
+/// Its box for the crosshair: the entity's (a fireball 1 x 1, a wind charge or a
+/// shulker bullet 0.3125, from its feet up) grown by the pick radius, which only
+/// `AbstractHurtingProjectile` has (`getPickRadius`: 1; a shulker bullet's is 0).
 fn pick_box(p: &Projectile) -> Aabb {
     let size = match p.kind {
         ProjectileKind::LargeFireball { .. } => 1.0,
         _ => 0.3125,
     };
-    let half = size / 2.0 + PICK_RADIUS;
+    let radius = pick_radius(p);
+    let half = size / 2.0 + radius;
     Aabb::new(
         Vec3::new(
             p.position.x - half,
-            p.position.y - PICK_RADIUS,
+            p.position.y - radius,
             p.position.z - half,
         ),
         Vec3::new(
             p.position.x + half,
-            p.position.y + size + PICK_RADIUS,
+            p.position.y + size + radius,
             p.position.z + half,
         ),
     )
@@ -72,12 +90,12 @@ impl Game<'_> {
     /// reach, and how far along the view it is.
     pub(super) fn redirectable_hit(&self) -> Option<(usize, f64)> {
         let (eye, dir) = self.aim()?;
-        let reach: f64 = if self.creative { 5.0 } else { 3.0 };
+        let reach: f64 = self.entity_reach;
         self.creatures
             .projectiles
             .iter()
             .enumerate()
-            .filter(|(_, p)| redirectable(p))
+            .filter(|(_, p)| attackable(p))
             .filter_map(|(i, p)| ray_box(eye, dir, reach, pick_box(p)).map(|t| (i, t)))
             .min_by(|a, b| a.1.total_cmp(&b.1))
     }
@@ -94,7 +112,7 @@ impl Game<'_> {
         if self.mob_hit().is_some_and(|(_, d)| d < t) {
             return false;
         }
-        if let (Some(hit), Some(eye)) = (self.pick(), self.eye_position()) {
+        if let (Some(hit), Some(eye)) = (self.pick_unfiltered(), self.eye_position()) {
             let d = (0..3)
                 .map(|a| (hit.point[a] - eye[a]).powi(2))
                 .sum::<f64>()
@@ -103,8 +121,35 @@ impl Game<'_> {
                 return false;
             }
         }
-        self.deflect(i);
+        if matches!(
+            self.creatures.projectiles[i].kind,
+            ProjectileKind::ShulkerBullet { .. }
+        ) {
+            self.hit_shulker_bullet(i);
+        } else {
+            self.deflect(i);
+        }
         true
+    }
+
+    /// `ShulkerBullet.hurtServer` from a player's blow: the hurt sound, fifteen crit
+    /// particles (`sendParticles`, spread 0.2) and `destroy`. The blow is
+    /// `Player.attack` on a target that is not a mob: its sounds, then the swing.
+    pub(super) fn hit_shulker_bullet(&mut self, i: usize) {
+        let p = self.creatures.projectiles.remove(i);
+        let at = [p.position.x, p.position.y, p.position.z];
+        self.audio
+            .play("minecraft:entity.shulker_bullet.hurt", Some(at), 1.0, 1.0);
+        if let Some(ty) = horizon_client::particles::ParticleType::from_name("crit") {
+            let options = horizon_client::particles::ParticleOptions::simple(ty);
+            self.particles
+                .send_particles(&options, at, [0.2, 0.2, 0.2], 0.0, 15);
+            self.lan_level_particles(&options, at, [0.2, 0.2, 0.2], 0.0, 15, None);
+        }
+        let (_, _, _, magic) = self.melee_damage("minecraft:shulker_bullet", false);
+        self.vehicle_attack_sounds(p.aabb(), magic.then_some(p.id as i32));
+        self.reset_attack_strength();
+        self.swing_arm();
     }
 
     /// `Player.canInteractWithEntity(box, 3.0)` as the server checks an
@@ -115,14 +160,15 @@ impl Game<'_> {
         };
         let b = pick_box(p);
         let (lo, hi) = (b.min_position(), b.max_position());
+        let r = pick_radius(&self.creatures.projectiles[i]);
         let (lo, hi) = (
-            [lo.x + PICK_RADIUS, lo.y + PICK_RADIUS, lo.z + PICK_RADIUS],
-            [hi.x - PICK_RADIUS, hi.y - PICK_RADIUS, hi.z - PICK_RADIUS],
+            [lo.x + r, lo.y + r, lo.z + r],
+            [hi.x - r, hi.y - r, hi.z - r],
         );
         let d2: f64 = (0..3)
             .map(|a| (eye[a] - eye[a].clamp(lo[a], hi[a])).powi(2))
             .sum();
-        let range = if self.creative { 5.0 } else { 3.0 } + 3.0;
+        let range = self.entity_reach + 3.0;
         d2 < range * range
     }
 
@@ -192,6 +238,22 @@ mod tests {
         let small = Projectile::fireball(ProjectileKind::SmallFireball, at, None, [1.0, 0.0, 0.0]);
         assert!(redirectable(&large));
         assert!(!redirectable(&small));
+        // A shulker bullet takes a blow, with no pick radius round its box.
+        let bullet = Projectile::new(
+            ProjectileKind::ShulkerBullet {
+                target: Who::Player,
+                dir: None,
+                steps: 0,
+                delta: [0.0; 3],
+                seed: 0,
+            },
+            at,
+            None,
+        );
+        assert!(attackable(&bullet) && !redirectable(&bullet));
+        assert!(!attackable(&small));
+        let b = pick_box(&bullet);
+        assert_eq!(b.max_position().y, 64.3125);
         // The pick box: a block round the fireball's 1 x 1 box.
         let b = pick_box(&large);
         assert_eq!(b.min_position().x, -1.5);

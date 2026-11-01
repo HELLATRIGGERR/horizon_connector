@@ -1118,9 +1118,10 @@ impl BlockEntityRenderer {
     }
     /// `submitCrumblingOverlay` of ChestRenderer.submit, BannerRenderer.submit,
     /// SkullBlockRenderer.submitSkull, ShulkerBoxRenderer.submit,
-    /// BellRenderer.submit, LecternRenderer.submit (the book) and
-    /// CopperGolemStatueBlockRenderer.submit: the model drawn again under the
-    /// destroy stage.
+    /// BellRenderer.submit, LecternRenderer.submit (the book),
+    /// CopperGolemStatueBlockRenderer.submit, ConduitRenderer.submit (the shell
+    /// or cage) and EnchantTableRenderer.submit (the book): the model drawn
+    /// again under the destroy stage.
     pub fn render_breaking(
         &self,
         scene: &Scene,
@@ -1138,6 +1139,8 @@ impl BlockEntityRenderer {
                 | Kind::Bell
                 | Kind::Lectern { .. }
                 | Kind::CopperGolem { .. }
+                | Kind::Conduit
+                | Kind::EnchantingTable
         ) {
             return;
         }
@@ -1682,6 +1685,10 @@ impl BlockEntityRenderer {
                         * Mat4::from_translation(lift)
                         * Mat4::from_quat(Quat::from_axis_angle(axis, degrees * (PI / 180.0)));
                     draw_part(model, "root", m, &none, paint, out);
+                }
+                // The crumbling overlay covers the shell and the cage only.
+                if crumbling {
+                    return;
                 }
                 let wind = if phase == 1 {
                     "entity/conduit/wind_vertical"

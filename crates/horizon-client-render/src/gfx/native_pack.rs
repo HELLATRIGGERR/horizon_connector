@@ -29,7 +29,20 @@ impl NativePack {
         constants: &[(String, f64)],
     ) -> Result<(Self, Vec<String>), String> {
         let (globals, format) = (terrain.globals, terrain.format);
-        let frame = NativeFrame::new(device);
+        let mut frame = NativeFrame::new(device);
+        // The mirror is drawn for a material that reads it, while `[reflection] option` is on.
+        let option = report.reflection.as_ref().and_then(|r| r.option.as_ref());
+        frame.reflects = report
+            .stages
+            .iter()
+            .find(|s| s.kind == StageKind::Material)
+            .is_some_and(|s| s.reads("reflection"))
+            && option.is_none_or(|id| {
+                constants
+                    .iter()
+                    .find(|(k, _)| k == id)
+                    .is_none_or(|(_, v)| *v != 0.0)
+            });
         let (post, others): (Vec<_>, Vec<_>) = report
             .stages
             .into_iter()

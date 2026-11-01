@@ -451,8 +451,10 @@ pub(crate) fn load_tag_lists(
     }
     // The packs' entries join the game's own, in pack order; a `replace`
     // file drops what the lower sources put in (`TagLoader.load` walks the
-    // resource stack the same way).
-    for (id, files) in overlay.kind(&format!("tags/{kind}")) {
+    // resource stack the same way). `tag_kind` reads the packs' keys
+    // (`tags/<ns>:<registry>/<path>`) and yields the `ns:path` ids the raw
+    // map is keyed by.
+    for (id, files) in overlay.tag_kind(kind) {
         let slot = raw.entry(id.to_owned()).or_default();
         for bytes in files {
             let Ok(v) = serde_json::from_slice::<Value>(bytes) else {
@@ -923,7 +925,7 @@ impl Items {
             loot,
             songs: load_songs(root),
             instruments: load_instruments(root),
-            enchantments: Arc::new(crate::enchant::Enchantments::load(root)),
+            enchantments: Arc::new(crate::enchant::Enchantments::load_with(root, overlay)),
         })
     }
     pub fn get(&self, id: &str) -> Option<&ItemInfo> {
@@ -954,7 +956,7 @@ impl Items {
             loot: Default::default(),
             songs: HashMap::new(),
             instruments: HashMap::new(),
-            enchantments: Arc::new(crate::enchant::Enchantments::load(root)),
+            enchantments: Arc::new(crate::enchant::Enchantments::load_with(root, overlay)),
         })
     }
     /// An item table with only tags, for unit tests of item rules.

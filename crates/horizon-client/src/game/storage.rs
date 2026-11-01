@@ -687,6 +687,7 @@ impl Game<'_> {
                 )
                 .resolve_legacy()
             });
+            super::screen_info::name_container(|| title.plain());
             batch.text_styled(atlas, &title, ox + 8.0, oy + 6.0, grey, false);
             let inventory = self.translate("container.inventory", "Inventory");
             batch.text(atlas, &inventory, ox + 8.0, oy + 73.0, grey, false);
@@ -709,14 +710,9 @@ impl Game<'_> {
             r.u1 = r.u0 + 176.0 * du;
             batch.rect_uv(ox, oy + top, 176.0, 96.0, r, u32::MAX);
         }
-        batch.text_styled(
-            atlas,
-            &self.chest_title(rows),
-            ox + 8.0,
-            oy + 6.0,
-            grey,
-            false,
-        );
+        let title = self.chest_title(rows);
+        super::screen_info::name_container(|| title.plain());
+        batch.text_styled(atlas, &title, ox + 8.0, oy + 6.0, grey, false);
         let inventory = self.translate("container.inventory", "Inventory");
         batch.text(
             atlas,

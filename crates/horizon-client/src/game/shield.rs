@@ -161,14 +161,16 @@ impl Game<'_> {
             {
                 s.damage += loss;
                 if s.damage >= max {
+                    let broken = s.clone();
                     *cell = None;
                     self.using = None;
-                    self.audio.play(
-                        "minecraft:item.shield.break",
-                        at,
-                        0.8,
-                        0.8 + self.world.random.next_float() * 0.4,
-                    );
+                    // ItemStack.hurtAndBreak: onEquippedItemBroken for the hand it was used from.
+                    let hand = if slot == OFFHAND_SLOT {
+                        horizon_world::player_inventory::EquipmentSlot::OffHand
+                    } else {
+                        horizon_world::player_inventory::EquipmentSlot::MainHand
+                    };
+                    self.player_equipment_broke(hand, &broken);
                     return;
                 }
             }

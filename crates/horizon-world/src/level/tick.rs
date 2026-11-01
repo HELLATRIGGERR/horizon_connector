@@ -446,6 +446,13 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     pub(crate) fn turn_to_base_block(&mut self, pos: BlockPos, state: BlockStateId) {
         let b = self.b;
         let base = b.data(state).link.unwrap_or(b.named.dirt);
+        // Block.pushEntitiesUp(state, base, level, pos): the game lifts what
+        // stands in the new block's added top onto it.
+        self.emit(LevelEvent::BlockEvent {
+            pos,
+            state,
+            kind: "push_entities_up",
+        });
         self.set_block_and_update(pos, b.default_of(base));
         self.game_event(pos, "minecraft:block_change");
     }

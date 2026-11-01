@@ -239,6 +239,21 @@ impl Game<'_> {
     pub(super) fn loot_item_filter(&self, predicate: &Value, s: &ItemStack) -> bool {
         adv::item(predicate, &item_view(s), &View(self))
     }
+    /// `BaseContainerBlockEntity.canOpen`: whether the `lock` of the block
+    /// entity at `key` keeps a player with this main hand out (`LockCode`).
+    pub(super) fn container_locked_for(
+        &self,
+        key: (i32, i32, i32),
+        spectator: bool,
+        hand: Option<&ItemStack>,
+    ) -> bool {
+        let Some(lock) = self.world.block_lock(key) else {
+            return false;
+        };
+        let lock = horizon_client::item_render::tag_json(lock);
+        let hand = hand.map(item_view);
+        !adv::can_unlock(&lock, spectator, hand.as_ref(), &View(self))
+    }
 }
 pub(super) fn item_view(s: &ItemStack) -> ItemView {
     ItemView {
@@ -316,6 +331,7 @@ impl Game<'_> {
             &self.world_root,
             &self.options.resources,
             self.cmds.vanilla_disabled,
+            &self.level.enabled_features,
         );
         self.adv.pending_tree = std::thread::Builder::new()
             .name("horizon-advancements".into())
@@ -370,6 +386,27 @@ impl Game<'_> {
                 .find(|m| m.id == id)
                 .map(|m| self.mob_entity(m))
                 .unwrap_or_default(),
+            // A server's player: what its last `ServerboundPlayerInputPacket`
+            // held (shift 32) and its game mode.
+            Target::Guest(conn) if self.command_guest(conn).is_some() => {
+                let g = self.command_guest(conn).expect("checked");
+                EntityView {
+                    kind: self.target_type(t),
+                    position: g.position,
+                    sneaking: g.sneaking,
+                    input_sneak: g.input & 32 != 0,
+                    gamemode: Some(
+                        match g.game_mode {
+                            1 => "creative",
+                            2 => "adventure",
+                            3 => "spectator",
+                            _ => "survival",
+                        }
+                        .to_owned(),
+                    ),
+                    ..EntityView::default()
+                }
+            }
             other => EntityView {
                 kind: self.target_type(other),
                 position: self.target_position(other).unwrap_or_default(),
@@ -421,6 +458,8 @@ impl Game<'_> {
             kind: "minecraft:player".into(),
             position: [p.position.x, p.position.y, p.position.z],
             sneaking: p.pose == horizon_client::pose::Pose::Crouching,
+            // Input.shift: the held key, as `BlockItem.place`'s sneaking reads it.
+            input_sneak: self.keys.contains(&winit::keyboard::KeyCode::ShiftLeft),
             sprinting: p.sprinting,
             swimming: p.pose == horizon_client::pose::Pose::Swimming,
             flying: p.flying,
@@ -1424,6 +1463,38 @@ impl Game<'_> {
             adv::conditions(&c["location"], &ctx, w)
         });
     }
+    /// `DefaultBlockInteractionTrigger` (default_block_use): the player, and
+    /// the block's `BLOCK_USE` context at its centre, with no tool.
+    pub(super) fn trigger_default_block_use(&mut self, pos: [i32; 3]) {
+        self.trigger_block_use("minecraft:default_block_use", pos, None);
+    }
+    /// `AnyBlockInteractionTrigger` (any_block_use): the player, and the
+    /// block's `ADVANCEMENT_LOCATION` context at its centre with the stack in
+    /// hand as the use left it.
+    pub(super) fn trigger_any_block_use(&mut self, pos: [i32; 3], stack: &ItemStack) {
+        self.trigger_block_use("minecraft:any_block_use", pos, Some(stack));
+    }
+    fn trigger_block_use(&mut self, name: &str, pos: [i32; 3], stack: Option<&ItemStack>) {
+        let me = self.player_entity();
+        let it = stack.map(item_view);
+        let centre = pos.map(|c| f64::from(c) + 0.5);
+        self.trigger(name, move |c, w| {
+            let player = adv::Entities {
+                this: Some(&me),
+                origin: me.position,
+                tool: None,
+                block_pos: None,
+            };
+            let location = adv::Entities {
+                origin: centre,
+                tool: it.as_ref(),
+                block_pos: Some(pos),
+                ..player
+            };
+            adv::conditions(&c["player"], &player, w)
+                && adv::conditions(&c["location"], &location, w)
+        });
+    }
     /// `LightningStrikeTrigger`: the bolt, and the mobs around it that it did
     /// not hit (`bystander`), each tested from this player's position.
     pub(super) fn trigger_lightning_strike(&mut self, bolt: &EntityView, viewers: &[EntityView]) {
@@ -1709,7 +1780,8 @@ impl Game<'_> {
             }
         }
     }
-    /// The slots held by shown advancement, recipe and pack toasts, as bits.
+    /// The slots held by shown advancement, recipe, pack and narrator toasts,
+    /// as bits.
     pub(super) fn toast_slots_used(&self) -> u32 {
         let packs = self.server_packs.toast_slots();
         self.adv
@@ -1717,6 +1789,7 @@ impl Game<'_> {
             .iter()
             .filter_map(|t| t.slot)
             .chain(packs)
+            .chain(self.narrator_toast.as_ref().and_then(|t| t.slot))
             .fold(self.tutorial_toast_slots(), |used, slot| used | 1 << slot)
     }
     /// The `AdvancementToast` or `RecipeToast` at `index` in its slot at `y`.

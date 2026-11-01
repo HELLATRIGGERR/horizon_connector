@@ -393,7 +393,7 @@ pub fn stage(source: &Path, work: &Path, pack: &import::Pack) -> Result<Report, 
             let mut layer = Files::new();
             for i in 0..zip.len() {
                 let entry = zip.by_index(i).map_err(|e| e.to_string())?;
-                let raw = entry.name().to_owned();
+                let raw = entry.name().map_err(|e| e.to_string())?.into_owned();
                 if raw.starts_with(&format!("{root}/shaderpacks/")) {
                     report.set(
                         "shaderpacks/",

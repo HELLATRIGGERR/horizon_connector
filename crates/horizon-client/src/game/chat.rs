@@ -4,7 +4,7 @@ use super::{Game, Screen};
 use horizon_client::{
     chat::{
         Chat, ChatAbilities, ChatAction, ChatScreen, ChatSource, ChatVisibility, Commands,
-        SYSTEM_INDICATOR,
+        SYSTEM_INDICATOR, normalize_chat_message,
     },
     command::Registries,
     gamerules::GameRules,
@@ -861,14 +861,17 @@ impl Game<'_> {
             screen.type_text(&m, &c, text);
         }
     }
-    /// ChatScreen.handleChatInput: history, then a command or a chat line.
-    /// The Chat option's restrictions stop the message here too, so a
-    /// control-socket `chat` cannot send what the player's setting hides.
+    /// ChatScreen.handleChatInput: the message comes in normalized
+    /// (`normalizeChatMessage`: trimmed, whitespace runs collapsed, cut to the
+    /// 256 UTF-16 units the packet holds), into history, then as a command or
+    /// a chat line. The Chat option's restrictions stop the message here too,
+    /// so a control-socket `chat` cannot send what the player's setting hides.
     pub(super) fn handle_chat_input(&mut self, message: &str) {
-        if !self.chat_abilities().allows(message) {
+        let message = normalize_chat_message(message);
+        if message.is_empty() || !self.chat_abilities().allows(&message) {
             return;
         }
-        self.ui.chat.add_recent(message);
+        self.ui.chat.add_recent(&message);
         // On a server (single player's own included) the server runs it,
         // unless a client mod owns the command.
         if self.remote.is_some() {
@@ -877,7 +880,7 @@ impl Game<'_> {
             {
                 return;
             }
-            self.send_chat(message);
+            self.send_chat(&message);
             return;
         }
         if let Some(command) = message.strip_prefix('/') {
@@ -888,7 +891,7 @@ impl Game<'_> {
         } else {
             let line = Text::translate(
                 "chat.type.text",
-                &[self.player_display_name(), Text::literal(message)],
+                &[self.player_display_name(), Text::literal(message.as_str())],
             );
             let focused = self.screen == Screen::Chat;
             self.ui.chat.add(
@@ -899,7 +902,7 @@ impl Game<'_> {
                 self.ticks,
                 focused,
             );
-            self.lan_host_chat(message);
+            self.lan_host_chat(&message);
         }
     }
     pub(super) fn chat_scroll(&mut self, amount: f32) {
@@ -1023,6 +1026,15 @@ impl Game<'_> {
         let Some(url) = &self.link_prompt else {
             return;
         };
+        // ConfirmLinkScreen: the question and the link (its warning is a
+        // widget of its own, not narrated).
+        horizon_client::widgets::begin_screen(|| {
+            super::screen_info::confirm(
+                "chat/confirm_link",
+                &super::screen_info::tr("chat.link.confirm", &[]),
+                url,
+            )
+        });
         let atlas = &self.gui.atlas;
         let (w, h) = (batch.width, batch.height);
         horizon_client::ui::menu_background(batch, atlas, 0.0, 0.0, w, h, true);
@@ -1070,7 +1082,7 @@ impl Game<'_> {
             return;
         }
         if self.remote.is_some() {
-            self.send_chat(&format!("/{command}"));
+            self.send_unattended_command(command);
         } else {
             self.run_command(command);
         }
@@ -1124,6 +1136,17 @@ impl Game<'_> {
         let Some(mut screen) = self.ui.chat_screen.take() else {
             return;
         };
+        // ChatScreen.updateNarrationState: the restricted prompt is
+        // `displayMode.showRestrictedPrompt`, the abilities' restrictions.
+        let in_bed = self.ui.in_bed_chat && self.sleeping.is_some();
+        horizon_client::widgets::begin_screen(|| {
+            super::screen_info::chat(
+                in_bed,
+                screen.value(),
+                screen.abilities.any_restriction(),
+                &super::screen_info::tr,
+            )
+        });
         let m = Measure(&self.gui.atlas.font);
         let c = Commands {
             dispatcher: chat_tree(&self.remote),
@@ -1144,7 +1167,7 @@ impl Game<'_> {
         let draws = screen.draw(&m, mouse, blink, background);
         horizon_client::screen_draw::paint(batch, &self.gui.atlas, &draws);
         self.ui.chat_screen = Some(screen);
-        if self.ui.in_bed_chat && self.sleeping.is_some() {
+        if in_bed {
             let (x, y, w, h) = Self::leave_bed_button(batch.width, batch.height);
             let label = Text::literal(horizon_client::lang::get_or(
                 "multiplayer.stopSleeping",
@@ -1264,6 +1287,7 @@ impl Game<'_> {
         self.world.health_rules.fall_damage = self.ui.rules.bool("fall_damage");
         self.world.health_rules.fire_damage = self.ui.rules.bool("fire_damage");
         self.world.health_rules.freeze_damage = self.ui.rules.bool("freeze_damage");
+        horizon_client::mobs::sulfur_cube::set_tnt_explodes(self.ui.rules.bool("tnt_explodes"));
         use horizon_world::food::Difficulty;
         self.world.health_rules.difficulty = match self.ui.difficulty {
             0 => Difficulty::Peaceful,

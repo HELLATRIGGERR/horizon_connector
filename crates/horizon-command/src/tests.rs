@@ -764,6 +764,41 @@ fn profile_commands_parse_like_vanilla() {
     }
 }
 #[test]
+fn the_dedicated_commands_complete_from_the_servers_lists() {
+    // OpCommand, DeOpCommands, PardonCommand, PardonIpCommand and WhitelistCommand: the server answers from
+    // its own lists (vanilla's `.suggests(...)`, javap on the pinned 26.3 classes), not from the registries'
+    // default of the one local player.
+    let reg = Registries {
+        permission: 4,
+        players: vec!["Alex".into(), "Steve".into(), "Zed".into()],
+        ops: vec!["steve".into()],
+        banned_players: vec!["Griefer".into()],
+        banned_ips: vec!["203.0.113.9".into()],
+        whitelisted: vec!["Alex".into(), "Old".into()],
+        ..reg()
+    };
+    let d = vanilla::game_tree(false, false, true);
+    let suggest = |input: &str| -> Vec<String> {
+        let parse = d.parse(input, &reg);
+        d.suggestions(&parse, input.len(), &reg)
+            .1
+            .into_iter()
+            .map(|s| s.text)
+            .collect()
+    };
+    // Only the online players who are not operators (the match ignores case).
+    assert_eq!(suggest("op "), ["Alex", "Zed"]);
+    assert_eq!(suggest("op z"), ["Zed"]);
+    assert_eq!(suggest("deop "), ["steve"]);
+    assert_eq!(suggest("pardon "), ["Griefer"]);
+    assert_eq!(suggest("pardon-ip "), ["203.0.113.9"]);
+    // Add offers the online players who are not whitelisted; remove offers the list, online or not.
+    assert_eq!(suggest("whitelist add "), ["Steve", "Zed"]);
+    assert_eq!(suggest("whitelist remove "), ["Alex", "Old"]);
+    // Nothing else changed: ban still completes by the argument type, with the selectors.
+    assert!(suggest("ban ").contains(&"@a".to_owned()));
+}
+#[test]
 fn only_a_dedicated_server_has_the_dedicated_commands() {
     // Commands.CommandSelection: an integrated server (single player, a LAN
     // world) registers no /op, /ban, /ban-ip, /banlist, /pardon, /pardon-ip,

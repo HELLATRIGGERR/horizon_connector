@@ -149,8 +149,9 @@ impl Game<'_> {
         })
     }
     /// `Entity.load` of new data (`EntityDataAccessor.setData`): the entity is
-    /// rebuilt from its compound, keeping its id and UUID.
-    fn apply_entity_nbt(&mut self, t: Target, mut tag: Tag) -> R<()> {
+    /// rebuilt from its compound, keeping its id and UUID. Also what
+    /// `TypedEntityData.loadInto` is: a spawn egg's data on the mob it spawned.
+    pub(in crate::game) fn apply_entity_nbt(&mut self, t: Target, mut tag: Tag) -> R<()> {
         let stale = || err("commands.data.merge.failed", &[]);
         match t {
             Target::Player => return Err(err("commands.data.entity.invalid", &[])),
@@ -165,8 +166,13 @@ impl Game<'_> {
                 if let Some(k) = kind {
                     set_key(&mut tag, "id", Tag::String(k.as_str().into()));
                 }
-                let new =
-                    entity_nbt::mob_from_nbt(&tag, self.res.mob_types(), id).ok_or_else(stale)?;
+                let new = entity_nbt::mob_from_nbt(
+                    &tag,
+                    self.res.mob_types(),
+                    id,
+                    Some(self.pack.assets.registry),
+                )
+                .ok_or_else(stale)?;
                 if let Some(slot) = self.mobs.iter_mut().find(|m| m.id == id) {
                     // Runtime-only state (AI, animation) carries over.
                     let old = std::mem::replace(slot, new);
@@ -298,14 +304,18 @@ impl Game<'_> {
                     .block_entities
                     .get(&key)
                     .ok_or_else(|| err("commands.data.block.invalid", &[]))?;
-                // BlockEntity.saveWithFullMetadata: no chunk-only keepPacked.
-                let mut tag = save::encode_block_entity(key, e, &name);
+                // BlockEntity.saveWithFullMetadata: no chunk-only keepPacked,
+                // and the lock the model does not hold.
+                let mut tag = save::block_entity_data(key, e, &name, self.world.block_lock(key));
                 #[cfg(feature = "ae2-lab")]
                 if let Some(original)=self.world.block_entities.vanilla_metadata(&key) {
                     tag=save::live_vanilla_block_entity(key,e,&name,self.world.block_names.get(&key).map(String::as_str),Some(original));
-                }
-                if let Tag::Compound(c) = &mut tag {
-                    c.remove(&"keepPacked".into());
+                    if let Tag::Compound(c) = &mut tag {
+                        c.remove(&"keepPacked".into());
+                        if let Some(lock) = self.world.block_lock(key) {
+                            c.insert("lock".into(), lock.clone());
+                        }
+                    }
                 }
                 self.restore_loot_table(key, &mut tag);
                 Ok(tag)
@@ -366,6 +376,7 @@ impl Game<'_> {
                             }
                         }
                     }
+                    self.world.set_block_lock(key, &tag);
                     self.update_spawner_display(key);
                     // BlockDataAccessor.setData: setChanged and sendBlockUpdated(3),
                     // even when the block state itself stays the same.
@@ -766,6 +777,8 @@ impl Game<'_> {
         // take the ids counted as this stack's.
         let mut waiting = std::mem::take(&mut self.world.loaded_entities);
         let before = self.next_entity;
+        let mut tag = tag;
+        crate::game::persist::mark_fresh(&mut tag);
         self.world.loaded_entities.push((key, vec![tag]));
         self.spawn_loaded_entities();
         waiting.append(&mut self.world.loaded_entities);
@@ -838,8 +851,13 @@ impl Game<'_> {
         }
         place(&mut tag, pos);
         let from = self.mobs.len();
+        let canceled = self.persist.joins_canceled;
         let target = self.spawn_entity_from_nbt(tag);
         self.native_mobs_joined(from, false);
+        // A mod kept the entity out: tryAddFreshEntityWithPassengers is false.
+        if target.is_none() && self.persist.joins_canceled != canceled {
+            return Err(err("commands.summon.failed.uuid", &[]));
+        }
         Ok(target)
     }
 }
