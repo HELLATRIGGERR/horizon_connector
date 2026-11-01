@@ -2,9 +2,12 @@
 //!
 //! Vanilla's `StateDefinition` enumerates a block's states as the cartesian
 //! product of its properties sorted by name, the last property varying fastest,
-//! and the global state registry lists every block's states contiguously. The
-//! table below derives each property's stride from that layout and verifies it
-//! against every registry descriptor at load, so `setValue` is arithmetic.
+//! and the global state registry lists every block's states contiguously. A
+//! content mod's block lists its template's states times the combinations of
+//! the properties it declares, so its properties are a cartesian product in
+//! another order. The table below derives each property's stride from the
+//! layout and verifies it against every registry descriptor at load, so
+//! `setValue` is arithmetic.
 use crate::{
     compression::invalid,
     registry::{BlockRegistry, BlockStateId},
@@ -114,28 +117,44 @@ impl StateTable {
                 end += 1;
             }
             let count = (end - index) as u32;
-            let names: Vec<&String> = first.properties.keys().collect();
-            let mut slots = Vec::with_capacity(names.len());
-            let mut stride = count;
-            for name in &names {
-                let mut values = Vec::new();
-                // Values of this property cycle with period (stride / len); the
-                // first states with stride steps give each value in order.
+            // Each property's values in the order they first appear, and the
+            // first offset where it leaves its first state's value: its
+            // stride. Vanilla's blocks run their properties in name order;
+            // a content mod's block runs its template's states times its own
+            // properties' combinations, so its properties need not be in name
+            // order. Any order of a cartesian product is taken, and checked
+            // state by state below.
+            let mut found = Vec::with_capacity(first.properties.len());
+            for name in first.properties.keys() {
                 let mut seen = Vec::<&str>::new();
+                let mut changes = None;
                 for offset in 0..count {
                     let value = registry
                         .state(BlockStateId(index as u32 + offset))
                         .unwrap()
-                        .properties[*name]
+                        .properties[name]
                         .as_str();
                     if !seen.contains(&value) {
+                        if seen.len() == 1 {
+                            changes = Some(offset);
+                        }
                         seen.push(value);
                     }
                 }
+                found.push((name, seen, changes.unwrap_or(count)));
+            }
+            // Slowest first; ties (single-valued properties) keep name order.
+            found.sort_by(|a, b| b.2.cmp(&a.2));
+            let mut stride = count;
+            let mut slots = Vec::with_capacity(found.len());
+            for (name, seen, changes) in found {
                 stride /= seen.len() as u32;
-                for value in seen {
-                    values.push(PropValue::new(value));
+                if seen.len() > 1 && changes != stride {
+                    return Err(invalid(
+                        "registry state order differs from vanilla's state definition",
+                    ));
                 }
+                let values = seen.into_iter().map(PropValue::new).collect();
                 let key = table.key_or_insert(name);
                 slots.push(Slot {
                     key,
@@ -347,5 +366,77 @@ impl StateTable {
             }
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A facts.json of air and `blocks`, each a name and its states'
+    /// properties in registry order (the default first).
+    fn registry(blocks: &[(&str, Vec<Vec<(&str, &str)>>)]) -> BlockRegistry {
+        let mut rows = vec![serde_json::json!(["minecraft:air", true, false, "", "minecraft:air"])];
+        let mut defaults = serde_json::Map::new();
+        defaults.insert("minecraft:air".into(), 0.into());
+        for (name, states) in blocks {
+            defaults.insert((*name).into(), rows.len().into());
+            for props in states {
+                let props: serde_json::Map<_, _> =
+                    props.iter().map(|(k, v)| ((*k).to_owned(), serde_json::json!(v))).collect();
+                rows.push(serde_json::json!([name, false, false, "", {"id": name, "properties": props}]));
+            }
+        }
+        let json = serde_json::json!({"defaults": defaults, "states": rows});
+        BlockRegistry::from_facts_json(json.to_string().as_bytes()).unwrap()
+    }
+
+    /// A furnace-like template (`facing`, `lit`) times a mod's own `down` and
+    /// `west`, template properties outermost: not name order.
+    fn extended() -> Vec<Vec<(&'static str, &'static str)>> {
+        let mut states = Vec::new();
+        for facing in ["north", "south"] {
+            for lit in ["false", "true"] {
+                for down in ["input", "none", "output"] {
+                    for west in ["output", "none"] {
+                        states.push(vec![("facing", facing), ("lit", lit), ("down", down), ("west", west)]);
+                    }
+                }
+            }
+        }
+        states
+    }
+
+    #[test]
+    fn a_mod_block_may_extend_a_template_with_properties() {
+        let registry = registry(&[("test:machine", extended())]);
+        let mut table = StateTable::new(&registry).unwrap();
+        let block = table.block_by_name("test:machine").unwrap();
+        let base = table.info(block).base;
+        let (facing, lit, down, west) = (table.key("facing"), table.key("lit"), table.key("down"), table.key("west"));
+        assert_eq!(table.info(block).count, 24);
+        // State 15: facing=south (12 on), lit=false, down=none (2 on), west=none.
+        let s = BlockStateId(base.0 + 15);
+        assert_eq!(
+            [table.text(s, facing), table.text(s, lit), table.text(s, down), table.text(s, west)],
+            ["south", "false", "none", "none"]
+        );
+        // setValue lands on the registry's own state for every change.
+        for (key, value) in [(down, "output"), (west, "output"), (lit, "true"), (facing, "north")] {
+            let next = table.with_text(s, key, value).unwrap();
+            let mut want = registry.state(s).unwrap().clone();
+            want.properties.insert(table.key_names[key.0 as usize].clone(), value.into());
+            assert_eq!(registry.id(&want), Some(next), "{value}");
+        }
+    }
+
+    #[test]
+    fn a_layout_that_is_no_product_is_refused() {
+        let mut states = extended();
+        states.swap(0, 1);
+        assert!(StateTable::new(&registry(&[("test:machine", states)])).is_err());
+        let mut short = extended();
+        short.pop();
+        assert!(StateTable::new(&registry(&[("test:machine", short)])).is_err());
     }
 }
