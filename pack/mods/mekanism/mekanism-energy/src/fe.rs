@@ -91,6 +91,84 @@ pub fn extract_fe(handler: &mut impl StrictEnergy, rate: Conversion, max_extract
     rate.to_fe_int(handler.extract(to_extract, simulate))
 }
 
+impl Conversion {
+    /// `ForgeStrictEnergyHandler.convertFromAndBack`: the whole FE that
+    /// `fe` FE are worth in whole Joules.
+    fn from_and_back(self, fe: i64) -> i32 {
+        let joules = self.from_fe(fe);
+        let result = self.to_fe_int(joules);
+        let per_joule = 1.0 / self.0;
+        if per_joule >= 1.0 && (result as f64 % per_joule) > 0.0 {
+            return self.to_fe_int(joules - 1);
+        }
+        result
+    }
+}
+
+/// A Forge Energy neighbour as Mekanism sees it, `ForgeStrictEnergyHandler`
+/// over its `IEnergyStorage`: `receive(fe, simulate)` is its
+/// `receiveEnergy`, `can_receive` its `canReceive`. Offers `joules` and
+/// returns what it did not take (`insertEnergy`), in whole FE; with
+/// `simulate`, what it would not take.
+pub fn insert_into_fe(
+    joules: i64,
+    rate: Conversion,
+    can_receive: bool,
+    simulate: bool,
+    mut receive: impl FnMut(i32, bool) -> i32,
+) -> i64 {
+    if !can_receive || joules <= 0 {
+        return joules;
+    }
+    let mut to_insert = rate.to_fe_int(joules);
+    if to_insert <= 0 {
+        return joules;
+    }
+    if !rate.one_to_one() {
+        let simulated = receive(to_insert, true);
+        if simulated <= 0 {
+            return joules;
+        }
+        to_insert = rate.from_and_back(simulated as i64);
+        if to_insert <= 0 {
+            return joules;
+        }
+    }
+    let inserted = receive(to_insert, simulate);
+    if inserted > 0 {
+        return joules - rate.from_fe(inserted as i64);
+    }
+    joules
+}
+
+/// `ForgeStrictEnergyHandler.extractEnergy`: draws up to `joules` from a
+/// Forge Energy neighbour through its `extractEnergy` (`extract(fe,
+/// simulate)`), and returns the Joules it gave (with `simulate`, would
+/// give).
+pub fn extract_from_fe(
+    joules: i64,
+    rate: Conversion,
+    can_extract: bool,
+    simulate: bool,
+    mut extract: impl FnMut(i32, bool) -> i32,
+) -> i64 {
+    if !can_extract || joules <= 0 {
+        return 0;
+    }
+    let mut to_extract = rate.to_fe_int(joules);
+    if to_extract <= 0 {
+        return 0;
+    }
+    if !rate.one_to_one() {
+        let simulated = extract(to_extract, true);
+        to_extract = rate.from_and_back(simulated as i64);
+        if to_extract <= 0 {
+            return 0;
+        }
+    }
+    rate.from_fe(extract(to_extract, simulate) as i64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,5 +210,56 @@ mod tests {
         assert_eq!(b.stored, 0);
         assert_eq!(extract_fe(&mut b, rate, 3, false), 0);
         assert_eq!(rate.to_fe_int(i64::MAX), i32::MAX);
+    }
+
+    /// An `IEnergyStorage` that takes at most `room` FE and holds `stored`.
+    struct Storage {
+        stored: i32,
+        room: i32,
+        calls: Vec<(i32, bool)>,
+    }
+    impl Storage {
+        fn receive(&mut self, fe: i32, simulate: bool) -> i32 {
+            self.calls.push((fe, simulate));
+            let took = fe.min(self.room);
+            if !simulate {
+                self.room -= took;
+                self.stored += took;
+            }
+            took
+        }
+        fn extract(&mut self, fe: i32, simulate: bool) -> i32 {
+            let given = fe.min(self.stored);
+            if !simulate {
+                self.stored -= given;
+            }
+            given
+        }
+    }
+
+    #[test]
+    fn a_cube_ejects_whole_fe_into_a_forge_energy_neighbour() {
+        let rate = Conversion(2.5);
+        // A basic cube's 4000 J a tick are 1600 FE, all taken.
+        let mut acceptor = Storage { stored: 0, room: i32::MAX, calls: vec![] };
+        assert_eq!(insert_into_fe(4000, rate, true, false, |fe, s| acceptor.receive(fe, s)), 0);
+        assert_eq!(acceptor.stored, 1600);
+        assert_eq!(acceptor.calls, [(1600, true), (1600, false)]);
+        // Room for 7 FE: 7 FE are 17 whole J, which are 6 whole FE (15 J).
+        let mut small = Storage { stored: 0, room: 7, calls: vec![] };
+        assert_eq!(insert_into_fe(25, rate, true, false, |fe, s| small.receive(fe, s)), 10);
+        assert_eq!(small.stored, 6);
+        // A simulation moves nothing; a storage that can't receive is not asked.
+        let mut sim = Storage { stored: 0, room: 100, calls: vec![] };
+        assert_eq!(insert_into_fe(250, rate, true, true, |fe, s| sim.receive(fe, s)), 0);
+        assert_eq!((sim.stored, sim.calls.iter().all(|c| c.1)), (0, true));
+        assert_eq!(insert_into_fe(250, rate, false, false, |_, _| unreachable!()), 250);
+        // Less than an FE is not offered.
+        assert_eq!(insert_into_fe(2, rate, true, false, |_, _| unreachable!()), 2);
+        // Drawing: 10 J are 4 FE.
+        let mut source = Storage { stored: 100, room: 0, calls: vec![] };
+        assert_eq!(extract_from_fe(10, rate, true, false, |fe, s| source.extract(fe, s)), 10);
+        assert_eq!(source.stored, 96);
+        assert_eq!(extract_from_fe(10, rate, false, false, |_, _| unreachable!()), 0);
     }
 }

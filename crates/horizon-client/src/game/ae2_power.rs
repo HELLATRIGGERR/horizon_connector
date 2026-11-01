@@ -117,7 +117,7 @@ impl Game<'_> {
         face: Direction,
     ) -> Option<FeStorage> {
         let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(address) else {
-            return None;
+            return self.ae2_mod_fe_storage(address, face);
         };
         if m.kind == MachineKind::DebugEnergyGenerator {
             return Some(FeStorage {
@@ -162,8 +162,11 @@ impl Game<'_> {
         address: GridAddress,
         face: Direction,
         amount: u32,
-        _simulate: bool,
+        simulate: bool,
     ) -> u32 {
+        if !self.ae2_is_machine(address) {
+            return self.ae2_mod_fe_move(address, face, amount, simulate, true);
+        }
         if self
             .ae2_native_fe_storage(address, face)
             .is_some_and(|s| s.can_extract)
@@ -182,6 +185,9 @@ impl Game<'_> {
     ) -> u32 {
         if amount == 0 {
             return 0;
+        }
+        if !self.ae2_is_machine(address) {
+            return self.ae2_mod_fe_move(address, face, amount, simulate, false);
         }
         if !self
             .ae2_native_fe_storage(address, face)
@@ -212,6 +218,32 @@ impl Game<'_> {
         let changed = m.energy != old_energy;
         if changed { self.ae2_mark_modified(address); }
         received_fe(amount,offered_ae,accepted_ae,fe_ratio)
+    }
+    fn ae2_is_machine(&self, address: GridAddress) -> bool {
+        matches!(self.ae2_block_entity(address), Some(BlockEntity::Ae2(_)))
+    }
+    /// The `IEnergyStorage` of a block that is no AE2 machine (a native mod's
+    /// block entity), through the engine's FE capability
+    /// (`machines/native_energy.rs`), as AE2's capability lookups find any
+    /// block's: narrow, by side.
+    fn ae2_mod_fe_storage(&self, address: GridAddress, face: Direction) -> Option<FeStorage> {
+        let (dim, local) = self.ae2_address_parts(address)?;
+        let info = self.fe_info_at(dim, [local.0, local.1, local.2], Some(face), false)?;
+        let int = |v: i64| v.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        Some(FeStorage {
+            stored: int(info.stored),
+            capacity: int(info.capacity),
+            can_receive: info.can_receive,
+            can_extract: info.can_extract,
+        })
+    }
+    fn ae2_mod_fe_move(&mut self, address: GridAddress, face: Direction, amount: u32, simulate: bool, extract: bool) -> u32 {
+        let Some((dim, local)) = self.ae2_address_parts(address) else {
+            return 0;
+        };
+        let pos = [local.0, local.1, local.2];
+        let moved = self.fe_move_at(dim, pos, Some(face), i64::from(amount), simulate, false, extract);
+        moved.clamp(0, i64::from(amount)) as u32
     }
     pub(super) fn ae2_tick_external_power(&mut self) {
         let sources: Vec<_> = self

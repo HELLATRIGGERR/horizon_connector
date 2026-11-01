@@ -1,0 +1,70 @@
+# Test bundle: Forge Energy for Mekanism's energy cubes through the engine's
+# FE capability (hook points API 63), applied over the `mekanism` bundle
+# (pack/mods/mekanism) only by `pack/scripts/fe-test.ts`, never with the
+# pack. It adds the cube's `IEnergyStorage` on each side and its ejector's
+# FE neighbours, so a cube feeds AE2's Energy Acceptor and AE2 feeds a cube.
+# Its rules are the `mekanism` bundle's crate `mekanism_energy` (MIT, from
+# Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady).
+[mod]
+id = "mekanism_fe"
+version = "0.1.0"
+# Below the `mekanism` bundle's 100: the cube's own tick runs first.
+priority = 50
+
+[[module]]
+id = "fe"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_fe"
+source = "runtime/mek_fe.rs"
+
+[[injection]]
+id = "fe-storage"
+hook = "fe_storage"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fe_storage.rs"
+bindings = [
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
+  { name = "info", ty = "&mut Option<crate::game::native_hooks::NativeFeInfo>", value = "&mut *info" },
+]
+
+[[injection]]
+id = "fe-receive"
+hook = "fe_receive"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fe_receive.rs"
+bindings = [
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "max", ty = "i64", value = "max" },
+  { name = "simulate", ty = "bool", value = "simulate" },
+  { name = "accepted", ty = "&mut Option<i64>", value = "&mut *accepted" },
+]
+
+[[injection]]
+id = "fe-extract"
+hook = "fe_extract"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fe_extract.rs"
+bindings = [
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "max", ty = "i64", value = "max" },
+  { name = "simulate", ty = "bool", value = "simulate" },
+  { name = "given", ty = "&mut Option<i64>", value = "&mut *given" },
+]
+
+[[injection]]
+id = "block-entity-tick"
+hook = "block_entity_tick"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_entity_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+]

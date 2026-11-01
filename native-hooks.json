@@ -420,6 +420,21 @@
       "name": "item_bar",
       "version": 1,
       "target": "horizon_client::game::native_hooks::Game<'_>::native_item_bar"
+    },
+    {
+      "name": "fe_storage",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_fe_storage"
+    },
+    {
+      "name": "fe_receive",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_fe_receive"
+    },
+    {
+      "name": "fe_extract",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_fe_extract"
     }
   ]
 }

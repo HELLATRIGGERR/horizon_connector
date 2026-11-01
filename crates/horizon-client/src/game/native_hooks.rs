@@ -6,6 +6,11 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 63 adds Forge Energy on a mod block's block entity, by side, as NeoForge's `IEnergyStorage` capability:
+//! the hook points `native_fe_storage`, `native_fe_receive`, `native_fe_extract`, and the helpers
+//! `native_fe_info`, `native_fe_offer`, `native_fe_draw` in `machines/native_energy.rs`, which reach mod blocks
+//! and the game's own machines in any open level.
+//!
 //! API 62 adds nicknames for server mods: `native_set_nickname` shows a name in place of a player's in chat and
 //! the Tab list (the real one on hover), and `native_text_allowed` asks the server's chat filter, in
 //! `native_server.rs`.
@@ -268,7 +273,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 62;
+pub(crate) const NATIVE_HOOKS_API: u32 = 63;
 
 impl GameLevel<'_> {
     /// An authoritative server committed a changed state through `Level.setBlock`.
@@ -532,6 +537,20 @@ pub struct NativeScreen {
     /// The mod draws the title and the "Inventory" label itself
     /// (`native_screen_draw`); Horizon leaves them out.
     pub own_labels: bool,
+}
+
+/// A block's Forge Energy through one side, as NeoForge's `IEnergyStorage`
+/// reads it (`native_fe_storage`, `native_fe_info`), in FE. API 63.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct NativeFeInfo {
+    /// `getEnergyStored`.
+    pub stored: i64,
+    /// `getMaxEnergyStored`.
+    pub capacity: i64,
+    /// `canReceive`: whether a receive may take anything.
+    pub can_receive: bool,
+    /// `canExtract`: whether an extract may give anything.
+    pub can_extract: bool,
 }
 
 /// The mod screen open on this client: the block it is for, the key its
@@ -1002,6 +1021,68 @@ impl Game<'_> {
         fluids: &mut Option<ModFluidTanks>,
     ) {
         let _ = (block, fluids);
+    }
+    /// The Forge Energy of the block entity at `pos` in `dimension`, a
+    /// mod's, through `face`, as NeoForge's `IEnergyStorage` reads it
+    /// (`getEnergyStored`, `getMaxEnergyStored`, `canReceive`,
+    /// `canExtract`). `face` is the side of this block the caller touches
+    /// (a cable east of it asks with `East`); none is the block itself, as
+    /// a null side. Set `info` when `entity.id` is yours and `info` is none
+    /// yet; leave it none on a side without energy, so cables don't connect
+    /// there. Amounts are FE. `wide`: the caller reads 64-bit amounts
+    /// (Flux Networks' long FE); otherwise the engine saturates yours at
+    /// `i32::MAX`. Asked on the server, often, from inside other blocks'
+    /// transfers and maybe while another level is in place: answer from
+    /// `entity` and your own state, not from the world. API 63.
+    pub(super) fn native_fe_storage(
+        &self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        entity: &ModBlockEntity,
+        wide: bool,
+        info: &mut Option<NativeFeInfo>,
+    ) {
+        let _ = (dimension, pos, face, entity, wide, info);
+    }
+    /// `IEnergyStorage.receiveEnergy` on the block entity at `pos`, a mod's:
+    /// `max` FE (1 to `i32::MAX` unless `wide`) offered through `face`, as
+    /// in `native_fe_storage`. Set `accepted` (0 to `max`) when `entity.id`
+    /// is yours and `accepted` is none yet; with `simulate`, answer what you
+    /// would take and change nothing. The entity is out of the world during
+    /// the call, as in `native_block_entity_tick`; the engine puts it back
+    /// and, when it took something for real, marks it changed
+    /// (`setChanged`). A forwarder that holds nothing (a cable) may hand the
+    /// energy on with `native_fe_offer` from here: the same block, side and
+    /// direction asked again inside its own call gets 0, and so does a chain
+    /// 16 calls deep. API 63.
+    pub(super) fn native_fe_receive(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        entity: &mut ModBlockEntity,
+        max: i64,
+        simulate: bool,
+        wide: bool,
+        accepted: &mut Option<i64>,
+    ) {
+        let _ = (dimension, pos, face, entity, max, simulate, wide, accepted);
+    }
+    /// `IEnergyStorage.extractEnergy` on the block entity at `pos`, a mod's,
+    /// as `native_fe_receive`: set `given` (0 to `max`). API 63.
+    pub(super) fn native_fe_extract(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        entity: &mut ModBlockEntity,
+        max: i64,
+        simulate: bool,
+        wide: bool,
+        given: &mut Option<i64>,
+    ) {
+        let _ = (dimension, pos, face, entity, max, simulate, wide, given);
     }
     /// A server tick of the block entity at `pos`, in vanilla's order among
     /// the others (`Level.tickBlockEntities`), when its `id` is yours: read

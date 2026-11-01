@@ -524,6 +524,10 @@ and its `.ogg` files). `minecraft:` events must still be registered. Bundles tha
 
 API 62 adds nicknames for server mods: `native_set_nickname(uuid, Option<&str>)` shows a name in place of a player's in chat (their messages, `/me`, `/msg`) and the Tab list, the real name on hover and everywhere else; `native_text_allowed(text)` asks the server's chat filter. Both outside a player's hook. Bundles need "hooks": 62.
 
+API 63 adds [Forge Energy](#forge-energy) on a mod block's block entity, by side, as NeoForge's `IEnergyStorage` capability: the hook points
+`native_fe_storage`, `native_fe_receive` and `native_fe_extract` answer for your block entities, and the helpers `native_fe_info`, `native_fe_offer` and
+`native_fe_draw` reach any block with FE in any open level: other mods' and the game's own machines. Bundles that use them need "hooks": 63.
+
 ## What the launcher does
 
 In the window: install a native mod from the Mods page, into the instance picked on the left ("Installs into
@@ -870,6 +874,14 @@ Helpers for a server mod, by the rules hoppers follow: a furnace's sides, a doub
 - **`native_dimension()`:** the level in place (`minecraft:overworld`), for a hook that isn't told it, such as `native_block_entity_tick`.
 
 During a machine's own tick its block entity is out of the world, so these answer as if no container were there: it has its slots in hand, in the `items` it's given. A composter takes one item a call, and these don't empty it: a hopper does. Container entities (minecarts, chest boats) aren't reached yet.
+
+### Forge Energy
+
+`crates/horizon-client/src/game/machines/native_energy.rs`: Forge Energy (FE) between blocks, as NeoForge 1.21.1's `IEnergyStorage` capability, which Mekanism, Powah, Flux Networks and AE2 speak at their edges. A block exposes it per side; `face` is always the side of the block being reached (a cable east of a battery reaches its `East` side), and none means the block itself, as a null side. Amounts are FE as `i64`. A call is narrow, Java's `int`, unless it says `wide` (Flux Networks' long FE): a narrow amount is clamped to `i32::MAX` before a hook sees it and a narrow readback saturates there. There are no transactions: `simulate` asks and changes nothing.
+
+- **Your block entities** answer on the hook points, after checking `entity.id` and that the out parameter is still none (several mods hook the same point): `native_fe_storage` sets `NativeFeInfo { stored, capacity, can_receive, can_extract }` for a side that has energy and leaves it none for one that hasn't; `native_fe_receive` and `native_fe_extract` set what they took or gave, 0 to `max`, and change nothing with `simulate`. During a receive or extract the entity is out of the world, as in its tick, and the engine marks it changed when energy moved. Answer the readback from `entity` and your own state: it is asked often, from inside other blocks' transfers, maybe while another level is in place.
+- **The helpers** find a block's FE: `native_fe_info(dimension, pos, face, wide)` reads it (none where that side has no energy), `native_fe_offer(dimension, pos, face, amount, simulate, wide)` offers energy and answers what was taken, `native_fe_draw(...)` draws it and answers what was given. They reach mod block entities and the game's own machines (in this fork AE2's energy acceptors, chargers, FE P2P tunnels and debug generator, which in turn reach mod blocks), in the level in place and the parked ones, on the server only.
+- **Loops.** The block entity ticking now, or answering a receive or extract now, is out of the world and answers nothing. A forwarder may call the helpers from inside its hooks: the same block, side and operation asked again inside its own call answers nothing (a readback, an empty one), and so does a chain 16 calls deep.
 
 ### Entities
 

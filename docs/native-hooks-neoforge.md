@@ -102,7 +102,10 @@ Hoppers, comparators and other mods should not read a fixed `slots` field. NeoFo
 and `Capabilities.Energy.BLOCK` with `EnergyHandler`
 ([Capabilities](https://docs.neoforged.net/docs/inventories/capabilities/)). A Horizon
 `block_capability(pos, kind, side, out)` hook could fill an out parameter with a handler object, so new kinds
-(fluids, energy) are new kinds, not new fields on a struct, and older mods keep compiling. Menus and screens
+(fluids, energy) are new kinds, not new fields on a struct, and older mods keep compiling. Energy took typed
+hooks instead (API 63, `fe_storage`, `fe_receive`, `fe_extract`, server-side, not cancellable, no NeoForge event):
+1.21.1's `IEnergyStorage` with its `simulate` flag, which the ported mods speak, rather than 26.3's
+transactional `EnergyHandler`, and no handler object borrowed across the hook boundary. Menus and screens
 are not modelled here: main already has `menu_clicked`, `menu_closed`, `screen*` and `block_entity_container`,
 and any change to them gets its own proposal with its own citations.
 

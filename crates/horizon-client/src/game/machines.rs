@@ -7,6 +7,7 @@ use super::{Game, storage::is_shulker_box};
 #[cfg(feature = "ae2-lab")]
 mod ae2_capabilities;
 mod crafter;
+pub(in crate::game) mod native_energy;
 pub(in crate::game) mod native_fluids;
 pub(in crate::game) mod native_items;
 use horizon_client::{

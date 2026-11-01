@@ -60,6 +60,7 @@ mod ae2_screens;
 #[cfg(feature = "ae2-lab")]
 mod ae2_priority_screen;
 mod screen_extras;
+mod energy_extras;
 #[cfg(feature = "ae2-lab")]
 mod ae2_debug;
 #[cfg(feature = "ae2-lab")]
