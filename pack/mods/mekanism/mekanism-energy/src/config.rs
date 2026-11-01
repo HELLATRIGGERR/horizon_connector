@@ -1,6 +1,7 @@
 //! The energy settings of Mekanism's config files, as ATM10 ships them in
 //! `config/Mekanism/`: `general.toml` (`[energy_conversion]`) and
-//! `tiers.toml` (`[energy_cubes]`, `[transmitters.energy]`). A missing file,
+//! `tiers.toml` (`[energy_cubes]`, `[transmitters.energy]`), and the unit
+//! screens show from `common.toml` (`energyType`). A missing file,
 //! key or a value out of the mod's range keeps the default, as NeoForge's
 //! config spec corrects it.
 use crate::tier::{CableTier, CubeTier};
@@ -16,6 +17,9 @@ pub struct EnergyConfig {
     pub cubes: [(u64, u64); 5],
     /// `<tier>Capacity` of each cable tier, in `CableTier::ALL` order.
     pub cables: [u64; 4],
+    /// `energyType`: screens show Forge Energy (`FORGE_ENERGY`, the
+    /// default) or Joules (`JOULES`).
+    pub show_fe: bool,
 }
 
 impl Default for EnergyConfig {
@@ -25,6 +29,7 @@ impl Default for EnergyConfig {
             fe_conversion_rate: 2.5,
             cubes: CubeTier::ALL.map(|t| (t.default_capacity(), t.default_output())),
             cables: CableTier::ALL.map(CableTier::default_capacity),
+            show_fe: true,
         }
     }
 }
@@ -37,7 +42,9 @@ impl EnergyConfig {
                 .ok()
                 .and_then(|text| text.parse::<toml::Table>().ok())
         };
-        Self::from_tables(read("general.toml").as_ref(), read("tiers.toml").as_ref())
+        let mut config = Self::from_tables(read("general.toml").as_ref(), read("tiers.toml").as_ref());
+        config.show_fe = shows_fe(read("common.toml").as_ref());
+        config
     }
 
     pub fn from_tables(general: Option<&toml::Table>, tiers: Option<&toml::Table>) -> Self {
@@ -88,6 +95,11 @@ impl EnergyConfig {
     }
 }
 
+/// `common.toml`'s `energyType` (top level): Forge Energy unless it says `JOULES`.
+pub fn shows_fe(common: Option<&toml::Table>) -> bool {
+    common.and_then(|c| c.get("energyType")).and_then(toml::Value::as_str) != Some("JOULES")
+}
+
 fn float(v: &toml::Value) -> Option<f64> {
     v.as_float().or_else(|| v.as_integer().map(|i| i as f64))
 }
@@ -121,5 +133,9 @@ mod tests {
         let wild: toml::Table = "[energy_conversion]\nfeConversionRate = 0.0\n".parse().unwrap();
         assert_eq!(EnergyConfig::from_tables(Some(&wild), None).fe_conversion_rate, 2.5);
         assert_eq!(EnergyConfig::from_tables(None, None), EnergyConfig::default());
+        let joules: toml::Table = "energyType = \"JOULES\"\n".parse().unwrap();
+        let fe: toml::Table = "energyType = \"FORGE_ENERGY\"\n".parse().unwrap();
+        assert!(!shows_fe(Some(&joules)));
+        assert!(shows_fe(Some(&fe)) && shows_fe(None));
     }
 }

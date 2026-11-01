@@ -22,6 +22,8 @@ export class WorldFixture {
   readonly content: string;
   /** Addon content folders loaded next to AE2's: the fixture's `addons`, and those AE2_ADDONS names (comma-separated). */
   readonly addons: string[];
+  /** More content mods (`devMods`), each another `--dev-mod` after the addons. */
+  readonly extraMods: string[];
   readonly run: string;
   readonly game: string;
   readonly socket: string;
@@ -31,10 +33,11 @@ export class WorldFixture {
   private phase = 0;
   readonly checks: string[] = [];
 
-  constructor(readonly label: string, readonly mode: Mode = 'server-thread', options: { content?: string; addons?: string[] } = {}) {
+  constructor(readonly label: string, readonly mode: Mode = 'server-thread', options: { content?: string; addons?: string[]; devMods?: string[] } = {}) {
     this.content = resolve(options.content ?? process.env.AE2_CONTENT_DIR ?? join(root, 'content/ae2'));
     const addons = new Set([...(options.addons ?? []), ...(process.env.AE2_ADDONS ?? '').split(',').filter(Boolean)]);
     this.addons = [...addons].map(addonContent);
+    this.extraMods = (options.devMods ?? []).map(path => resolve(path));
     assert(/^[a-z0-9-]+$/.test(label), 'fixture label must be a safe directory name');
     const tests = join(root, '.local/world-tests'); mkdirSync(tests, { recursive: true });
     this.run = mkdtempSync(join(tests, `${label}-`)); this.game = join(this.run, 'game');
@@ -82,7 +85,7 @@ export class WorldFixture {
 
   /** `--dev-mod` for AE2's content and each addon's. */
   devMods(): string[] {
-    return [this.content, ...this.addons].flatMap(path => ['--dev-mod', path]);
+    return [this.content, ...this.addons, ...this.extraMods].flatMap(path => ['--dev-mod', path]);
   }
 
   assertHidden(status: any): void {
@@ -90,7 +93,7 @@ export class WorldFixture {
   }
 
   async start(): Promise<any> {
-    for (const path of [this.binary, this.resources, this.content, ...this.addons]) assert(existsSync(path), `Missing fixture prerequisite: ${path}`);
+    for (const path of [this.binary, this.resources, this.content, ...this.addons, ...this.extraMods]) assert(existsSync(path), `Missing fixture prerequisite: ${path}`);
     this.release ??= await acquireRenderLease(); this.phase++;
     const binarySha = createHash('sha256').update(readFileSync(this.binary)).digest('hex');
     if (process.env.AE2_TEST_BINARY_SHA256) assert.equal(binarySha, process.env.AE2_TEST_BINARY_SHA256, 'fixture binary matches the selected build snapshot');

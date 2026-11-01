@@ -1,0 +1,28 @@
+{
+  "template": "minecraft:beacon",
+  "properties": {
+    "hardness": 3.5,
+    "explosion_resistance": 16,
+    "requires_tool": true,
+    "sounds": "minecraft:iron_block",
+    "no_occlusion": true,
+    "light": 0
+  },
+  "state_properties": {
+    "down": { "type": "enum", "values": ["none", "input", "output"] },
+    "up": { "type": "enum", "values": ["none", "input", "output"] },
+    "north": { "type": "enum", "values": ["none", "input", "output"] },
+    "south": { "type": "enum", "values": ["none", "input", "output"] },
+    "west": { "type": "enum", "values": ["none", "input", "output"] },
+    "east": { "type": "enum", "values": ["none", "input", "output"] }
+  },
+  "default_state": {
+    "down": "input",
+    "up": "input",
+    "north": "output",
+    "south": "input",
+    "west": "input",
+    "east": "input"
+  },
+  "components": { "minecraft:rarity": "common" }
+}

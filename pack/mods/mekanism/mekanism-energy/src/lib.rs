@@ -5,11 +5,21 @@
 //! `feConversionRate` Joules to the FE (`fe`). Energy cubes and universal
 //! cables come in tiers sized by `tiers.toml` (`tier`, `config`), and
 //! machines and cable networks hand energy to their neighbours with the
-//! even split of `EmitUtils.sendToAcceptors` (`split`). Nothing here knows
-//! the game: the native mod's helpers bring the world.
+//! even split of `EmitUtils.sendToAcceptors` (`split`). Energy is held in
+//! containers with rates by automation type (`container`); blocks expose it
+//! by side, as their side configuration says (`sides`); an energy cube keeps
+//! its Joules and config and ejects out of its output faces (`cube`). Its
+//! screen reads data slots and sends buttons (`menu`), and writes energy as
+//! Mekanism's screens do (`display`).
+//! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod config;
+pub mod container;
+pub mod cube;
+pub mod display;
 pub mod fe;
+pub mod menu;
 pub mod network;
+pub mod sides;
 pub mod split;
 pub mod tier;
 

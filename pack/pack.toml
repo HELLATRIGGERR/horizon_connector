@@ -1,7 +1,8 @@
 # This fork as a modpack: which mods the build turns on, and the settings each
 # takes from an installed All the Mods 10 (ATM10), as ATM10 ships them.
 #
-# `feature` is the Cargo feature of horizon-client that builds the mod in.
+# `feature` is the Cargo feature of horizon-client that builds the mod in;
+# `bundle`, the native mod under pack/ (a horizon-mixins bundle) that does.
 # `configs` are paths under ATM10's `config/` that `pack/scripts/sync-atm10.ts`
 # copies into the game's `config/`. ATM10's files are not stored here: they
 # come from the player's own instance (`ATM10_DIR`).
@@ -12,12 +13,16 @@ enabled = true
 feature = "ae2-lab"
 configs = ["ae2-common.toml", "ae2-client.toml"]
 
-# Planned: energy first (generators, universal cables, energy cubes).
-# ATM10 runs Mekanism 10.7.19: energy in Joules, FE * feConversionRate = J
-# (general.toml), tier sizes in tiers.toml.
+# Energy first: the Basic and Creative Energy Cubes work, with Mekanism's screen
+# and side configuration (generators, universal cables and the other tiers are
+# planned). ATM10 runs Mekanism 10.7.19: energy
+# in Joules, FE * feConversionRate = J (general.toml), tier sizes in tiers.toml.
+# A native bundle (`bundle`) over a content mod that `mekanism-content` builds
+# from the ATM10 carry; `pack/scripts/mekanism.ts` builds and tests both.
 [mods.mekanism]
 name = "Mekanism"
-enabled = false
+enabled = true
+bundle = "mods/mekanism"
 configs = [
   "Mekanism/general.toml", "Mekanism/tiers.toml", "Mekanism/startup.toml",
   "Mekanism/common.toml", "Mekanism/client.toml", "Mekanism/world.toml",
