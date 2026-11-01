@@ -1,0 +1,41 @@
+{
+  "namespace": "megacells",
+  "name": "MEGA Cells",
+  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1).",
+  "authors": ["90 (MEGA Cells)"],
+  "slices": ["1: M-tier item and fluid cells, their components and housings, Sky Steel, Sky Bronze, the Accumulation Processor"],
+  "items": {
+    "sky_steel_ingot": {"fire_resistant": true},
+    "sky_bronze_ingot": {"fire_resistant": true},
+    "accumulation_processor_press": {},
+    "printed_accumulation_processor": {},
+    "accumulation_processor": {},
+    "mega_item_cell_housing": {},
+    "mega_fluid_cell_housing": {},
+    "cell_component_1m": {},
+    "cell_component_4m": {},
+    "cell_component_16m": {},
+    "cell_component_64m": {},
+    "cell_component_256m": {},
+    "item_storage_cell_1m": {"max_stack_size": 1},
+    "item_storage_cell_4m": {"max_stack_size": 1},
+    "item_storage_cell_16m": {"max_stack_size": 1},
+    "item_storage_cell_64m": {"max_stack_size": 1},
+    "item_storage_cell_256m": {"max_stack_size": 1},
+    "fluid_storage_cell_1m": {"max_stack_size": 1},
+    "fluid_storage_cell_4m": {"max_stack_size": 1},
+    "fluid_storage_cell_16m": {"max_stack_size": 1},
+    "fluid_storage_cell_64m": {"max_stack_size": 1},
+    "fluid_storage_cell_256m": {"max_stack_size": 1}
+  },
+  "blocks": {
+    "sky_steel_block": {
+      "fire_resistant": true,
+      "properties": {"hardness": 5, "explosion_resistance": 12, "requires_tool": true, "sounds": "minecraft:iron_block"}
+    },
+    "sky_bronze_block": {
+      "fire_resistant": true,
+      "properties": {"hardness": 3, "explosion_resistance": 12, "requires_tool": true, "sounds": "minecraft:iron_block"}
+    }
+  }
+}

@@ -3,73 +3,13 @@
 use crate::{items::ItemStack, save};
 use horizon_world::nbt::{Compound, Tag};
 
+/// The size of an item's upgrade inventory, from the definitions registry.
 pub fn capacity(id: &str) -> Option<usize> {
-    Some(match id {
-        "ae2:matter_cannon" => 4,
-        "ae2:color_applicator"
-        | "ae2:view_cell"
-        | "ae2:wireless_terminal"
-        | "ae2:wireless_crafting_terminal" => 2,
-        "ae2:creative_storage_cell" => 0,
-        _ if id.starts_with("ae2:item_storage_cell_")
-            || id.starts_with("ae2:portable_item_cell_") =>
-        {
-            4
-        }
-        _ if id.starts_with("ae2:fluid_storage_cell_")
-            || id.starts_with("ae2:portable_fluid_cell_") =>
-        {
-            3
-        }
-        _ => return None,
-    })
+    crate::ae2x::defs::get().upgrade_slots(id)
 }
+/// How many of `card` the item `owner` takes (`Upgrades.add` rows).
 fn limit(owner: &str, card: &str) -> usize {
-    let portable = owner.starts_with("ae2:portable_");
-    let fluid = owner.contains("fluid_cell_") || owner.starts_with("ae2:fluid_storage_cell_");
-    match card {
-        "ae2:energy_card"
-            if portable
-                || matches!(
-                    owner,
-                    "ae2:matter_cannon"
-                        | "ae2:color_applicator"
-                        | "ae2:wireless_terminal"
-                        | "ae2:wireless_crafting_terminal"
-                ) =>
-        {
-            2
-        }
-        "ae2:speed_card" if owner == "ae2:matter_cannon" => 4,
-        "ae2:fuzzy_card"
-            if !fluid
-                && (owner == "ae2:matter_cannon"
-                    || owner == "ae2:view_cell"
-                    || owner.starts_with("ae2:item_storage_cell_")
-                    || owner.starts_with("ae2:portable_item_cell_")) =>
-        {
-            1
-        }
-        "ae2:inverter_card"
-            if owner == "ae2:view_cell"
-                || owner == "ae2:matter_cannon"
-                || crate::ae2_cell_codec::is_cell(owner) =>
-        {
-            1
-        }
-        "ae2:equal_distribution_card"
-            if owner == "ae2:color_applicator" || crate::ae2_cell_codec::is_cell(owner) =>
-        {
-            1
-        }
-        "ae2:void_card"
-            if matches!(owner, "ae2:color_applicator" | "ae2:matter_cannon")
-                || crate::ae2_cell_codec::is_cell(owner) =>
-        {
-            1
-        }
-        _ => 0,
-    }
+    crate::ae2x::defs::get().upgrade_limit(card, owner)
 }
 pub fn decode(cards: &[Tag], max: usize) -> Result<Vec<Option<ItemStack>>, String> {
     let mut slots = vec![None; max];

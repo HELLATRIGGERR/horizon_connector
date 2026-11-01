@@ -5829,15 +5829,7 @@ impl Game<'_> {
             }
             K::IoPort => slot < 6 && super::ae2_storage_devices::is_valid_storage_cell(item),
             K::Condenser => {
-                slot == 1
-                    && matches!(
-                        item.item.as_ref(),
-                        "ae2:cell_component_1k"
-                            | "ae2:cell_component_4k"
-                            | "ae2:cell_component_16k"
-                            | "ae2:cell_component_64k"
-                            | "ae2:cell_component_256k"
-                    )
+                slot == 1 && horizon_client::ae2x::defs::get().component(&item.item).is_some()
             }
             K::WirelessAccessPoint => slot == 0 && item.item.as_ref() == "ae2:wireless_booster",
             K::PatternProvider => super::ae2_pattern_access::encoded_pattern_item(item),

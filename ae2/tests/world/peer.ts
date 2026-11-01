@@ -16,7 +16,7 @@ export async function startPeer(host: WorldFixture, address: string, name = 'AE2
     writeFileSync(join(game, 'config', 'ae2-client.toml'), options.clientConfig);
   }
   const socket = join(process.platform === 'darwin' ? '/private/tmp' : '/tmp', `ae2-peer-${process.pid}-${name}.sock`);
-  const child = Bun.spawn([host.binary, '--resources', host.resources, '--dev-mod', host.content, '--name', name, '--render-distance', '4', '--width', '960', '--height', '540', '--control-socket', socket, '--background', '--no-pause'], {
+  const child = Bun.spawn([host.binary, '--resources', host.resources, ...host.devMods(), '--name', name, '--render-distance', '4', '--width', '960', '--height', '540', '--control-socket', socket, '--background', '--no-pause'], {
     cwd: game, env: { ...process.env, HORIZON_HOME: game, HORIZON_LAUNCHER_HOME: join(dir, 'launcher'), XDG_DATA_HOME: join(dir, 'data'), XDG_CONFIG_HOME: join(dir, 'config'), HORIZON_LAUNCHER_NO_SELF_UPDATE: '1', HORIZON_NO_AUDIO: '1', HORIZON_TELEMETRY_URL: 'off' }, stdout: 'pipe', stderr: 'pipe',
   });
   const logTasks = [child.stdout, child.stderr].map(async stream => { if (stream) for await (const bytes of stream) appendFileSync(join(dir, 'game.log'), bytes); });

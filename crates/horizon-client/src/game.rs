@@ -91,6 +91,8 @@ mod ae2_interface;
 #[cfg(feature = "ae2-lab")]
 mod ae2_environment;
 #[cfg(feature = "ae2-lab")]
+mod ae2x;
+#[cfg(feature = "ae2-lab")]
 mod ae2_fluids;
 #[cfg(feature = "ae2-lab")]
 mod ae2_fluid_grid;
@@ -3887,6 +3889,10 @@ impl Game<'_> {
         let max_stack = |stack: &ItemStack| catalog.stack_max(stack);
         // A LAN or server guest only shows the host's items.
         let merging = self.remote.is_none();
+        #[cfg(feature = "ae2-megacells")]
+        let mega_lava = (merging && !items.is_empty()).then(|| {
+            ae2x::megacells::lava::LavaRecipes::new(self.res.recipes(), self.res.items())
+        });
         for i in 0..items.len() {
             if removed[i] {
                 continue;
@@ -3940,17 +3946,27 @@ impl Game<'_> {
                     &max_stack,
                 );
             }
+            // MEGA Cells: the ingredients of a lava transformation do not burn.
+            #[cfg(feature = "ae2-megacells")]
+            let lava_immune = mega_lava
+                .as_ref()
+                .is_some_and(|lava| self.megacells_lava_immune(lava, &items, i));
+            #[cfg(not(feature = "ae2-megacells"))]
+            let lava_immune = false;
             let item = &mut items[i];
             if !alive || removed[i] {
                 removed[i] = true;
                 cells.remove(i, item.position);
                 continue;
             }
-            let environment = item.environment_tick(
+            let fire_immune =
+                lava_immune || world_items!(self).resists_fire(&item.stack, "minecraft:in_fire");
+            let environment = item.environment_tick_with(
                 &self.world,
                 self.res.facts(),
                 self.pack.assets.registry,
                 world_items!(self),
+                fire_immune,
             );
             // shortcut: age is the fresh-drop clock; use entity ticks for saved/frozen-age phase parity.
             if environment.should_play_lava_hurt_sound(item.age) {

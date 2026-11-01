@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "addon": "megacells",
+  "name": "MEGA Cells",
+  "version": "4.11.0",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/62832/MEGACells",
+    "tag": "4.11.0",
+    "commit": "f46ab8f9a2c14f0de3e09241241b49fb2d06a81a",
+    "license": "LGPL-3.0",
+    "license_file": "LICENSE at the tag; LICENSE_megacells in the jar"
+  },
+  "assets_license": "CC BY-NC-SA 3.0 (README at the tag)",
+  "jar": {
+    "file": "megacells-4.11.0.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "a386bbf12afb11729b0dcf77f64221893d250f22e6185a4d728b9799b230bc55"
+  },
+  "requires": ["ae2 19.2.18"],
+  "derived_files": [
+    "crates/horizon-client/src/ae2x/megacells.rs",
+    "crates/horizon-client/src/game/ae2x/megacells/lava.rs"
+  ]
+}

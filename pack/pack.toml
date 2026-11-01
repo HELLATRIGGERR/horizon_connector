@@ -35,6 +35,18 @@ name = "Flux Networks"
 enabled = false
 configs = ["fluxnetworks-common.toml", "fluxnetworks-server.toml", "fluxnetworks-client.toml"]
 
+# AE2 addons. `content` is the addon's content folder under content/, which
+# `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts <id>` writes from ATM10's
+# jar; ae2/scripts/play.ts loads it next to AE2's. See ae2/addons/<id>/.
+
+# MEGA Cells: 1M to 256M storage cells (slice 1; ae2/addons/megacells).
+[mods.megacells]
+name = "MEGA Cells"
+enabled = true
+feature = "ae2-megacells"
+content = "megacells"
+configs = ["megacells-common.toml"]
+
 # AE2 addon: FE stored in ME cells and the Flux Accessor.
 [mods.appflux]
 name = "Applied Flux"

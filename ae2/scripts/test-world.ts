@@ -1,7 +1,7 @@
 /** The world-test entry point always uses isolated, hidden native clients. */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { root, help } from './common';
+import { root, help, addonContent } from './common';
 const suites = [
   'formation-quantum-dimensions', 'machine-screens',
   'fluid-cell-missing-content', 'source-overfilled-cell', 'io-port-mixed-cell',
@@ -49,7 +49,10 @@ const suites = [
   'wireless-menu-lifecycle',
   'wireless-menu-status',
   'wireless-power-multiplier',
+  'megacells-cells',
 ];
+// Suites of an addon (pack/pack.toml): the default run skips them while the addon's content is absent.
+const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells' };
 // Explicitly selectable before-cases, not part of the default passing checkpoint.
 const pending = new Set(['chest-fluid-gestures', 'crafting-idle-break', 'crafting-idle-inventory', 'formation-armor-stand', 'formation-quantum-dimensions', 'inframe-wireless-session', 'portable-fluid-gestures', 'portable-fluid-overflow', 'portable-menu-lifecycle', 'portable-menu-status', 'quantum-forced-ready', 'terminal-craft-gestures', 'terminal-fluid-gestures', 'wireless-menu-lifecycle', 'wireless-menu-status', 'wireless-power-multiplier']);
 if (!help('Usage: bun run ae2/scripts/test-world.ts [--build METADATA.json] [--content DIRECTORY] [--in-frame] [SUITE ...]\nRuns only hidden, isolated fixtures, sequentially under a host rendering lease.\nSuites: ' + suites.join(', '))) {
@@ -70,7 +73,16 @@ if (!help('Usage: bun run ae2/scripts/test-world.ts [--build METADATA.json] [--c
     else throw new Error(`Unknown fixture option or suite: ${arg}`);
   }
   const failed: string[] = [];
-  for (const suite of selected.length ? selected : suites.filter(suite => !pending.has(suite))) {
+  const ready = (suite: string) => {
+    const addon = addonSuites[suite];
+    if (!addon) return true;
+    let path: string | undefined;
+    try { path = addonContent(addon); } catch {}
+    if (path && existsSync(path)) return true;
+    console.log(`SKIP ${suite}: ${addon} is off in pack/pack.toml or has no content (ae2/scripts/prepare-addon.ts ${addon})`);
+    return false;
+  };
+  for (const suite of selected.length ? selected : suites.filter(suite => !pending.has(suite) && ready(suite))) {
     const child = Bun.spawn([process.execPath, 'run', join(root, 'ae2/tests/world', suite + '.ts'), ...(inFrame ? ['--in-frame'] : [])], { cwd: root, env, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
     const code = await child.exited;
     if (code !== 0) failed.push(suite);

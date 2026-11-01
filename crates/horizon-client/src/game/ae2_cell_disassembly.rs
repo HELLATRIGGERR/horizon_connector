@@ -31,7 +31,7 @@ fn prepare(
     if stack.count != 1 {
         return Err("cell disassembly requires one physical cell".into());
     }
-    let cell = if stack.item.contains("fluid") {
+    let cell = if codec::is_fluid_cell(&stack.item) {
         codec::read_fluid_cell(stack)?
     } else {
         codec::read_cell(stack)?
@@ -203,5 +203,30 @@ mod tests {
             prepare(&holder, &recipes, 12345.0).unwrap(),
             Prepared::Filled
         ));
+    }
+    /// MEGA Cells' `ae2:storage_cell_disassembly` recipes return the
+    /// component and the MEGA housing, and the cards.
+    #[cfg(feature = "ae2-megacells")]
+    #[test]
+    fn mega_cells_disassemble_by_their_own_recipes() {
+        let recipes = vec![(
+            "megacells:cells/standard/fluid_storage_cell_64m_disassembly".into(),
+            serde_json::json!({"type":"ae2:storage_cell_disassembly","cell":"megacells:fluid_storage_cell_64m","cell_disassembly_items":[{"count":1,"id":"megacells:cell_component_64m"},{"count":1,"id":"megacells:mega_fluid_cell_housing"}]}),
+        )];
+        let mut holder = ItemStack::new("megacells:fluid_storage_cell_64m", 1);
+        let mut inv = Inventory::read(&holder).unwrap();
+        assert_eq!(inv.slots.len(), 3);
+        assert!(inv.insert_one(&ItemStack::new("ae2:void_card", 1)));
+        assert!(!inv.insert_one(&ItemStack::new("ae2:fuzzy_card", 1)));
+        inv.store(&mut holder).unwrap();
+        let Prepared::Ready(items) = prepare(&holder, &recipes, 0.0).unwrap() else {
+            panic!("recipe absent")
+        };
+        let ids: Vec<_> = items.iter().map(|item| item.item.as_ref()).collect();
+        assert_eq!(ids, ["megacells:cell_component_64m", "megacells:mega_fluid_cell_housing", "ae2:void_card"]);
+        let mut cell = codec::read_fluid_cell(&holder).unwrap();
+        cell.insert(&codec::fluid_key("minecraft:water"), 1000, ae2_cell_core::Action::Modulate);
+        codec::write_fluid_cell(&mut holder, &cell).unwrap();
+        assert!(matches!(prepare(&holder, &recipes, 0.0).unwrap(), Prepared::Filled));
     }
 }

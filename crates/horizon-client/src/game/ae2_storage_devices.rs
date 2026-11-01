@@ -12,7 +12,7 @@ fn text(c: &Compound, key: &str) -> Option<String> {
     }
 }
 fn is_fluid(s: &ItemStack) -> bool {
-    s.item.starts_with("ae2:fluid_storage_cell_") || s.item.starts_with("ae2:portable_fluid_cell_")
+    horizon_client::ae2_cell_codec::is_fluid_cell(&s.item)
 }
 fn read(s: &ItemStack) -> Result<Cell, String> {
     if is_fluid(s) {
@@ -35,20 +35,11 @@ pub(super) fn is_valid_storage_cell(stack: &ItemStack) -> bool {
 pub(super) fn is_valid_workbench_cell(stack: &ItemStack) -> bool {
     is_valid_storage_cell(stack) || horizon_client::ae2_cell_codec::read_view_cell(stack).is_ok()
 }
-/// StorageCell.getIdleDrain of a cell in a Drive or ME Chest: BasicStorageCell
-/// idleDrain by size; 0.5 for every PortableCellItem, MatterCannonItem and
-/// ColorApplicatorItem.
+/// StorageCell.getIdleDrain of a cell in a Drive or ME Chest, from the cell
+/// definitions (AE2's and its addons'): BasicStorageCell idleDrain by size;
+/// 0.5 for every PortableCellItem, MatterCannonItem and ColorApplicatorItem.
 pub(super) fn cell_idle_drain(stack: &ItemStack) -> Option<f64> {
-    if matches!(stack.item.as_ref(), "ae2:matter_cannon" | "ae2:color_applicator")
-        || stack.item.starts_with("ae2:portable_item_cell_")
-        || stack.item.starts_with("ae2:portable_fluid_cell_")
-    {
-        return Some(0.5);
-    }
-    stack.item.rsplit('_').next().and_then(|tier| match tier {
-        "1k" => Some(0.5), "4k" => Some(1.0), "16k" => Some(1.5),
-        "64k" => Some(2.0), "256k" => Some(2.5), _ => None,
-    })
+    horizon_client::ae2_cell_codec::idle_drain(&stack.item)
 }
 fn write(s: &mut ItemStack, c: &Cell) -> Result<(), String> {
     if is_fluid(s) {
@@ -546,14 +537,10 @@ fn condenser_capacity(machine: &horizon_client::ae2_world::Machine) -> f64 {
     let Some(Some(component)) = machine.slots.get(1) else {
         return 0.0;
     };
-    let kb = match component.item.as_ref() {
-        "ae2:cell_component_1k" => 1,
-        "ae2:cell_component_4k" => 4,
-        "ae2:cell_component_16k" => 16,
-        "ae2:cell_component_64k" => 64,
-        "ae2:cell_component_256k" => 256,
-        _ => 0,
-    };
+    // IStorageComponent.getBytes, from the definitions registry.
+    let kb = horizon_client::ae2x::defs::get()
+        .component(&component.item)
+        .map_or(0, |tier| tier.kilobytes());
     (kb * 1024 * 8) as f64
 }
 fn condenser_mode(
@@ -730,7 +717,8 @@ impl Game<'_> {
     }
     pub(super) fn ae2_condenser_trash_allowed(stack:&ItemStack)->bool {
         !horizon_client::ae2_cell_codec::is_cell(&stack.item)
-            && !matches!(stack.item.as_ref(),"ae2:matter_cannon"|"ae2:color_applicator"|"ae2:creative_storage_cell"|"ae2:cell_component_1k"|"ae2:cell_component_4k"|"ae2:cell_component_16k"|"ae2:cell_component_64k"|"ae2:cell_component_256k")
+            && horizon_client::ae2x::defs::get().component(&stack.item).is_none()
+            && !matches!(stack.item.as_ref(),"ae2:matter_cannon"|"ae2:color_applicator"|"ae2:creative_storage_cell")
     }
     pub(super) fn ae2_condenser_cursor_input(&mut self,pos:Pos,one:bool) {
         let Some(stack)=self.carried.as_ref().filter(|s|Self::ae2_condenser_trash_allowed(s)).cloned() else {return;};
@@ -1177,6 +1165,28 @@ mod storage_tests {
         condenser_fill_output(&mut m,64).unwrap();assert_eq!(m.slots[0].as_ref().unwrap().count,2);assert_eq!(condenser_power(&m).unwrap(),0.0);
         for id in ["ae2:item_storage_cell_1k","ae2:portable_item_cell_1k","ae2:creative_storage_cell","ae2:matter_cannon","ae2:cell_component_1k"] {assert!(!Game::ae2_condenser_trash_allowed(&ItemStack::new(id,1)),"{id}");}
         assert!(Game::ae2_condenser_trash_allowed(&ItemStack::new("minecraft:cobblestone",64)));
+    }
+    /// MEGA Cells' cells go in drives and chests, and its components power a
+    /// Condenser as AE2's do (IStorageComponent: bytes × 8).
+    #[cfg(feature = "ae2-megacells")]
+    #[test]
+    fn mega_cells_are_storage_cells_and_mega_components_condenser_storage() {
+        for size in ["1m","4m","16m","64m","256m"] {
+            for kind in ["item","fluid"] {
+                let cell=ItemStack::new(&format!("megacells:{kind}_storage_cell_{size}"),1);
+                assert!(is_valid_storage_cell(&cell)&&is_valid_workbench_cell(&cell),"{}",cell.item);
+                assert_eq!(is_fluid(&cell),kind=="fluid");
+                assert!(!Game::ae2_condenser_trash_allowed(&cell));
+            }
+            assert!(!Game::ae2_condenser_trash_allowed(&ItemStack::new(&format!("megacells:cell_component_{size}"),1)));
+        }
+        assert!(!is_valid_storage_cell(&ItemStack::new("megacells:item_storage_cell_1m",2)),"a stack of two is not a cell");
+        assert!(!is_valid_storage_cell(&ItemStack::new("megacells:cell_component_1m",1)));
+        let mut m=Machine::new(MachineKind::Condenser);
+        m.slots[1]=Some(ItemStack::new("megacells:cell_component_256m",1));
+        assert_eq!(condenser_capacity(&m),(262_144u64*1024*8) as f64);
+        m.slots[1]=Some(ItemStack::new("megacells:cell_component_1m",1));
+        assert_eq!(condenser_capacity(&m),8_388_608.0);
     }
 }
 

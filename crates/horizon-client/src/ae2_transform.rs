@@ -102,6 +102,10 @@ fn within(anchor: [f64; 3], other: [f64; 3]) -> bool {
         && other[2] - 0.125 < anchor[2] + 1.0
 }
 impl Rule {
+    /// The item ids each ingredient accepts, in the recipe's order.
+    pub fn ingredients(&self) -> &[HashSet<String>] {
+        &self.ingredients
+    }
     pub fn explosion(&self) -> bool {
         matches!(self.circumstance, Circumstance::Explosion)
     }

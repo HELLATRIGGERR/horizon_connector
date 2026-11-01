@@ -60,6 +60,12 @@ bun run ae2/scripts/play.ts
 
 Substitute the paths for your own installation. The content preparation step obtains the pinned AE2 source and NeoForge conventional tag data; it does not make this client a NeoForge mod. Do not commit Minecraft JARs, prepared resources or generated assets.
 
+AE2 addons from All the Mods 10 are listed in `pack/pack.toml` and described in [addons/](addons/). Each is a Cargo feature that `build.ts` and `test.ts` turn on, and a content folder made from the addon's jar in your own ATM10 instance, which `play.ts` loads next to AE2's:
+
+```sh
+ATM10_DIR="/path/to/All the Mods 10" bun run ae2/scripts/prepare-addon.ts megacells
+```
+
 The tested default build disables audio and controller support. To enable audio in a separate build, use `bun run ae2/scripts/build.ts --features audio`; that configuration was not part of the stated native-world checks.
 
 The play command opens a visible title screen with an isolated fresh profile; the illustrated hall is not bundled. To start a new creative test world directly, use:

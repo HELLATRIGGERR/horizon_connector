@@ -12,7 +12,9 @@ AE2 code is LGPL-3.0-or-later; this derived implementation uses the same terms,
 see LICENSE. AE2 textures/models have separate CC BY-NC-SA 3.0 terms and are not
 included in this crate.
 
-Supports 1K, 4K, 16K, 64K, and 256K item/fluid cells, pooled byte accounting,
+Supports 1K, 4K, 16K, 64K, and 256K item/fluid cells, and any other tier an addon
+defines by its size and type count (`Tier::from_kilobytes`, `CellConfig::basic`;
+MEGA Cells' 1M to 256M are `Tier::M1`..`Tier::M256`), pooled byte accounting,
 partition whitelist/blacklist with default fuzzy IGNORE_ALL, equal distribution and void upgrades, and
 simulation. Fluid units follow this upstream NeoForge branch: 1000 per bucket.
 `CellBank` is a simple host-ordered collection, not AE2 network scheduling.

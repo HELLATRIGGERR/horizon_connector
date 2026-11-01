@@ -502,9 +502,9 @@ impl Game<'_> {
                     (13.0 - row as f32 * 3.0) / 16.0,
                     1.0 / 16.0,
                 );
-                let name = slot.id.strip_prefix("ae2:").unwrap_or("");
-                let model_name = name.split_once("_storage_cell_")
-                    .map(|(kind, size)| format!("ae2:block/drive/cells/{size}_{kind}_cell"))
+                // StorageCellModels: the cell's registered model, else the generic one.
+                let model_name = horizon_client::ae2x::defs::get().cell(&slot.id)
+                    .map(|cell| cell.drive_model.clone())
                     .unwrap_or_else(|| "ae2:block/drive/drive_cell".to_owned());
                 let quads = library.and_then(|l| l.resolve(&model_name).ok())
                     .and_then(|m| horizon_assets::bake::bake_model(&m).ok());

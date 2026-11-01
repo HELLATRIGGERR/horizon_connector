@@ -13,23 +13,39 @@ pub enum Action {
     Simulate,
     Modulate,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tier {
-    K1,
-    K4,
-    K16,
-    K64,
-    K256,
-}
+/// A storage tier, by its size in kilobytes (AE2's `StorageTier.bytes() / 1024`).
+/// AE2's own tiers run 1K to 256K; an addon's may go further (MEGA Cells has
+/// 1M to 256M). Every tier is a power of four.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Tier(u32);
 impl Tier {
-    fn kilobytes(self) -> u64 {
-        match self {
-            Self::K1 => 1,
-            Self::K4 => 4,
-            Self::K16 => 16,
-            Self::K64 => 64,
-            Self::K256 => 256,
+    pub const K1: Self = Self(1);
+    pub const K4: Self = Self(4);
+    pub const K16: Self = Self(16);
+    pub const K64: Self = Self(64);
+    pub const K256: Self = Self(256);
+    pub const M1: Self = Self(1 << 10);
+    pub const M4: Self = Self(4 << 10);
+    pub const M16: Self = Self(16 << 10);
+    pub const M64: Self = Self(64 << 10);
+    pub const M256: Self = Self(256 << 10);
+    /// A tier of `kilobytes`: a power of four, at most 256M. AE2's
+    /// `IBasicCellItem.getBytes` must stay under `(Integer.MAX_VALUE + 1) / 8`
+    /// bytes, which 256M reaches exactly.
+    pub const fn from_kilobytes(kilobytes: u32) -> Option<Self> {
+        if kilobytes.is_power_of_two() && kilobytes.trailing_zeros() % 2 == 0 && kilobytes <= 256 << 10 {
+            Some(Self(kilobytes))
+        } else {
+            None
         }
+    }
+    pub const fn kilobytes(self) -> u64 {
+        self.0 as u64
+    }
+    /// `StorageTier.index()`: 1 for 1K, 5 for 256K; MEGA Cells continues at
+    /// 6 for 1M up to 10 for 256M.
+    pub const fn index(self) -> u32 {
+        self.0.trailing_zeros() / 2 + 1
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +85,8 @@ pub struct CellConfig {
     pub tool: Option<ToolCell>,
     pub channel: Channel,
     pub portable: bool,
+    /// `IBasicCellItem.getTotalTypes`: how many distinct keys the cell holds.
+    pub types: usize,
     pub filter: Option<Filter>,
     /// Fuzzy card in AE2's default IGNORE_ALL mode: match primary item ID.
     pub fuzzy: bool,
@@ -77,12 +95,14 @@ pub struct CellConfig {
     pub void_excess: bool,
 }
 impl CellConfig {
-    pub fn item(tier: Tier) -> Self {
+    /// A `BasicStorageCell` of `channel` holding `types` distinct keys.
+    pub fn basic(tier: Tier, channel: Channel, types: usize) -> Self {
         Self {
             tier,
             tool: None,
-            channel: Channel::Item,
+            channel,
             portable: false,
+            types,
             filter: None,
             fuzzy: false,
             fuzzy_mode: FuzzyMode::IgnoreAll,
@@ -90,23 +110,28 @@ impl CellConfig {
             void_excess: false,
         }
     }
+    /// A `PortableCellItem` of `channel`: half the bytes of its tier.
+    pub fn portable(tier: Tier, channel: Channel, types: usize) -> Self {
+        Self {
+            portable: true,
+            ..Self::basic(tier, channel, types)
+        }
+    }
+    /// AE2's item cell: 63 types.
+    pub fn item(tier: Tier) -> Self {
+        Self::basic(tier, Channel::Item, 63)
+    }
+    /// AE2's fluid cell: 18 types.
     pub fn fluid(tier: Tier) -> Self {
-        Self {
-            channel: Channel::Fluid,
-            ..Self::item(tier)
-        }
+        Self::basic(tier, Channel::Fluid, 18)
     }
+    /// AE2's portable item cell: `63 - 9 * tier.index()` types.
     pub fn portable_item(tier: Tier) -> Self {
-        Self {
-            portable: true,
-            ..Self::item(tier)
-        }
+        Self::portable(tier, Channel::Item, 63usize.saturating_sub(9 * tier.index() as usize))
     }
+    /// AE2's portable fluid cell: 18 types.
     pub fn portable_fluid(tier: Tier) -> Self {
-        Self {
-            portable: true,
-            ..Self::fluid(tier)
-        }
+        Self::portable(tier, Channel::Fluid, 18)
     }
     pub fn matter_cannon() -> Self {
         Self {
@@ -151,19 +176,8 @@ impl CellConfig {
                 ToolCell::ColorApplicator => 27,
             };
         }
-        match self.channel {
-            Channel::Item if self.portable => {
-                63 - match self.tier {
-                    Tier::K1 => 9,
-                    Tier::K4 => 18,
-                    Tier::K16 => 27,
-                    Tier::K64 => 36,
-                    Tier::K256 => 45,
-                }
-            }
-            Channel::Item => 63,
-            Channel::Fluid => 18,
-        }
+        // BasicCellInventory keeps the type count between 1 and MAX_ITEM_TYPES.
+        self.types.clamp(1, 63)
     }
     fn allows_with(
         &self,
@@ -743,6 +757,61 @@ mod extended_tests {
             Cell::from_entries(config, [(key(0), 0)]),
             Err(RestoreError::ZeroAmount)
         ));
+    }
+    #[test]
+    fn tier_indices_and_sizes_follow_storage_tiers() {
+        for (tier, index, kilobytes) in [
+            (Tier::K1, 1, 1), (Tier::K4, 2, 4), (Tier::K16, 3, 16), (Tier::K64, 4, 64), (Tier::K256, 5, 256),
+            (Tier::M1, 6, 1024), (Tier::M4, 7, 4096), (Tier::M16, 8, 16384), (Tier::M64, 9, 65536),
+            (Tier::M256, 10, 262144),
+        ] {
+            assert_eq!((tier.index(), tier.kilobytes()), (index, kilobytes));
+            assert_eq!(Tier::from_kilobytes(kilobytes as u32), Some(tier));
+        }
+        for kilobytes in [0, 2, 8, 3, 1 << 20] {
+            assert_eq!(Tier::from_kilobytes(kilobytes), None);
+        }
+    }
+    #[test]
+    fn mega_tiers_follow_megacells_basic_storage_cells() {
+        // MEGAItems: BasicStorageCell(tier.bytes() / 1024 KiB, tier.bytes() / 128
+        // bytes per type, 63 item or 18 fluid types), tier.bytes() = 1024 * 4^(index-1).
+        for tier in [Tier::M1, Tier::M4, Tier::M16, Tier::M64, Tier::M256] {
+            let bytes = 1024 * 4u64.pow(tier.index() - 1);
+            for (config, types) in [(CellConfig::item(tier), 63), (CellConfig::fluid(tier), 18)] {
+                assert_eq!(config.total_bytes(), bytes);
+                assert_eq!(config.bytes_per_type(), bytes / 128);
+                assert_eq!(config.max_types(), types);
+                let mut c = Cell::new(config.clone());
+                let one = (bytes - bytes / 128) * config.amount_per_byte();
+                assert_eq!(c.insert(&key(0), u64::MAX, Action::Simulate), one);
+                for n in 0..types {
+                    assert_eq!(c.insert(&key(n), 1, Action::Modulate), 1);
+                }
+                assert_eq!(c.insert(&key(types), 1, Action::Modulate), 0);
+                assert_eq!(c.used_bytes(), types as u64 * (bytes / 128) + (types as u64).div_ceil(config.amount_per_byte()));
+            }
+        }
+        // A 256M item cell holds 2,130,706,432 of one item: just under Integer.MAX_VALUE.
+        let mut c = Cell::new(CellConfig::item(Tier::M256));
+        assert_eq!(c.insert(&key(0), u64::MAX, Action::Modulate), 2_130_706_432);
+        assert_eq!(c.used_bytes(), 1 << 28);
+        assert_eq!(c.remaining_items(), 0);
+        let restored = Cell::from_entries(CellConfig::item(Tier::M256), [(key(0), 2_130_706_432)]).unwrap();
+        assert_eq!(restored.total_items(), 2_130_706_432);
+        assert!(Cell::from_entries(CellConfig::item(Tier::M256), [(key(0), 2_130_706_433)]).is_err());
+        // Fluids: 8,000 mB per byte, 17,045,651,456,000 mB of one fluid.
+        let mut c = Cell::new(CellConfig::fluid(Tier::M256));
+        assert_eq!(c.insert(&key(0), u64::MAX, Action::Modulate), ((1 << 28) - (1 << 21)) * 8000);
+    }
+    #[test]
+    fn explicit_type_counts_are_kept_between_one_and_sixty_three() {
+        assert_eq!(CellConfig::basic(Tier::M1, Channel::Item, 27).max_types(), 27);
+        assert_eq!(CellConfig::basic(Tier::M1, Channel::Item, 0).max_types(), 1);
+        assert_eq!(CellConfig::basic(Tier::M1, Channel::Item, 99).max_types(), 63);
+        // MEGAPortableCell: 18 + (index - 5) * 9 item types, half the bytes.
+        let portable = CellConfig::portable(Tier::M1, Channel::Item, 27);
+        assert_eq!((portable.total_bytes(), portable.max_types()), (512 << 10, 27));
     }
     #[test]
     fn bank_routes_remainders_and_simulation_is_read_only() {

@@ -117,13 +117,26 @@ impl ItemEntity {
         registry: &horizon_world::registry::BlockRegistry,
         items: &crate::items::Items,
     ) -> ItemEnvironmentTick {
+        let fire_immune = items.resists_fire(&self.stack, "minecraft:in_fire");
+        self.environment_tick_with(world, facts, registry, items, fire_immune)
+    }
+    /// [`ItemEntity::environment_tick`] with `Entity.fireImmune()` given: a
+    /// mod may make an item fire immune for a while (MEGA Cells keeps the
+    /// ingredients of a lava transformation alive).
+    pub fn environment_tick_with(
+        &mut self,
+        world: &World,
+        facts: &BlockFacts,
+        registry: &horizon_world::registry::BlockRegistry,
+        items: &crate::items::Items,
+        fire_immune: bool,
+    ) -> ItemEnvironmentTick {
         let at = world.block(
             self.position.x.floor() as i32,
             (self.position.y + 0.1).floor() as i32,
             self.position.z.floor() as i32,
         );
         let fluid = facts.get(at).fluid;
-        let fire_immune = items.resists_fire(&self.stack, "minecraft:in_fire");
         if fluid == Fluid::Water || fire_immune {
             self.fire_ticks = 0;
         }

@@ -174,6 +174,8 @@ mod streaming_flat_tests;
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_cell_codec;
 #[cfg(feature = "ae2-lab")]
+pub mod ae2x;
+#[cfg(feature = "ae2-lab")]
 pub mod ae2_generic_stack;
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_upgrade_inventory;

@@ -27,3 +27,12 @@ whose project uses [LGPL 2.1](LICENSES/NeoForge-LGPL-2.1.txt). The Guide compile
 uses the separately installed `marked` and `yaml` packages; their package
 licenses accompany the local dependency installation. Minecraft resources are
 prepared from the player's own installation and are not distributed here.
+
+AE2 addons from All the Mods 10 are listed in [addons/](addons/). Code derived
+from [MEGA Cells](https://github.com/62832/MEGACells) 4.11.0 (tag `4.11.0`,
+commit `f46ab8f9a2c14f0de3e09241241b49fb2d06a81a`) is under its
+[LGPL 3.0](LICENSES/AE2-LGPL-3.0.txt); the files are listed in
+[addons/megacells/SOURCE_MANIFEST.json](addons/megacells/SOURCE_MANIFEST.json).
+MEGA Cells' assets, by its README under
+[CC BY-NC-SA 3.0](LICENSES/CC-BY-NC-SA-3.0.txt), are generated locally from the
+player's own jar by `scripts/prepare-addon.ts` and are not distributed here.

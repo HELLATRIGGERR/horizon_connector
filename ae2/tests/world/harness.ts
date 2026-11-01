@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { root, engine } from '../../scripts/common';
+import { root, engine, addonContent } from '../../scripts/common';
 import { acquireRenderLease, awakeNowMs, awakeTimeout } from './background';
 
 export type Mode = 'server-thread' | 'in-frame';
@@ -20,6 +20,8 @@ export class WorldFixture {
   readonly binary = resolve(process.env.AE2_TEST_BINARY ?? join(engine, 'target/fast', process.platform === 'win32' ? 'horizon-client.exe' : 'horizon-client'));
   readonly resources = resolve(process.env.AE2_RESOURCES ?? join(root, '.local/resources/26.3'));
   readonly content: string;
+  /** Addon content folders loaded next to AE2's: the fixture's `addons`, and those AE2_ADDONS names (comma-separated). */
+  readonly addons: string[];
   readonly run: string;
   readonly game: string;
   readonly socket: string;
@@ -29,8 +31,10 @@ export class WorldFixture {
   private phase = 0;
   readonly checks: string[] = [];
 
-  constructor(readonly label: string, readonly mode: Mode = 'server-thread', options: { content?: string } = {}) {
+  constructor(readonly label: string, readonly mode: Mode = 'server-thread', options: { content?: string; addons?: string[] } = {}) {
     this.content = resolve(options.content ?? process.env.AE2_CONTENT_DIR ?? join(root, 'content/ae2'));
+    const addons = new Set([...(options.addons ?? []), ...(process.env.AE2_ADDONS ?? '').split(',').filter(Boolean)]);
+    this.addons = [...addons].map(addonContent);
     assert(/^[a-z0-9-]+$/.test(label), 'fixture label must be a safe directory name');
     const tests = join(root, '.local/world-tests'); mkdirSync(tests, { recursive: true });
     this.run = mkdtempSync(join(tests, `${label}-`)); this.game = join(this.run, 'game');
@@ -76,18 +80,23 @@ export class WorldFixture {
     });
   }
 
+  /** `--dev-mod` for AE2's content and each addon's. */
+  devMods(): string[] {
+    return [this.content, ...this.addons].flatMap(path => ['--dev-mod', path]);
+  }
+
   assertHidden(status: any): void {
     assert.deepEqual(status.window, { offscreen: true, visible: false, focused: false, fullscreen: false, system_pointer_captured: false }, 'hidden test window isolation');
   }
 
   async start(): Promise<any> {
-    for (const path of [this.binary, this.resources, this.content]) assert(existsSync(path), `Missing fixture prerequisite: ${path}`);
+    for (const path of [this.binary, this.resources, this.content, ...this.addons]) assert(existsSync(path), `Missing fixture prerequisite: ${path}`);
     this.release ??= await acquireRenderLease(); this.phase++;
     const binarySha = createHash('sha256').update(readFileSync(this.binary)).digest('hex');
     if (process.env.AE2_TEST_BINARY_SHA256) assert.equal(binarySha, process.env.AE2_TEST_BINARY_SHA256, 'fixture binary matches the selected build snapshot');
     writeFileSync(join(this.run, `runtime-${this.phase}.json`), JSON.stringify({ phase: this.phase, mode: this.mode, binary_sha256: binarySha, fixture_source_sha256: createHash('sha256').update(readFileSync(process.argv[1])).digest('hex'), harness_source_sha256: createHash('sha256').update(readFileSync(import.meta.path)).digest('hex'), background: true, max_fps: 30 }, null, 2) + '\n');
     const env = { ...process.env, HORIZON_HOME: this.game, HORIZON_LAUNCHER_HOME: join(this.run, 'launcher'), XDG_DATA_HOME: join(this.run, 'data'), XDG_CONFIG_HOME: join(this.run, 'config'), HORIZON_LAUNCHER_NO_SELF_UPDATE: '1', HORIZON_NO_AUDIO: '1', HORIZON_TELEMETRY_URL: 'off', HORIZON_SERVER_THREAD: this.mode === 'server-thread' ? '1' : '0' };
-    this.child = Bun.spawn([this.binary, '--resources', this.resources, '--dev-mod', this.content, '--world', 'AE2 Fixture', '--seed', '1234', '--creative', '--name', 'AE2Fixture', '--render-distance', '4', '--width', '960', '--height', '540', '--control-socket', this.socket, '--background', '--no-pause', this.mode === 'server-thread' ? '--server-thread' : '--in-frame'], { cwd: this.game, env, stdout: 'pipe', stderr: 'pipe' });
+    this.child = Bun.spawn([this.binary, '--resources', this.resources, ...this.devMods(), '--world', 'AE2 Fixture', '--seed', '1234', '--creative', '--name', 'AE2Fixture', '--render-distance', '4', '--width', '960', '--height', '540', '--control-socket', this.socket, '--background', '--no-pause', this.mode === 'server-thread' ? '--server-thread' : '--in-frame'], { cwd: this.game, env, stdout: 'pipe', stderr: 'pipe' });
     const log = join(this.run, `game-${this.phase}.log`);
     this.logs = [this.child.stdout, this.child.stderr].map(async stream => { if (stream) for await (const bytes of stream) appendFileSync(log, bytes); });
     try {

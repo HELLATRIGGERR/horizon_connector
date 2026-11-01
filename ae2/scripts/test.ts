@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { root, engine, manifest, run, help } from './common';
-if (!help('Usage: bun run ae2/scripts/test.ts [--client]\nRuns the five native core test suites. --client also runs client AE2 library and host tests. Opens no game window.')) {
+import { root, engine, manifest, run, help, packFeatures } from './common';
+if (!help('Usage: bun run ae2/scripts/test.ts [--client]\nRuns the five native core test suites. --client also runs client AE2 library and host tests, with the features of the mods pack/pack.toml turns on. Opens no game window.')) {
   const args = process.argv.slice(2);
   if (args.some(arg => arg !== '--client')) throw new Error('Only --client is accepted.');
   for (const name of ['cell', 'crafting', 'links', 'machines', 'network']) {
@@ -17,7 +17,7 @@ if (!help('Usage: bun run ae2/scripts/test.ts [--client]\nRuns the five native c
     if (existsSync(join(guide, 'compiled-guide.json'))) env.AE2_GUIDE_TEST_ROOT = guide;
     else console.log('Guide corpus is absent; that environment-dependent test skips its corpus. Run prepare-content.ts first to include it.');
     for (const target of ['--lib', '--bin']) {
-      await run(['cargo', 'test', '--locked', '--manifest-path', manifest, '--profile', 'fast', '-p', 'horizon-client', '--no-default-features', '--features', 'ae2-lab', target, ...(target === '--bin' ? ['horizon-client'] : []), 'ae2'], engine, env);
+      await run(['cargo', 'test', '--locked', '--manifest-path', manifest, '--profile', 'fast', '-p', 'horizon-client', '--no-default-features', '--features', packFeatures(), target, ...(target === '--bin' ? ['horizon-client'] : []), 'ae2'], engine, env);
     }
   }
 }

@@ -13,6 +13,7 @@ The port comes from [AdamAugustinsky/ae2-horizon](https://github.com/AdamAugusti
 | `ae2/scripts/` | Preparing resources and content, building, playing, testing (Bun) |
 | `ae2/tests/world/` | Tests that run in a hidden game |
 | `ae2/docs/` | Status, validation and the parity ledgers |
+| `ae2/addons/`, `crates/horizon-client/src/ae2x/`, `crates/horizon-client/src/game/ae2x/` | AE2 addons from All the Mods 10 (MEGA Cells so far), one Cargo feature each, and the definitions registry they add to |
 
 The ledgers and `ae2/SOURCE_MANIFEST.json` record the import: where they name `ludovic111-horizon-7f8a668/`, read the repo root, and `ae2-*-core/` is now `crates/ae2-*-core/`.
 

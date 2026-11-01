@@ -65,7 +65,7 @@ pub(super) fn cell_preview(stack:&horizon_client::items::ItemStack, settings:Cli
     use horizon_world::nbt::Tag;
     let id=stack.item.as_ref();
     if !codec::is_cell(id) && !matches!(id,"ae2:matter_cannon"|"ae2:color_applicator") { return None; }
-    let cell=if id.contains("fluid_cell_") || id.starts_with("ae2:fluid_storage_cell_") {codec::read_fluid_cell(stack).ok()?} else {codec::read_cell(stack).ok()?};
+    let cell=if codec::is_fluid_cell(id) {codec::read_fluid_cell(stack).ok()?} else {codec::read_cell(stack).ok()?};
     let raw=codec::cell_settings(stack).ok()?;
     let upgrades=if settings.show_cell_upgrades {
         let Tag::List(cards)=raw.get(&"upgrades".into())? else{return None;};

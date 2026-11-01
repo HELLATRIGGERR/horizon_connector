@@ -1,7 +1,7 @@
 //! Validated physical AE2 cell codec shared by game logic and rendering.
 //! Derived from AE2 19.2.18 BasicCellInventory (LGPL-3.0-or-later).
 use crate::{items::ItemStack, save};
-use ae2_cell_core::{Cell, CellConfig, Channel, ItemKey, Tier};
+use ae2_cell_core::{Cell, CellConfig, Channel, ItemKey};
 use horizon_world::nbt::{self, Compound, Limits, Tag};
 use std::collections::BTreeSet;
 const COMPONENT: &str = "minecraft:custom_data";
@@ -33,11 +33,24 @@ pub fn prototype(key: &ItemKey) -> Result<ItemStack, String> {
     Ok(item)
 }
 
+/// A storage cell of the definitions registry: AE2's item, fluid and
+/// portable cells, and an addon's.
 pub fn is_cell(id: &str) -> bool {
-    id.starts_with("ae2:item_storage_cell_")
-        || id.starts_with("ae2:fluid_storage_cell_")
-        || id.starts_with("ae2:portable_item_cell_")
-        || id.starts_with("ae2:portable_fluid_cell_")
+    crate::ae2x::defs::get().cell(id).is_some()
+}
+/// A cell of fluids (`getKeyType() == AEKeyType.fluids()`).
+pub fn is_fluid_cell(id: &str) -> bool {
+    crate::ae2x::defs::get()
+        .cell(id)
+        .is_some_and(|cell| cell.channel == Channel::Fluid)
+}
+/// AE/t a cell or a cell-like tool drains in a drive or chest
+/// (`IBasicCellItem.getIdleDrain`).
+pub fn idle_drain(id: &str) -> Option<f64> {
+    match id {
+        "ae2:matter_cannon" | "ae2:color_applicator" => Some(0.5),
+        _ => crate::ae2x::defs::get().cell(id).map(|cell| cell.idle_drain),
+    }
 }
 fn cell_config(id: &str) -> Option<CellConfig> {
     match id {
@@ -45,32 +58,17 @@ fn cell_config(id: &str) -> Option<CellConfig> {
         "ae2:color_applicator" => return Some(CellConfig::color_applicator()),
         _ => {}
     }
-    let portable = id.starts_with("ae2:portable_item_cell_");
-    let tier = match id
-        .strip_prefix("ae2:item_storage_cell_")
-        .or_else(|| id.strip_prefix("ae2:portable_item_cell_"))?
-    {
-        "1k" => Tier::K1,
-        "4k" => Tier::K4,
-        "16k" => Tier::K16,
-        "64k" => Tier::K64,
-        "256k" => Tier::K256,
-        _ => return None,
-    };
-    Some(if portable {
-        CellConfig::portable_item(tier)
-    } else {
-        CellConfig::item(tier)
-    })
+    crate::ae2x::defs::get()
+        .cell(id)
+        .filter(|cell| cell.channel == Channel::Item)
+        .map(|cell| cell.config())
 }
 /// Check a nested cell without recursively decoding its item contents.
 pub fn nested_cell_empty(stack: &ItemStack) -> bool {
     if stack.count != 1 {
         return false;
     }
-    if stack.item.starts_with("ae2:fluid_storage_cell_")
-        || stack.item.starts_with("ae2:portable_fluid_cell_")
-    {
+    if is_fluid_cell(&stack.item) {
         return read_fluid_cell(stack).is_ok_and(|cell| cell.total_items()==0);
     }
     let Some(mut config) = cell_config(&stack.item) else {
@@ -176,24 +174,10 @@ pub fn write_cell(stack: &mut ItemStack, cell: &Cell) -> Result<(), String> {
 }
 
 fn fluid_config(id: &str) -> Option<CellConfig> {
-    let (suffix, portable) = if let Some(s) = id.strip_prefix("ae2:fluid_storage_cell_") {
-        (s, false)
-    } else {
-        (id.strip_prefix("ae2:portable_fluid_cell_")?, true)
-    };
-    let tier = match suffix {
-        "1k" => Tier::K1,
-        "4k" => Tier::K4,
-        "16k" => Tier::K16,
-        "64k" => Tier::K64,
-        "256k" => Tier::K256,
-        _ => return None,
-    };
-    Some(if portable {
-        CellConfig::portable_fluid(tier)
-    } else {
-        CellConfig::fluid(tier)
-    })
+    crate::ae2x::defs::get()
+        .cell(id)
+        .filter(|cell| cell.channel == Channel::Fluid)
+        .map(|cell| cell.config())
 }
 pub fn bucket_fluid(id: &str) -> Option<&'static str> {
     match id {
@@ -352,7 +336,7 @@ fn source_filter_entries(stack:&ItemStack,source:&Tag,known:&dyn Fn(&str,bool)->
     let Tag::List(entries)=source else{return Err("invalid source cell configuration".into());};
     if entries.len()>63{return Err("too many source cell filters".into());}
     let view=matches!(stack.item.as_ref(),"ae2:view_cell"|"ae2:creative_storage_cell");
-    let cell_fluid=stack.item.starts_with("ae2:fluid_storage_cell_")||stack.item.starts_with("ae2:portable_fluid_cell_");
+    let cell_fluid=is_fluid_cell(&stack.item);
     let mut filters=Vec::new();
     for (index,entry) in entries.iter().enumerate() {
         let Some(value)=crate::ae2_generic_stack::decode_tolerant_checked(entry,known)? else{continue;};
@@ -885,5 +869,53 @@ mod item_key_tests {
         let zero=Tag::compound([("minecraft:enchantments",Tag::compound([("minecraft:sharpness",Tag::Int(0))]))]);
         let decoded=make(&zero);assert_eq!(decoded.enchantment_level("minecraft:sharpness"),0);
         assert_eq!(encode_components(&decoded),Some(zero));
+    }
+}
+
+#[cfg(all(test, feature = "ae2-megacells"))]
+mod megacells_tests {
+    use super::*;
+    use ae2_cell_core::Action;
+    /// MEGA Cells' M-tier cells are AE2 `BasicStorageCell`s: they keep their
+    /// contents and cards in AE2's own components.
+    #[test]
+    fn mega_cells_store_in_ae2_components_with_their_capacity() {
+        let stone=key(&ItemStack::new("minecraft:stone",1)).unwrap();
+        let mut stack=ItemStack::new("megacells:item_storage_cell_256m",1);
+        assert!(is_cell(&stack.item)&&!is_fluid_cell(&stack.item));
+        assert_eq!(idle_drain(&stack.item),Some(5.0));
+        let mut cell=read_cell(&stack).unwrap();
+        assert_eq!(cell.config().total_bytes(),1<<28);
+        assert_eq!(cell.insert(&stone,u64::MAX,Action::Modulate),2_130_706_432);
+        write_cell(&mut stack,&cell).unwrap();
+        let Some(Tag::List(source))=stack.data().unwrap().other("ae2:storage_cell_inv") else {panic!("source component")};
+        assert_eq!(source[0].get("#"),Some(&Tag::Long(2_130_706_432)));
+        let restored=read_cell(&save::item_from_nbt(&save::item_to_nbt(&stack)).unwrap()).unwrap();
+        assert_eq!((restored.count(&stone),restored.remaining_items()),(2_130_706_432,0));
+        assert!(!can_store_item(&stack),"a full cell is not stored in another cell");
+        // Types: 63 on an item cell, 18 on a fluid cell.
+        let mut cell=read_cell(&ItemStack::new("megacells:item_storage_cell_1m",1)).unwrap();
+        for n in 0..64 {
+            let item=key(&ItemStack::new(&format!("minecraft:test_{n}"),1)).unwrap();
+            assert_eq!(cell.insert(&item,1,Action::Modulate),u64::from(n<63),"type {n}");
+        }
+        let mut fluid=ItemStack::new("megacells:fluid_storage_cell_4m",1);
+        assert!(is_fluid_cell(&fluid.item)&&read_cell(&fluid).is_err());
+        let mut cell=read_fluid_cell(&fluid).unwrap();
+        assert_eq!(cell.config().max_types(),18);
+        assert_eq!(cell.insert(&fluid_key("minecraft:water"),u64::MAX,Action::Modulate),(4096*1024-4096*8)*8000);
+        write_fluid_cell(&mut fluid,&cell).unwrap();
+        assert_eq!(read_fluid_cell(&save::item_from_nbt(&save::item_to_nbt(&fluid)).unwrap()).unwrap().total_items(),(4096*1024-4096*8)*8000);
+        // Cards: AE2's storage-cell cards in AE2's `ae2:upgrades` component; fuzzy only on item cells.
+        let mut cell=ItemStack::new("megacells:item_storage_cell_16m",1);
+        let card=|id:&str,slot:i32|Tag::compound([("slot",Tag::Int(slot)),("item",save::item_to_nbt(&ItemStack::new(id,1)))]);
+        cell.data_mut().set_other("ae2:upgrades",Some(Tag::List(vec![card("ae2:fuzzy_card",0),card("ae2:void_card",3)])));
+        let config=read_cell(&cell).unwrap().config().clone();
+        assert!(config.fuzzy&&config.void_excess);
+        let mut fluid=ItemStack::new("megacells:fluid_storage_cell_16m",1);
+        fluid.data_mut().set_other("ae2:upgrades",Some(Tag::List(vec![card("ae2:fuzzy_card",0)])));
+        assert!(read_fluid_cell(&fluid).is_err(),"a fluid cell takes no fuzzy card");
+        fluid.data_mut().set_other("ae2:upgrades",Some(Tag::List(vec![card("ae2:inverter_card",2)])));
+        assert!(read_fluid_cell(&fluid).is_ok());
     }
 }
