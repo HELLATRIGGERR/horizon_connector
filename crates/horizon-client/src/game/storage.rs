@@ -401,6 +401,11 @@ impl Game<'_> {
             None => &mut self.scratch_slot,
         }
     }
+    /// Whether the open menu is a sky stone chest's (AE2's `SkyChestScreen`).
+    #[cfg(feature = "ae2-lab")]
+    pub(super) fn ae2_sky_chest_open(&self) -> bool {
+        self.container_block().as_deref().is_some_and(super::ae2_screens::is_sky_chest)
+    }
     pub(super) fn container_block_is_shulker(&self) -> bool {
         self.container_block()
             .as_deref()
@@ -485,6 +490,11 @@ impl Game<'_> {
         use horizon_client::hud::rgba;
         let atlas = &self.gui.atlas;
         let grey = rgba(64, 64, 64, 255);
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_priority_ui() {
+            self.ae2_draw_priority(batch,ox,oy);
+            return;
+        }
         #[cfg(feature="ae2-lab")]
         if self.ae2_pattern_access_screen() {
             batch.sprite_region(atlas,"ae2:guis/patternaccessterminal",[ox,oy,195.0,224.0],256.0,256.0);
@@ -691,6 +701,10 @@ impl Game<'_> {
             batch.text_styled(atlas, &title, ox + 8.0, oy + 6.0, grey, false);
             let inventory = self.translate("container.inventory", "Inventory");
             batch.text(atlas, &inventory, ox + 8.0, oy + 73.0, grey, false);
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_draw_sky_chest(batch, ox, oy, self.container_block().as_deref()) {
             return;
         }
         let rows = self.chest_rows().unwrap_or(3);

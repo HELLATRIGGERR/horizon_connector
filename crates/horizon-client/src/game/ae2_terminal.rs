@@ -6423,7 +6423,7 @@ impl Game<'_> {
                 _ => None,
             },
         };
-        let Some(data) = machine.as_ref().map(|m| self.ae2_screen_data(m)) else {
+        let Some(data) = machine.as_ref().map(|m| self.ae2_screen_data(m, pos)) else {
             return;
         };
         let Some(m) = host.play.get_mut(&conn).and_then(|p| p.ae2_machine.as_mut()) else {

@@ -2757,19 +2757,23 @@ impl Game<'_> {
         if block.starts_with("minecraft:") {
             return;
         }
-        // Only when this is the menu the clicked block opens: `target` outlives the
-        // use that set it, so another menu opened later (a command's, another
-        // mod's) would otherwise get the last clicked machine's screen. Asked
-        // here, as the window's world has no mod containers.
-        let mut container = None;
-        self.native_block_entity_container(&block, &mut container);
-        let opens = container.and_then(|c| mod_menu(c.menu.as_deref()?).map(|(m, _)| m));
-        if opens != Some(menu) {
-            return;
-        }
+        // A screen of the game's own for its own machines' menus, which asks
+        // whether `menu` is the one the block opens itself.
         let mut screen = None;
-        self.native_screen(&block, &mut screen);
-        let extra = self.extra_native_screen(&block, &mut screen);
+        let extra = self.extra_native_screen(&block, menu, &mut screen);
+        if screen.is_none() {
+            // Only when this is the menu the clicked block opens: `target` outlives the
+            // use that set it, so another menu opened later (a command's, another
+            // mod's) would otherwise get the last clicked machine's screen. Asked
+            // here, as the window's world has no mod containers.
+            let mut container = None;
+            self.native_block_entity_container(&block, &mut container);
+            let opens = container.and_then(|c| mod_menu(c.menu.as_deref()?).map(|(m, _)| m));
+            if opens != Some(menu) {
+                return;
+            }
+            self.native_screen(&block, &mut screen);
+        }
         if let Some(screen) = screen {
             self.mod_screen = Some(OpenNativeScreen {
                 key,
@@ -2788,6 +2792,14 @@ impl Game<'_> {
     /// The data slots of the mod screen showing now.
     pub(super) fn mod_screen_data(&self) -> Vec<i32> {
         self.shown_native_screen().map(|s| s.data.clone()).unwrap_or_default()
+    }
+    /// The open mod screen's block and extra screen, also while the extra
+    /// screen steps aside for a menu of its own.
+    pub(super) fn open_native_screen_extra(&self) -> Option<(&str, &super::screen_extras::Extra)> {
+        self.mod_screen
+            .as_ref()
+            .filter(|s| self.screen == Screen::Inventory && self.container == Some(s.key))
+            .map(|s| (s.block.as_str(), &s.extra))
     }
     /// The mod screen showing now, if any.
     fn shown_native_screen(&self) -> Option<&OpenNativeScreen> {

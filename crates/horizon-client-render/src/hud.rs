@@ -688,10 +688,24 @@ impl HudAtlas {
                         Err(error) => log::warn!("AE2 GUI texture {}: {error}", path.display()),
                     }
                 }
-                // VerticalButtonBar's backdrop, a GUI sprite drawn in three slices.
-                let path = root.join("assets/ae2/textures/gui/sprites/vertical_buttons_bg.png");
-                if let Ok((w, h, pixels)) = decode(&path) {
-                    images.push(("ae2:gui/vertical_buttons_bg".into(), w, h, pixels));
+                // Its own GUI sprites (`AE2Button`'s, VerticalButtonBar's
+                // backdrop), named `ae2:gui/<name>` and drawn in slices.
+                let sprites = root.join("assets/ae2/textures/gui/sprites");
+                let mut files: Vec<_> = std::fs::read_dir(&sprites)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().is_some_and(|e| e == "png"))
+                    .collect();
+                files.sort();
+                for path in files {
+                    let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                        continue;
+                    };
+                    if let Ok((w, h, pixels)) = decode(&path) {
+                        images.push((format!("ae2:gui/{name}"), w, h, pixels));
+                    }
                 }
             }
         }

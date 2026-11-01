@@ -449,7 +449,7 @@ pub(super) struct Remote {
     #[cfg(feature = "ae2-lab")]
     ae2_priority_token: Option<u64>,
     #[cfg(feature = "ae2-lab")]
-    ae2_stock_spec: Option<(u32,i64)>,
+    pub(super) ae2_stock_spec: Option<(u32,i64)>,
     #[cfg(feature = "ae2-lab")]
     ae2_base_screen: bool,
     #[cfg(feature = "ae2-lab")]
@@ -8652,7 +8652,8 @@ impl Game<'_> {
         let (mx, my) = self.cursor;
         let amount = self.remote.as_ref().is_some_and(|r|r.ae2_craft_screen==1 || r.ae2_priority_screen || r.ae2_energy_screen);
         let access=self.remote.as_ref().is_some_and(|r|r.ae2_pattern_access_screen);
-        let (x,y,width)=if amount {(48.0,55.0,66.0)} else if access {(104.0,4.0,65.0)} else {(80.0,3.0,90.0)};
+        let priority=self.ae2_priority_field();
+        let (x,y,width)=if let Some((r,_))=priority {(r[0],r[1],r[2])} else if amount {(48.0,55.0,66.0)} else if access {(104.0,4.0,65.0)} else {(80.0,3.0,90.0)};
         let hit = (!right || !amount) && mx >= ox+x && mx < ox+x+width && my >= oy+y && my < oy+y+12.0;
         let shift = self.has_shift_down();
         let Some(field) = self.remote.as_mut().and_then(|r| r.ae2_search.as_mut()) else {
@@ -8664,6 +8665,10 @@ impl Game<'_> {
             field.y = oy + y;
             field.width = width;
             field.height = 12.0;
+            if let Some((_,[tx,ty,tw,th]))=priority {
+                field.bordered=false;
+                (field.x,field.y,field.width,field.height)=(ox+tx,oy+ty,tw,th);
+            }
             if right {field.set_value("");}
             field.click(&self.gui.atlas, mx, shift, false);
         }

@@ -1362,6 +1362,8 @@ impl Game<'_> {
         #[cfg(feature="ae2-lab")]
         if self.ae2_pattern_access_screen() {return 224.0;}
         #[cfg(feature="ae2-lab")]
+        if self.ae2_priority_ui() {return self.ae2_priority_size().1;}
+        #[cfg(feature="ae2-lab")]
         if self.ae2_craft_screen()!=0 {return match self.ae2_craft_screen(){1=>107.0,3=>185.0,_=>206.0};}
         #[cfg(feature="ae2-lab")]
         if self.ae2_network_tool_screen() {return 168.0;}
@@ -1380,6 +1382,10 @@ impl Game<'_> {
             .is_some_and(|s| s.kind == super::stations::Kind::Beacon)
         {
             return super::beacon::HEIGHT;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_sky_chest_open() {
+            return super::ae2_screens::SKY_CHEST_HEIGHT;
         }
         if let Some(rows) = self.chest_rows() {
             // ContainerScreen: 114 + 18 per row.

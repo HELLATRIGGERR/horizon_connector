@@ -28,8 +28,15 @@ pub(super) const REVERSE: i32 = 0x1000;
 pub(super) const QUICK: i32 = 0x2000;
 
 /// `Icon`s in `guis/states.png`: (x, y), 16 x 16 unless noted.
-mod icon {
+pub(super) mod icon {
     pub const HELP: (i32, i32) = (176, 0);
+    pub const BACKGROUND_WIRELESS_TERM: (i32, i32) = (240, 64);
+    pub const BACKGROUND_WIRELESS_BOOSTER: (i32, i32) = (240, 96);
+    pub const BACKGROUND_SINGULARITY: (i32, i32) = (240, 160);
+    pub const BACKGROUND_SPATIAL_CELL_NO_SHADOW: (i32, i32) = (224, 176);
+    pub const BACKGROUND_SPATIAL_CELL: (i32, i32) = (240, 176);
+    pub const BACK: (i32, i32) = (96, 16);
+    pub const INVALID: (i32, i32) = (0, 128);
     pub const REDSTONE_PULSE: (i32, i32) = (32, 0);
     pub const REDSTONE_OFF: (i32, i32) = (64, 0);
     pub const REDSTONE_ON: (i32, i32) = (80, 0);
@@ -148,6 +155,9 @@ struct Layout {
     /// The Pattern Provider's lock line (`lockReason`): data slots with the
     /// lock mode, whether it is locked, and why.
     lock_line: Option<[usize; 3]>,
+    /// `BackgroundPanel`s: the style's images drawn at its widgets of the
+    /// same name.
+    panels: &'static [&'static str],
 }
 
 const NO_YES: [&str; 2] = ["NO", "YES"];
@@ -212,6 +222,7 @@ const LAYOUTS: &[Layout] = &[
         grid: None,
         cogs: None,
         lock_line: None,
+        panels: &[],
     },
     Layout {
         kind: MachineKind::Drive,
@@ -248,6 +259,7 @@ const LAYOUTS: &[Layout] = &[
         grid: None,
         cogs: None,
         lock_line: None,
+        panels: &[],
     },
     Layout {
         kind: MachineKind::VibrationChamber,
@@ -262,6 +274,7 @@ const LAYOUTS: &[Layout] = &[
         grid: None,
         cogs: None,
         lock_line: None,
+        panels: &[],
     },
     Layout {
         kind: MachineKind::IoPort,
@@ -348,6 +361,7 @@ const LAYOUTS: &[Layout] = &[
         grid: None,
         cogs: None,
         lock_line: None,
+        panels: &[],
     },
     Layout {
         kind: MachineKind::Condenser,
@@ -376,6 +390,7 @@ const LAYOUTS: &[Layout] = &[
         grid: None,
         cogs: None,
         lock_line: None,
+        panels: &[],
     },
     Layout {
         kind: MachineKind::MolecularAssembler,
@@ -402,6 +417,7 @@ const LAYOUTS: &[Layout] = &[
         grid: Some((0..9, 4)),
         cogs: None,
         lock_line: None,
+        panels: &[],
     },
     Layout {
         kind: MachineKind::PatternProvider,
@@ -492,6 +508,7 @@ const LAYOUTS: &[Layout] = &[
         grid: None,
         cogs: None,
         lock_line: Some([1, 3, 4]),
+        panels: &[],
     },
     Layout {
         kind: MachineKind::Interface,
@@ -541,6 +558,53 @@ const LAYOUTS: &[Layout] = &[
         grid: None,
         cogs: Some((9..18, (8, 35))),
         lock_line: None,
+        panels: &[],
+    },
+    Layout {
+        kind: MachineKind::QuantumLink,
+        style: "qnb.json",
+        slots: &[(0, "STORAGE")],
+        icons: &[(0, icon::BACKGROUND_SINGULARITY)],
+        upgrades: 0..0,
+        toggles: &[],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: None,
+        lock_line: None,
+        panels: &[],
+    },
+    Layout {
+        kind: MachineKind::SpatialIoPort,
+        style: "spatial_io_port.json",
+        slots: &[(0, "MACHINE_INPUT"), (1, "MACHINE_OUTPUT")],
+        icons: &[(0, icon::BACKGROUND_SPATIAL_CELL), (1, icon::BACKGROUND_SPATIAL_CELL_NO_SHADOW)],
+        upgrades: 0..0,
+        toggles: &[],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: None,
+        lock_line: None,
+        panels: &[],
+    },
+    // The link slots sit on the panel right of the screen.
+    Layout {
+        kind: MachineKind::WirelessAccessPoint,
+        style: "wireless_access_point.json",
+        slots: &[(0, "STORAGE"), (1, "MACHINE_INPUT"), (2, "MACHINE_OUTPUT")],
+        icons: &[(0, icon::BACKGROUND_WIRELESS_BOOSTER), (1, icon::BACKGROUND_WIRELESS_TERM)],
+        upgrades: 0..0,
+        toggles: &[],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: None,
+        lock_line: None,
+        panels: &["linkPanel"],
     },
 ];
 
@@ -635,12 +699,12 @@ impl Ae2Screen {
     }
 }
 
-fn inside([x, y, w, h]: [i32; 4], at: [f32; 2]) -> bool {
+pub(super) fn inside([x, y, w, h]: [i32; 4], at: [f32; 2]) -> bool {
     at[0] >= x as f32 && at[0] < (x + w) as f32 && at[1] >= y as f32 && at[1] < (y + h) as f32
 }
 
 /// A style's `0xAARRGGBB` as `rgba` packs it.
-fn argb(c: u32) -> u32 {
+pub(super) fn argb(c: u32) -> u32 {
     rgba((c >> 16) as u8, (c >> 8) as u8, c as u8, (c >> 24) as u8)
 }
 
@@ -656,6 +720,59 @@ fn wide(v: f64) -> [i16; 2] {
 
 fn wide_value(data: &[i32], i: usize) -> i64 {
     i64::from(value(data, i) as u16) | i64::from(value(data, i + 1) as u16) << 16
+}
+
+/// A `long` in four data slots (low quarter first).
+fn long(v: i64) -> [i16; 4] {
+    [0, 16, 32, 48].map(|s| (v >> s) as u16 as i16)
+}
+
+fn long_value(data: &[i32], i: usize) -> i64 {
+    (0..4).fold(0, |v, k| v | i64::from(value(data, i + k) as u16) << (16 * k))
+}
+
+/// `Platform.formatPower` in AE units: under a thousand, then k, M, G...,
+/// with at most two decimals; `/t` for a rate.
+fn format_power(mut p: f64, rate: bool) -> String {
+    const PREFIXES: [&str; 10] = ["k", "M", "G", "T", "P", "T", "P", "E", "Z", "Y"];
+    let mut level = "";
+    for prefix in PREFIXES {
+        if p <= 1000.0 {
+            break;
+        }
+        p /= 1000.0;
+        level = prefix;
+    }
+    format!("{} {level}AE{}", trimmed(p), if rate { "/t" } else { "" })
+}
+
+/// Java's `Double.toString` / `Float.toString` for an everyday value: the
+/// shortest digits, with `.0` when whole.
+fn java_number(text: String) -> String {
+    if text.contains(['.', 'e', 'E', 'N', 'i']) { text } else { text + ".0" }
+}
+
+/// A translation with its `%s` filled in order and `%%` as `%`.
+fn fill(template: &str, args: &[String]) -> String {
+    let mut out = String::new();
+    let mut args = args.iter();
+    let mut rest = template;
+    while let Some(at) = rest.find('%') {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at..];
+        if tail.starts_with("%%") {
+            out.push('%');
+            rest = &tail[2..];
+        } else if tail.starts_with("%s") {
+            out.push_str(args.next().map_or("", String::as_str));
+            rest = &tail[2..];
+        } else {
+            out.push('%');
+            rest = &tail[1..];
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn short(v: f64) -> i16 {
@@ -675,6 +792,14 @@ fn setting(m: &Machine, t: &Toggle) -> i16 {
     };
     at.unwrap_or(t.default) as i16
 }
+
+/// The blocks `SkyChestScreen` shows the menu of.
+pub(super) fn is_sky_chest(block: &str) -> bool {
+    matches!(block, "ae2:sky_stone_chest" | "ae2:smooth_sky_stone_chest")
+}
+
+/// `sky_chest.json`'s height (`skychest.png`, 176 x 187).
+pub(super) const SKY_CHEST_HEIGHT: f32 = 187.0;
 
 fn layout(kind: MachineKind) -> Option<&'static Layout> {
     LAYOUTS.iter().find(|l| l.kind == kind)
@@ -701,7 +826,7 @@ pub(super) fn step_setting(m: &mut Machine, slot: usize, reverse: bool) -> bool 
 
 impl Game<'_> {
     /// The data slots of the screen for `m`'s menu, on the server.
-    pub(super) fn ae2_screen_data(&self, m: &Machine) -> Vec<i16> {
+    pub(super) fn ae2_screen_data(&self, m: &Machine, pos: (i32, i32, i32)) -> Vec<i16> {
         let Some(l) = layout(m.kind) else {
             return Vec::new();
         };
@@ -778,6 +903,26 @@ impl Game<'_> {
                 data.resize(5, 0);
                 data[3] = i16::from(reason != 0);
                 data[4] = reason;
+            }
+            // SpatialIOPortMenu: the grid's stored and most power, the
+            // region's power and efficiency (x100), and its inside's size (0
+            // without a region).
+            MachineKind::SpatialIoPort => {
+                let (stored, max) = self.ae2_screen_grid_energy(pos);
+                let region = self.ae2_local_address(pos).and_then(|a| self.ae2_spatial_region_from(a, None).ok());
+                data.extend(long((100.0 * stored) as i64));
+                data.extend(long((100.0 * max) as i64));
+                data.extend(long(region.as_ref().map_or(0, |r| 100 * r.power)));
+                data.push(region.as_ref().map_or(0, |r| (10000.0 * r.efficiency) as i16));
+                data.extend(region.map_or([0; 3], |r| r.size.map(|n| n.clamp(0, i32::from(i16::MAX)) as i16)));
+            }
+            // WirelessAccessPointMenu: range in tenths of a block and drain
+            // in hundredths of AE per tick, for the boosters in it.
+            MachineKind::WirelessAccessPoint => {
+                let boosters = m.slots.first().cloned().flatten().map_or(0, |s| u32::try_from(s.count).unwrap_or(0));
+                let link = horizon_client::ae2_common_config::wireless().link;
+                data.extend(long((10.0 * link.range(boosters)) as i64));
+                data.extend(long((100.0 * link.idle(boosters)) as i64));
             }
             // InterfaceMenu: the fuzzy button shows with a fuzzy card.
             MachineKind::Interface => {
@@ -867,13 +1012,13 @@ impl Game<'_> {
     }
 
     /// Blits `image`'s region `[sx, sy, w, h]` at `x`, `y` (`Blitter.blit`).
-    fn ae2_blit(&self, batch: &mut HudBatch, image: &Image, src: [i32; 4], x: f32, y: f32) {
+    pub(super) fn ae2_blit(&self, batch: &mut HudBatch, image: &Image, src: [i32; 4], x: f32, y: f32) {
         self.ae2_blit_to(batch, image, src, [x, y, src[2] as f32, src[3] as f32], u32::MAX);
     }
 
     /// Blits `image`'s region `[sx, sy, sw, sh]`, measured in the image's
     /// reference size, over `dest`, stretched to it, tinted by `color`.
-    fn ae2_blit_to(&self, batch: &mut HudBatch, image: &Image, [sx, sy, sw, sh]: [i32; 4], dest: [f32; 4], color: u32) {
+    pub(super) fn ae2_blit_to(&self, batch: &mut HudBatch, image: &Image, [sx, sy, sw, sh]: [i32; 4], dest: [f32; 4], color: u32) {
         if sw <= 0 || sh <= 0 {
             return;
         }
@@ -891,9 +1036,107 @@ impl Game<'_> {
     }
 
     /// An `Icon` of `guis/states.png`.
-    fn ae2_icon(&self, batch: &mut HudBatch, (sx, sy): (i32, i32), (w, h): (i32, i32), x: f32, y: f32) {
+    pub(super) fn ae2_icon(&self, batch: &mut HudBatch, (sx, sy): (i32, i32), (w, h): (i32, i32), x: f32, y: f32) {
         let states = Image { texture: "guis/states".into(), texture_size: (256, 256), src: None };
         self.ae2_blit(batch, &states, [sx, sy, w, h], x, y);
+    }
+
+    /// VerticalButtonBar.drawBackgroundLayer behind the buttons from `first`
+    /// to `last`: `vertical_buttons_bg`, a 21 x 26 nine-slice with 2 rows on
+    /// top and 4 below.
+    pub(super) fn ae2_draw_toolbar(&self, batch: &mut HudBatch, ox: f32, oy: f32, first: [i32; 4], last: [i32; 4]) {
+        let (x, y) = (first[0] - 2 - 2, first[1] - 2 - 1);
+        let height = last[1] + 16 + 6 - first[1] + 2 + 4;
+        let bg = Image { texture: "gui/vertical_buttons_bg".into(), texture_size: (21, 26), src: None };
+        let (x, y) = (ox + x as f32, oy + y as f32);
+        let middle = (height - 6).max(0) as f32;
+        self.ae2_blit(batch, &bg, [0, 0, 21, 2], x, y);
+        self.ae2_blit_to(batch, &bg, [0, 2, 21, 20], [x, y + 2.0, 21.0, middle], u32::MAX);
+        self.ae2_blit(batch, &bg, [0, 22, 21, 4], x, y + 2.0 + middle);
+    }
+
+    /// IconButton.renderWidget: the backdrop a pixel left, both a pixel
+    /// lower while hovered (`mouse` from the screen's top left).
+    pub(super) fn ae2_draw_icon_button(&self, batch: &mut HudBatch, ox: f32, oy: f32, rect: [i32; 4], shown: (i32, i32), mouse: [f32; 2]) {
+        let hover = inside(rect, mouse);
+        let lift = if hover { 1.0 } else { 0.0 };
+        let backdrop = if hover { icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else { icon::TOOLBAR_BUTTON_BACKGROUND };
+        let (x, y) = (ox + rect[0] as f32, oy + rect[1] as f32);
+        self.ae2_icon(batch, backdrop, (18, 20), x - 1.0, y + lift);
+        self.ae2_icon(batch, shown, (16, 16), x, y + 1.0 + lift);
+    }
+
+    /// TabButton (`BOX`): its backdrop and its icon two pixels in, one up.
+    pub(super) fn ae2_draw_tab(&self, batch: &mut HudBatch, ox: f32, oy: f32, rect: [i32; 4], shown: (i32, i32)) {
+        let (x, y) = (ox + rect[0] as f32, oy + rect[1] as f32);
+        self.ae2_icon(batch, icon::TAB_BUTTON_BACKGROUND, (20, 20), x, y);
+        self.ae2_icon(batch, shown, (16, 16), x + 2.0, y + 1.0);
+    }
+
+    /// The style's labels (`dialog_title`, `player_inventory_title`).
+    pub(super) fn ae2_draw_texts(&self, batch: &mut HudBatch, ox: f32, oy: f32, style: &ScreenStyle, filled: &[(&str, String)]) {
+        let (w, h) = style.size();
+        for (id, text) in &style.text {
+            let label = match (text.text.get("translate").and_then(|v| v.as_str()), text.text.get("text")) {
+                (Some(key), _) => self.translate(key, key),
+                (None, Some(v)) => v.as_str().unwrap_or("").to_owned(),
+                _ => match filled.iter().find(|(name, _)| *name == id.as_str()) {
+                    Some((_, label)) => label.clone(),
+                    None => continue,
+                },
+            };
+            let (x, y) = text.position.resolve(w, h);
+            let width = HudBatch::text_width(&self.gui.atlas, &label);
+            let x = match text.align {
+                Align::Left => x as f32,
+                Align::Center => x as f32 - width / 2.0,
+                Align::Right => x as f32 - width,
+            };
+            // A component's own colour wins over the palette's (`#rrggbb`).
+            let own = text.text.get("color").and_then(|c| c.as_str()).and_then(|c| c.strip_prefix('#'));
+            let color = own.and_then(|c| u32::from_str_radix(c, 16).ok()).map_or_else(|| style.color(&text.color), |c| 0xFF00_0000 | c);
+            batch.text(&self.gui.atlas, &label, ox + x, oy + y as f32, argb(color), false);
+        }
+    }
+
+    /// `SkyChestScreen` over the sky stone chests' menu (a 9 x 4 chest):
+    /// its background and labels, no toolbar. False for another menu.
+    pub(super) fn ae2_draw_sky_chest(&self, batch: &mut HudBatch, ox: f32, oy: f32, block: Option<&str>) -> bool {
+        static STYLE: std::sync::OnceLock<Option<ScreenStyle>> = std::sync::OnceLock::new();
+        if !block.is_some_and(is_sky_chest) {
+            return false;
+        }
+        let style = STYLE.get_or_init(|| {
+            let screens = self.options.resources.join("assets/ae2/screens");
+            ScreenStyle::load(&screens, "sky_chest.json").map_err(|error| log::warn!("AE2 sky chest style: {error}")).ok()
+        });
+        let Some(style) = style.as_ref() else {
+            return false;
+        };
+        if let Some(background) = style.background.as_ref() {
+            let (w, h) = background.size();
+            let [sx, sy] = background.src.map_or([0, 0], |[x, y, _, _]| [x, y]);
+            self.ae2_blit(batch, background, [sx, sy, w, h], ox, oy);
+        }
+        self.ae2_draw_texts(batch, ox, oy, style, &[]);
+        true
+    }
+
+    /// The help button's tooltip (`OpenGuideButton`).
+    pub(super) fn ae2_help_tooltip(&self, lines: &mut Vec<String>) {
+        lines.push(self.translate("gui.tooltips.ae2.OpenGuide", "Open Guide"));
+        lines.push(format!("\u{a7}7{}", self.translate("gui.tooltips.ae2.OpenGuideDetail", "")));
+    }
+
+    /// `OpenGuideButton`: the menu closes and the guide opens at block
+    /// `block`'s page.
+    pub(super) fn ae2_open_guide(&mut self, block: &str) {
+        self.close_container();
+        if self.ae2_guide_open()
+            && let Some(guide) = self.ae2_guide.as_mut()
+        {
+            guide.show_item(block);
+        }
     }
 
     pub(super) fn ae2_draw_screen(&self, batch: &mut HudBatch, ox: f32, oy: f32, screen: &Ae2Screen, data: &[i32]) {
@@ -908,19 +1151,18 @@ impl Game<'_> {
             let [sx, sy] = background.src.map_or([0, 0], |[x, y, _, _]| [x, y]);
             self.ae2_blit(batch, background, [sx, sy, w, h], ox, oy);
         }
+        for name in layout.panels {
+            if let (Some(image), Some(widget)) = (style.images.get(*name), style.widgets.get(*name)) {
+                let (w, h) = screen.size();
+                let (x, y) = widget.position.resolve(w, h);
+                let src = image.src.unwrap_or([0, 0, image.size().0, image.size().1]);
+                self.ae2_blit(batch, image, src, ox + x as f32, oy + y as f32);
+            }
+        }
         let buttons = screen.buttons(data);
         let toolbar = &buttons[..screen.toolbar_len(data)];
         if let (Some(first), Some(last)) = (toolbar.first(), toolbar.last()) {
-            // VerticalButtonBar.drawBackgroundLayer: `vertical_buttons_bg`, a
-            // 21 x 26 nine-slice with 2 rows on top and 4 below.
-            let (x, y) = (first.rect[0] - 2 - 2, first.rect[1] - 2 - 1);
-            let height = last.rect[1] + 16 + 6 - first.rect[1] + 2 + 4;
-            let bg = Image { texture: "gui/vertical_buttons_bg".into(), texture_size: (21, 26), src: None };
-            let (x, y) = (ox + x as f32, oy + y as f32);
-            let middle = (height - 6).max(0) as f32;
-            self.ae2_blit(batch, &bg, [0, 0, 21, 2], x, y);
-            self.ae2_blit_to(batch, &bg, [0, 2, 21, 20], [x, y + 2.0, 21.0, middle], u32::MAX);
-            self.ae2_blit(batch, &bg, [0, 22, 21, 4], x, y + 2.0 + middle);
+            self.ae2_draw_toolbar(batch, ox, oy, first.rect, last.rect);
         }
         let upgrades = layout.upgrades.len() as i32;
         if upgrades > 0 {
@@ -956,19 +1198,10 @@ impl Game<'_> {
                 None => icon::HELP,
                 Some(t) => t.values[value(data, t.data).clamp(0, t.values.len() as i32 - 1) as usize].1,
             };
-            let hover = inside(b.rect, mouse);
-            // IconButton.renderWidget: the backdrop a pixel left, both a
-            // pixel lower while hovered.
-            let lift = if hover { 1.0 } else { 0.0 };
-            let backdrop = if hover { icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else { icon::TOOLBAR_BUTTON_BACKGROUND };
-            let (x, y) = (ox + b.rect[0] as f32, oy + b.rect[1] as f32);
-            self.ae2_icon(batch, backdrop, (18, 20), x - 1.0, y + lift);
-            self.ae2_icon(batch, shown, (16, 16), x, y + 1.0 + lift);
+            self.ae2_draw_icon_button(batch, ox, oy, b.rect, shown, mouse);
         }
         if let Some(tab) = screen.priority_tab() {
-            let (x, y) = (ox + tab[0] as f32, oy + tab[1] as f32);
-            self.ae2_icon(batch, icon::TAB_BUTTON_BACKGROUND, (20, 20), x, y);
-            self.ae2_icon(batch, icon::PRIORITY, (16, 16), x + 2.0, y + 1.0);
+            self.ae2_draw_tab(batch, ox, oy, tab, icon::PRIORITY);
         }
         // SetAmountButton: no backdrop, the cog lit while hovered.
         for (rect, _) in screen.cogs(|e| self.ae2_screen_entry_filled(e)) {
@@ -1008,23 +1241,63 @@ impl Game<'_> {
             let (x, y) = (ox + BURN_AT.0 as f32, oy + (BURN_AT.1 + sh - f) as f32);
             self.ae2_blit(batch, &image, [sx, sy + sh - f, sw, f], x, y);
         }
-        // The style's labels (`dialog_title`, `player_inventory_title`).
-        let (w, h) = screen.size();
-        for text in style.text.values() {
-            let label = match (text.text.get("translate").and_then(|v| v.as_str()), text.text.get("text")) {
-                (Some(key), _) => self.translate(key, key),
-                (None, Some(v)) => v.as_str().unwrap_or("").to_owned(),
-                _ => continue,
-            };
-            let (x, y) = text.position.resolve(w, h);
-            let width = HudBatch::text_width(&self.gui.atlas, &label);
-            let x = match text.align {
-                Align::Left => x as f32,
-                Align::Center => x as f32 - width / 2.0,
-                Align::Right => x as f32 - width,
-            };
-            batch.text(&self.gui.atlas, &label, ox + x, oy + y as f32, argb(style.color(&text.color)), false);
+        self.ae2_draw_texts(batch, ox, oy, style, &self.ae2_screen_texts(layout.kind, data));
+    }
+
+    /// The texts a screen fills in (`setTextContent`), by the style's ids.
+    fn ae2_screen_texts(&self, kind: MachineKind, data: &[i32]) -> Vec<(&'static str, String)> {
+        let text = |key: &str, args: &[String]| fill(&self.translate(key, key), args);
+        match kind {
+            // SpatialIOPortScreen.updateBeforeRender.
+            MachineKind::SpatialIoPort => {
+                let power = |i: usize| format_power(long_value(data, i) as f64 / 100.0, false);
+                let size = [13, 14, 15].map(|i| value(data, i));
+                let scs = if size.iter().all(|n| *n != 0) {
+                    text("gui.ae2.SCSSize", &size.map(|n| n.to_string()))
+                } else {
+                    self.translate("gui.ae2.SCSInvalid", "gui.ae2.SCSInvalid")
+                };
+                vec![
+                    ("stored_power", text("gui.ae2.StoredPower", &[power(0)])),
+                    ("max_power", text("gui.ae2.MaxPower", &[power(4)])),
+                    ("required_power", text("gui.ae2.RequiredPower", &[power(8)])),
+                    ("efficiency", text("gui.ae2.Efficiency", &[java_number(format!("{}", value(data, 12) as f32 / 100.0))])),
+                    ("scs_size", scs),
+                ]
+            }
+            // WirelessAccessPointScreen.updateBeforeRender: nothing without range.
+            MachineKind::WirelessAccessPoint => {
+                let range = long_value(data, 0);
+                if range <= 0 {
+                    return Vec::new();
+                }
+                vec![
+                    ("range", text("gui.ae2.WirelessRange", &[java_number(format!("{}", range as f64 / 10.0))])),
+                    ("energy_use", text("gui.ae2.PowerUsageRate", &[format_power(long_value(data, 4) as f64 / 100.0, true)])),
+                ]
+            }
+            _ => Vec::new(),
         }
+    }
+
+    /// The stored and most power of the grid of the machine at `pos`
+    /// (`IEnergyService.getStoredPower`, `getMaxStoredPower`); none without
+    /// the energy service.
+    fn ae2_screen_grid_energy(&self, pos: (i32, i32, i32)) -> (f64, f64) {
+        let read = || -> Option<(f64, f64)> {
+            if !self.ae2_sync_events() {
+                return None;
+            }
+            let host = self.world.block_entities.incarnation(&pos)?;
+            let node = ae2_network_core::NodeIdentity { host, part: None, outer: false };
+            let live = self.ae2_live_events.borrow();
+            if live.energy.failure.is_some() {
+                return None;
+            }
+            let service = live.energy.lifecycle.services.get(&live.energy.lifecycle.service_of(node)?)?;
+            Some((service.cached.max(0.0), service.maximum()))
+        };
+        read().unwrap_or((0.0, 0.0))
     }
 
     /// `UpgradesPanel.drawBackgroundLayer` for one column of `count` slots
@@ -1103,12 +1376,7 @@ impl Game<'_> {
         else {
             return false;
         };
-        self.close_container();
-        if self.ae2_guide_open()
-            && let Some(guide) = self.ae2_guide.as_mut()
-        {
-            guide.show_item(&block);
-        }
+        self.ae2_open_guide(&block);
         true
     }
 
@@ -1149,10 +1417,7 @@ impl Game<'_> {
                 continue;
             }
             match b.toggle {
-                None => {
-                    lines.push(self.translate("gui.tooltips.ae2.OpenGuide", "Open Guide"));
-                    lines.push(format!("\u{a7}7{}", self.translate("gui.tooltips.ae2.OpenGuideDetail", "")));
-                }
+                None => self.ae2_help_tooltip(lines),
                 Some(t) => {
                     let (name, _, key) = t.values[value(data, t.data).clamp(0, t.values.len() as i32 - 1) as usize];
                     lines.push(self.translate(t.title, t.title));

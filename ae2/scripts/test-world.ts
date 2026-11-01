@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { root, help } from './common';
 const suites = [
-  'formation-quantum-dimensions',
+  'formation-quantum-dimensions', 'machine-screens',
   'fluid-cell-missing-content', 'source-overfilled-cell', 'io-port-mixed-cell',
   'mixed-cell-menus', 'terminal-repo-prediction', 'portable-fast-virtual-click', 'terminal-craft-gestures', 'inscriber-menu-filter', 'assembler-menu-filter', 'assembler-forced-pattern-menu',
   'inframe-portable-hotkeys', 'formation-item-components', 'formation-armor-stand', 'formation-preview-events', 'formation-fluid-source',

@@ -770,6 +770,9 @@ impl Game<'_> {
                 if let Some(screen) = self.ae2_screen_agent_value(origin) {
                     v["ae2_screen"] = screen;
                 }
+                if let Some(screen) = self.ae2_priority_agent_value(origin) {
+                    v["ae2_priority"] = screen;
+                }
             }
             #[cfg(feature = "ae2-lab")]
             if self.ae2_local_bus_open() {v["title"]=json!([{ "text": self.ae2_local_bus_title() }]);}

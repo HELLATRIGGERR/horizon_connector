@@ -60,9 +60,11 @@ try {
     await fixture.raw('close');
   };
   const setPriority = async (target: string, dx: number, isPart: boolean) => {
-    await open(target, dx);
-    await fixture.raw('click-slot 326');
-    await until(() => fixture.raw('screen'), view => String(entry(view, 300)?.components ?? '').includes('Priority +1'), 'priority editor');
+    const menu = await open(target, dx);
+    // AE2's screen opens the editor from its priority tab; the plain menu from entry 26.
+    const tab = menu.ae2_screen?.priority;
+    await fixture.raw(tab ? `click-at ${tab[0] + tab[2] / 2} ${tab[1] + tab[3] / 2}` : 'click-slot 326');
+    await until(() => fixture.raw('screen'), view => view.ae2_priority || String(entry(view, 300)?.components ?? '').includes('Priority +1'), 'priority editor');
     await fixture.raw('type =2*3');
     await until(() => ownerData(target, isPart), reply => /\bpriority:\s*6\b/.test(text(reply)), 'typed expression reaches physical provider');
     await fixture.raw('ui-key Enter');

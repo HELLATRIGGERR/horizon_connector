@@ -14,10 +14,10 @@ pub(super) type Extra = ();
 
 #[cfg(feature = "ae2-lab")]
 impl Game<'_> {
-    /// A menu opens on block `block`: an AE2 machine's screen when no mod
-    /// laid one out.
-    pub(super) fn extra_native_screen(&self, block: &str, screen: &mut Option<NativeScreen>) -> Extra {
-        if screen.is_some() {
+    /// Menu `menu` opens on block `block`: an AE2 machine's screen when it is
+    /// the machine's own menu (the LAN host's 9 x 3 machine window).
+    pub(super) fn extra_native_screen(&self, block: &str, menu: &str, screen: &mut Option<NativeScreen>) -> Extra {
+        if screen.is_some() || menu != "minecraft:generic_9x3" {
             return None;
         }
         let (laid_out, style) = self.ae2_native_screen(block)?;
@@ -60,7 +60,7 @@ impl Game<'_> {
 
 #[cfg(not(feature = "ae2-lab"))]
 impl Game<'_> {
-    pub(super) fn extra_native_screen(&self, _block: &str, _screen: &mut Option<NativeScreen>) -> Extra {}
+    pub(super) fn extra_native_screen(&self, _block: &str, _menu: &str, _screen: &mut Option<NativeScreen>) -> Extra {}
 
     pub(super) fn extra_screen_stepped_aside(&self) -> bool {
         false
